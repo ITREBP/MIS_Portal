@@ -4,7 +4,7 @@ function doGet() {
     .setTitle('Admin Dashboard')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
-//testttt
+///test
 // Authenticate admin user
 function authenticateUser(username, password) {
   try {
