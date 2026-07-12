@@ -1,0 +1,3981 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+  </head>
+  <body>
+    
+  </body>
+</html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Admin Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+  <link rel="stylesheet" href="https://unicons.iconscout.com/release/v4.0.0/css/line.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    :root {
+      --primary-color: #3b82f6;
+      --primary-light: #dbeafe;
+      --primary-dark: #1e40af;
+      --secondary-color: #64748b;
+      --success-color: #10b981;
+      --warning-color: #f59e0b;
+      --error-color: #ef4444;
+      --panel-color: #ffffff;
+      --text-color: #1f2937;
+      --text-light: #6b7280;
+      --border-color: #e5e7eb;
+      --hover-color: #f8fafc;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --radius-sm: 0.375rem;
+      --radius-md: 0.5rem;
+      --radius-lg: 0.75rem;
+      --transition: all 0.3s ease;
+    }
+
+    body.dark {
+      --primary-color: #60a5fa;
+      --primary-light: #1e3a8a;
+      --primary-dark: #93c5fd;
+      --secondary-color: #9ca3af;
+      --panel-color: #1f2937;
+      --text-color: #f9fafb;
+      --text-light: #d1d5db;
+      --border-color: #374151;
+      --hover-color: #374151;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+    }
+
+    body {
+      background-color: #f8fafc;
+      color: var(--text-color);
+      transition: var(--transition);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    body.dark {
+      background-color: #111827;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--panel-color);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--primary-color);
+      border-radius: 12px;
+    }
+
+    .fade-in {
+      animation: fadeIn 0.5s ease-in;
+    }
+
+    .slide-in {
+      animation: slideIn 0.5s ease-out;
+    }
+
+    .loading-spinner {
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+
+    .sticky-header {
+      position: sticky;
+      top: 0;
+      background: var(--panel-color);
+      z-index: 10;
+      box-shadow: var(--shadow-sm);
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(-100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .card {
+      background: var(--panel-color);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      transition: var(--transition);
+      border: 1px solid var(--border-color);
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-lg);
+    }
+
+    .btn-primary {
+      background: var(--primary-color);
+      color: white;
+      border-radius: var(--radius-md);
+      padding: 0.5rem 1rem;
+      font-weight: 500;
+      transition: var(--transition);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-dark);
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: var(--secondary-color);
+      color: white;
+      border-radius: var(--radius-md);
+      padding: 0.5rem 1rem;
+      font-weight: 500;
+      transition: var(--transition);
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-secondary:hover {
+      opacity: 0.9;
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--text-color);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 0.5rem 1rem;
+      font-weight: 500;
+      transition: var(--transition);
+      cursor: pointer;
+    }
+
+    .btn-outline:hover {
+      background: var(--hover-color);
+    }
+
+    .form-container {
+      background: var(--panel-color);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      box-shadow: var(--shadow-md);
+      border: 1px solid var(--border-color);
+    }
+
+    .form-field {
+      position: relative;
+      margin-bottom: 1.5rem;
+    }
+
+    .form-field label {
+      position: absolute;
+      top: 0.75rem;
+      left: 1rem;
+      font-size: 0.875rem;
+      color: var(--text-light);
+      transition: all 0.2s ease;
+      pointer-events: none;
+      background: var(--panel-color);
+      padding: 0 0.25rem;
+    }
+
+    .form-field input:focus + label,
+    .form-field select:focus + label,
+    .form-field input:not(:placeholder-shown) + label,
+    .form-field select:not(:placeholder-shown) + label {
+      top: -0.5rem;
+      left: 0.75rem;
+      font-size: 0.75rem;
+      color: var(--primary-color);
+    }
+
+    .form-field input,
+    .form-field select {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background: var(--panel-color);
+      color: var(--text-color);
+      font-size: 0.875rem;
+      transition: var(--transition);
+    }
+
+    .form-field input:focus,
+    .form-field select:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .form-field select[multiple] {
+      padding: 0.5rem;
+      height: 100px;
+    }
+
+    .form-field.checkbox {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .form-field.checkbox input {
+      width: auto;
+    }
+
+    .form-error {
+      animation: fadeIn 0.3s ease-in;
+      color: var(--error-color);
+      font-size: 0.75rem;
+      margin-top: 0.25rem;
+    }
+
+    .form-message {
+      animation: fadeIn 0.3s ease-in;
+      color: var(--success-color);
+      font-size: 0.875rem;
+      margin-top: 0.5rem;
+      padding: 0.75rem;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: var(--radius-md);
+    }
+
+    body.dark .form-message {
+      background: #166534;
+      color: #bbf7d0;
+      border: 1px solid #22c55e;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      color: var(--text-color);
+      transition: var(--transition);
+      gap: 0.75rem;
+      margin-bottom: 0.25rem;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .nav-item:hover {
+      background: var(--hover-color);
+    }
+
+    .nav-item.active {
+      background: var(--primary-light);
+      color: var(--primary-color);
+    }
+
+    .table-container {
+      overflow-x: auto;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-color);
+      background: var(--panel-color);
+    }
+
+    .table-container table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .table-container th {
+      background: var(--hover-color);
+      padding: 0.75rem 1rem;
+      text-align: left;
+      font-weight: 600;
+      font-size: 0.875rem;
+      color: var(--text-color);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .table-container td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 0.875rem;
+    }
+
+    .table-container tr:hover {
+      background: var(--hover-color);
+    }
+
+    .search-box {
+      position: relative;
+      max-width: 400px;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 0.5rem 1rem 0.5rem 2.5rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      background: var(--panel-color);
+      color: var(--text-color);
+      transition: var(--transition);
+    }
+
+    .search-box input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .search-box i {
+      position: absolute;
+      left: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-light);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.25rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+
+    .badge-success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .badge-warning {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .badge-error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .badge-info {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    body.dark .badge-success {
+      background: #064e3b;
+      color: #a7f3d0;
+    }
+
+    body.dark .badge-warning {
+      background: #78350f;
+      color: #fcd34d;
+    }
+
+    body.dark .badge-error {
+      background: #7f1d1d;
+      color: #fca5a5;
+    }
+
+    body.dark .badge-info {
+      background: #1e3a8a;
+      color: #93c5fd;
+    }
+
+    .sidebar {
+      background: var(--panel-color);
+      border-right: 1px solid var(--border-color);
+      height: 100vh;
+      position: fixed;
+      top: 0;
+      left: 0;
+      transition: var(--transition);
+      z-index: 20;
+      overflow-y: auto;
+    }
+
+    .main-content {
+      transition: var(--transition);
+      min-height: 100vh;
+    }
+
+    .notification {
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      margin-bottom: 1rem;
+      animation: fadeIn 0.3s ease-in;
+    }
+
+    .notification.error {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+
+    .notification.success {
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+
+    body.dark .notification.error {
+      background: #7f1d1d;
+      color: #fecaca;
+      border: 1px solid #991b1b;
+    }
+
+    body.dark .notification.success {
+      background: #166534;
+      color: #bbf7d0;
+      border: 1px solid #22c55e;
+    }
+
+    .nav-section {
+      margin-bottom: 1rem;
+    }
+
+    .nav-section-title {
+      padding: 0.5rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .form-section {
+      margin-bottom: 1.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .form-section:last-child {
+      border-bottom: none;
+    }
+
+    .form-section-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text-color);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1rem;
+    }
+
+    .form-actions {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-top: 1.5rem;
+    }
+
+    .user-card {
+      background: var(--panel-color);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      box-shadow: var(--shadow-md);
+      border: 1px solid var(--border-color);
+      transition: var(--transition);
+    }
+
+    .user-card:hover {
+      box-shadow: var(--shadow-lg);
+      transform: translateY(-2px);
+    }
+
+    .user-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--primary-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 600;
+      font-size: 1.125rem;
+    }
+
+    .permission-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      font-weight: 500;
+      background: var(--primary-light);
+      color: var(--primary-color);
+    }
+
+    .user-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .tab-container {
+      display: flex;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 1.5rem;
+    }
+
+    .tab {
+      padding: 0.75rem 1.5rem;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: var(--transition);
+      font-weight: 500;
+    }
+
+    .tab:hover {
+      background: var(--hover-color);
+    }
+
+    .tab.active {
+      border-bottom-color: var(--primary-color);
+      color: var(--primary-color);
+    }
+
+    .sub-nav {
+      margin-left: 1.5rem;
+      border-left: 2px solid var(--border-color);
+      padding-left: 0.5rem;
+    }
+
+    .sub-nav-item {
+      padding: 0.5rem 1rem;
+      border-radius: var(--radius-md);
+      color: var(--text-color);
+      transition: var(--transition);
+      text-decoration: none;
+      cursor: pointer;
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    .sub-nav-item:hover {
+      background: var(--hover-color);
+    }
+
+    .sub-nav-item.active {
+      background: var(--primary-light);
+      color: var(--primary-color);
+    }
+
+    .report-section {
+      background: var(--panel-color);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+      border: 1px solid var(--border-color);
+    }
+
+    .report-section h3 {
+      font-size: 1.125rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      color: var(--text-color);
+    }
+  </style>
+</head>
+<body class="font-sans">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    function WelcomePage({ teacherName, onContinue }) {
+      return (
+        <div className="p-6 flex items-center justify-center min-h-screen">
+          <div className="card p-8 text-center fade-in max-w-lg w-full">
+            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-blue-900">
+              <i className="uil uil-check-circle text-3xl text-blue-600 dark:text-blue-400"></i>
+            </div>
+            <h1 className="text-2xl font-bold mb-2">Welcome, {teacherName}!</h1>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">You have successfully logged into the Admin Dashboard.</p>
+            <button
+              onClick={onContinue}
+              className="btn-primary w-full"
+            >
+              Continue to Dashboard
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    function runGAS(method, ...args) {
+      return new Promise((resolve, reject) => {
+        google.script.run
+          .withSuccessHandler(resolve)
+          .withFailureHandler(reject)
+          [method](...args);
+      });
+    }
+
+    async function callWithRetry(method, ...args) {
+      const maxRetries = 5;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const result = await runGAS(method, ...args);
+          return result;
+        } catch (err) {
+          if (attempt === maxRetries) {
+            throw err;
+          }
+          await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+        }
+      }
+    }
+
+    function App() {
+      const [isAuthenticated, setIsAuthenticated] = useState(false);
+      const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+      const [showWelcome, setShowWelcome] = useState(false);
+      const [teacherName, setTeacherName] = useState('');
+      const [username, setUsername] = useState('');
+      const [password, setPassword] = useState('');
+      const [data, setData] = useState({
+        users: [],
+        user_permissions: [],
+        class_sections: [],
+        class_mappings: [],
+        previous_date_permissions: [],
+        teacher_assignments: [],
+        student_data: [],
+        student_attendance: [],
+      });
+      const [activeTab, setActiveTab] = useState(null);
+      const [activeReport, setActiveReport] = useState(null);
+      const [error, setError] = useState('');
+      const [successMessage, setSuccessMessage] = useState('');
+      const [classSections, setClassSections] = useState([]);
+      const [classes, setClasses] = useState([]);
+      const [classSectionMap, setClassSectionMap] = useState({});
+      const [isLoading, setIsLoading] = useState(false);
+      const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+      const [isDarkMode, setIsDarkMode] = useState(false);
+      const [userPermissions, setUserPermissions] = useState({});
+      const [searchQuery, setSearchQuery] = useState('');
+      const [canDeleteStudent, setCanDeleteStudent] = useState(false);
+      const [genderOptions, setGenderOptions] = useState(['Male', 'Female']);
+      const [expandedSections, setExpandedSections] = useState({
+        reports: false
+      });
+
+      // Initialize dark mode based on system preference
+      useEffect(() => {
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          setIsDarkMode(true);
+          document.body.classList.add('dark');
+        }
+      }, []);
+
+      // Load gender options
+      useEffect(() => {
+        if (isAuthenticated) {
+          google.script.run
+            .withSuccessHandler(setGenderOptions)
+            .withFailureHandler(() => setGenderOptions(['Male', 'Female']))
+            .getGenderOptions();
+        }
+      }, [isAuthenticated]);
+
+const refreshData = (recIdOverride = null) => {
+  setIsLoading(true);
+  
+  // Use passed REC_ID or fallback to state
+  const currentRecId = recIdOverride || userPermissions[username]?.REC_ID || '';
+  
+  // If no REC_ID, still load but without filtering
+  Promise.all([
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, users: result }));
+          const permissions = {};
+          result.forEach(user => {
+            permissions[user.Username] = {
+              allowedTabs: user.allowedTabs ? user.allowedTabs.split(',') : [],
+              student_delete: user.student_delete === 'Yes',
+              canQueryAttendance: user.canQueryAttendance === 'Yes',
+              canDownload: user.canDownload === 'Yes',
+              canAmendSIRN: user.canAmendSIRN === 'Yes',
+              REC_ID: user.REC_ID || ''
+            };
+          });
+          setUserPermissions(permissions);
+          setCanDeleteStudent(permissions[username]?.student_delete || false);
+          resolve();
+        })
+        .withFailureHandler(err => {
+          setError('Failed to load users: ' + err.message);
+          resolve(); // Still resolve to continue
+        })
+        .getSheetData('Users', currentRecId);
+    }),
+    
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, user_permissions: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          setError('Failed to load permissions: ' + err.message);
+          resolve();
+        })
+        .getSheetData('User_Permissions', currentRecId);
+    }),
+    
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, class_sections: result }));
+          setClassSections(result.map(item => item.Class_Section).filter(Boolean));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          setError('Failed to load class sections: ' + err.message);
+          resolve();
+        })
+        .getClassSectionData();
+    }),
+    
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, class_mappings: result }));
+          const classList = [...new Set(result.map(item => item.Class).filter(Boolean))];
+          const classMap = {};
+          result.forEach(item => {
+            if (item.Class && item.Sections) {
+              classMap[item.Class] = item.Sections.split(',').map(s => s.trim());
+            }
+          });
+          setClasses(classList);
+          setClassSectionMap(classMap);
+          resolve();
+        })
+        .withFailureHandler(err => {
+          setError('Failed to load class mappings: ' + err.message);
+          resolve();
+        })
+        .getClassMappingData();
+    }),
+    
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, previous_date_permissions: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          setError('Failed to load date permissions: ' + err.message);
+          resolve();
+        })
+        .getSheetData('Previous_Date_Permissions', currentRecId);
+    }),
+    
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, teacher_assignments: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          setError('Failed to load assignments: ' + err.message);
+          resolve();
+        })
+        .getSheetData('Teacher_Assignments', currentRecId);
+    }),
+    
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, student_data: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          setError('Failed to load student data: ' + err.message);
+          resolve();
+        })
+        .getStudentData(currentRecId);
+    }),
+    
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, student_attendance: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          setError('Failed to load attendance data: ' + err.message);
+          resolve();
+        })
+        .getSheetData('Student_Attendance', currentRecId);
+    })
+    
+  ]).finally(() => {
+    setIsLoading(false);
+  });
+};
+
+     // useEffect(() => {
+      //  if (isAuthenticated && !showWelcome) {
+       //   refreshData();
+       // }
+      //}, [isAuthenticated, showWelcome]);
+
+     const handleLogin = (e) => {
+  e.preventDefault();
+  if (!username || !password) {
+    setError('Username and password are required');
+    return;
+  }
+  setIsLoading(true);
+  
+  google.script.run
+    .withSuccessHandler(result => {
+      if (result.success) {
+        const userRecId = result.user.REC_ID || '';
+        
+        // Store permissions
+        const userPerms = {
+          [result.user.Username]: {
+            allowedTabs: result.user.allowedTabs ? result.user.allowedTabs.split(',') : [],
+            student_delete: result.user.student_delete === 'Yes',
+            canQueryAttendance: result.user.canQueryAttendance === 'Yes',
+            canDownload: result.user.canDownload === 'Yes',
+            canAmendSIRN: result.user.canAmendSIRN === 'Yes',
+            REC_ID: userRecId
+          }
+        };
+        
+        setUserPermissions(userPerms);
+        setTeacherName(result.user.Teacher_Name);
+        setCanDeleteStudent(result.user.student_delete === 'Yes');
+        setPermissionsLoaded(true);
+        setIsAuthenticated(true);
+        setShowWelcome(true);
+        setError('');
+        
+        // ✅ REC_ID pass karo refreshData mein
+        refreshData(userRecId);  // ← CHANGE: REC_ID pass karo
+        
+      } else {
+        setError(result.message);
+      }
+      setIsLoading(false);
+    })
+    .withFailureHandler(err => { 
+      setError('Login failed: ' + err.message); 
+      setIsLoading(false); 
+    })
+    .authenticateUser(username, password);
+};
+
+      const handleAdd = async (table, newItem) => {
+  if (table === 'teacher_assignments') {
+    const existing = data.teacher_assignments.find(item => item.Username === newItem.Username);
+    if (existing) {
+      setError(`Username ${newItem.Username} already has assigned classes. Please edit the existing record.`);
+      return;
+    }
+  }
+  setIsLoading(true);
+  try {
+    // For student_data, pass the REC_ID from user permissions
+    let result;
+    if (table === 'student_data') {
+      const recId = userPermissions[username]?.REC_ID || '';
+      result = await callWithRetry('addStudent', newItem, username, recId);
+    } else {
+      result = await callWithRetry('addSheetRow', table, newItem);
+    }
+    if (result.success) {
+      setData(prev => ({
+        ...prev,
+        [table]: [...prev[table], result.data],
+      }));
+      setSuccessMessage(table === 'student_data' ? result.message : 'Record added successfully');
+      setError('');
+    } else {
+      setError(result.message || 'Add failed');
+    }
+  } catch (err) {
+    setError('Add failed after retries: ' + err.message);
+  }
+  setIsLoading(false);
+};
+
+      const handleEdit = async (table, index, updatedItem) => {
+        setIsLoading(true);
+        const rowNumber = data[table][index]._rowNumber;
+        try {
+          const result = await callWithRetry('updateSheetRow', table, rowNumber, updatedItem);
+          if (result.success) {
+            setData(prev => ({
+              ...prev,
+              [table]: prev[table].map((item) =>
+                item._rowNumber === rowNumber ? result.data : item
+              ),
+            }));
+            setSuccessMessage(table === 'student_data' ? 'Student updated successfully' : 'Record updated successfully');
+            setError('');
+            scrollToTop();
+          } else {
+            setError(result.message || 'Update failed');
+          }
+        } catch (err) {
+          setError('Update failed after retries: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+
+      const handleDelete = async (table, rowNumber) => {
+        if (table === 'student_data' && !canDeleteStudent) {
+          setError('You do not have permission to delete student records');
+          return;
+        }
+        setIsLoading(true);
+        try {
+          const result = await callWithRetry('deleteSheetRow', table, rowNumber, username);
+          if (result.success) {
+            setData(prev => ({
+              ...prev,
+              [table]: prev[table].filter(item => item._rowNumber !== rowNumber),
+            }));
+            setSuccessMessage('Record deleted successfully');
+            setError('');
+          } else {
+            setError(result.message || 'Delete failed');
+          }
+        } catch (err) {
+          setError('Delete failed after retries: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+
+      const handleLogout = () => {
+        setIsLoading(true);
+        setTimeout(() => {
+          setIsAuthenticated(false);
+          setShowWelcome(false);
+          setUsername('');
+          setPassword('');
+          setError('');
+          setSuccessMessage('');
+          setUserPermissions({});
+          setCanDeleteStudent(false);
+          setActiveTab(null);
+          setActiveReport(null);
+          setIsLoading(false);
+        }, 500);
+      };
+
+      const toggleSidebar = () => {
+        setIsSidebarOpen(!isSidebarOpen);
+      };
+
+      const toggleDarkMode = () => {
+        setIsDarkMode(!isDarkMode);
+        document.body.classList.toggle('dark');
+      };
+
+      const scrollToTop = () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      };
+
+      const toggleSection = (section) => {
+        setExpandedSections(prev => ({
+          ...prev,
+          [section]: !prev[section]
+        }));
+      };
+
+      const clearMessages = () => {
+        setError('');
+        setSuccessMessage('');
+      };
+
+      // Auto-clear success message after 5 seconds
+      useEffect(() => {
+        if (successMessage) {
+          const timer = setTimeout(() => {
+            setSuccessMessage('');
+          }, 5000);
+          return () => clearTimeout(timer);
+        }
+      }, [successMessage]);
+
+      if (!isAuthenticated) {
+        return (
+          <div className="flex items-center justify-center min-h-screen p-4">
+            <div className="card p-8 w-full max-w-md fade-in">
+              <div className="text-center mb-6">
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-blue-900">
+                  <i className="uil uil-user-circle text-2xl text-blue-600 dark:text-blue-400"></i>
+                </div>
+                <h2 className="text-2xl font-bold">Admin Login</h2>
+                <p className="text-gray-600 dark:text-gray-400 mt-2">Enter your credentials to continue</p>
+              </div>
+              {error && <div className="notification error">{error}</div>}
+              <form onSubmit={handleLogin}>
+                <div className="space-y-4">
+                  <div className="form-field">
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={e => setUsername(e.target.value)}
+                      required
+                      placeholder="Username"
+                      className="form-input"
+                      id="username"
+                    />
+                    <label htmlFor="username">Username</label>
+                  </div>
+                  <div className="form-field">
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      required
+                      placeholder="Password"
+                      className="form-input"
+                      id="password"
+                    />
+                    <label htmlFor="password">Password</label>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <input type="checkbox" id="remember-me" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded dark:border-gray-600" />
+                      <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Remember me</label>
+                    </div>
+                    <a href="#" className="text-sm text-blue-600 hover:underline dark:text-blue-400">Forgot password?</a>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className={`btn-primary w-full ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+                  >
+                    {isLoading ? (
+                      <>
+                        <i className="uil uil-spinner text-xl loading-spinner"></i>
+                        Authenticating...
+                      </>
+                    ) : (
+                      'Login'
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="flex min-h-screen">
+          {/* Sidebar */}
+          <div className={`sidebar ${isSidebarOpen ? 'w-64' : 'w-16'}`}>
+            <div className="p-4 flex items-center border-b border-gray-200 dark:border-gray-700">
+              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
+                {isSidebarOpen ? 'SA' : 'S'}
+              </div>
+              {isSidebarOpen && <span className="ml-3 text-lg font-semibold">Admin Dashboard</span>}
+            </div>
+            <div className="p-4">
+              {/* User Management Section */}
+              <div className="nav-section">
+                <div className="nav-section-title">User Management</div>
+                <ul>
+                  {['users', 'user_permissions', 'teacher_assignments'].map(tab => (
+                    userPermissions[username]?.allowedTabs.includes(tab) && (
+                      <li key={tab}>
+                        <a
+                          href="#"
+                          onClick={e => { e.preventDefault(); setActiveTab(tab); setActiveReport(null); }}
+                          className={`nav-item ${activeTab === tab ? 'active' : ''}`}
+                        >
+                          <i className={`uil uil-${tab === 'users' ? 'users-alt' : tab === 'user_permissions' ? 'lock' : 'user-check'} text-lg`}></i>
+                          {isSidebarOpen && <span>{tab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>}
+                        </a>
+                      </li>
+                    )
+                  ))}
+                </ul>
+              </div>
+
+              {/* Class Management Section */}
+              <div className="nav-section">
+                <div className="nav-section-title">Class Management</div>
+                <ul>
+                  {['class_sections', 'student_data', 'previous_date_permissions'].map(tab => (
+                    userPermissions[username]?.allowedTabs.includes(tab) && (
+                      <li key={tab}>
+                        <a
+                          href="#"
+                          onClick={e => { e.preventDefault(); setActiveTab(tab); setActiveReport(null); }}
+                          className={`nav-item ${activeTab === tab ? 'active' : ''}`}
+                        >
+                          <i className={`uil uil-${tab === 'class_sections' ? 'map' : tab === 'student_data' ? 'graduation-cap' : 'calendar-alt'} text-lg`}></i>
+                          {isSidebarOpen && <span>{tab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>}
+                        </a>
+                      </li>
+                    )
+                  ))}
+                </ul>
+              </div>
+
+{/* QR Code Management Section */}
+<div className="nav-section">
+  <div className="nav-section-title">QR Management</div>
+  <ul>
+    {userPermissions[username]?.allowedTabs?.includes('qr_management') && (
+      <li>
+        <a
+          href="#"
+          onClick={e => { e.preventDefault(); setActiveTab('qr_management'); setActiveReport(null); }}
+          className={`nav-item ${activeTab === 'qr_management' ? 'active' : ''}`}
+        >
+          <i className="uil uil-qrcode-scan text-lg"></i>
+          {isSidebarOpen && <span>QR Code Management</span>}
+        </a>
+      </li>
+    )}
+    {userPermissions[username]?.allowedTabs?.includes('reserve_codes') && (
+      <li>
+        <a
+          href="#"
+          onClick={e => { e.preventDefault(); setActiveTab('reserve_codes'); setActiveReport(null); }}
+          className={`nav-item ${activeTab === 'reserve_codes' ? 'active' : ''}`}
+        >
+          <i className="uil uil-copy text-lg"></i>
+          {isSidebarOpen && <span>Reserve Codes</span>}
+        </a>
+      </li>
+    )}
+  </ul>
+</div>
+
+
+              {/* Reports Section */}
+              <div className="nav-section">
+                <div className="nav-section-title">Reports</div>
+                <ul>
+                  <li>
+                    <a
+                      href="#"
+                      onClick={e => { e.preventDefault(); toggleSection('reports'); }}
+                      className={`nav-item ${activeReport ? 'active' : ''}`}
+                    >
+                      <i className="uil uil-chart-bar text-lg"></i>
+                      {isSidebarOpen && (
+                        <div className="flex items-center justify-between w-full">
+                          <span>Reports</span>
+                          <i className={`uil uil-${expandedSections.reports ? 'angle-up' : 'angle-down'} text-sm`}></i>
+                        </div>
+                      )}
+                    </a>
+                    {expandedSections.reports && isSidebarOpen && (
+                      <div className="sub-nav">
+                        {['student_attendance', 'student_reports', 'audit_reports'].map(report => (
+                          userPermissions[username]?.allowedTabs.includes(report) && (report !== 'student_attendance' || userPermissions[username]?.canQueryAttendance) && (
+                            <a
+                              key={report}
+                              href="#"
+                              onClick={e => { e.preventDefault(); setActiveReport(report); setActiveTab(null); }}
+                              className={`sub-nav-item ${activeReport === report ? 'active' : ''}`}
+                            >
+                              {report.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            </a>
+                          )
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Content */}
+          <section className={`main-content flex-1 ${isSidebarOpen ? 'ml-64' : 'ml-16'}`}>
+            {showWelcome ? (
+  <WelcomePage
+    teacherName={teacherName}
+    onContinue={() => {
+      setShowWelcome(false);
+      const allowedTabs = userPermissions[username]?.allowedTabs || [];
+      setActiveTab(allowedTabs.length > 0 ? allowedTabs[0] : null);
+    }}
+  />
+) : !permissionsLoaded ? (
+  // Loading guard - shows while permissions are being loaded
+  <div className="flex items-center justify-center min-h-screen">
+    <div className="text-center">
+      <i className="uil uil-spinner text-4xl loading-spinner text-blue-500"></i>
+      <p className="mt-4 text-gray-600 dark:text-gray-400">Loading your permissions...</p>
+    </div>
+  </div>
+) : (
+  <div className="p-6">
+                {/* Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                  <div className="flex items-center">
+                    <button onClick={toggleSidebar} className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 mr-2">
+                      <i className="uil uil-bars text-xl"></i>
+                    </button>
+                    <h1 className="text-xl font-bold">
+                      {activeReport 
+                        ? activeReport.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
+                        : activeTab 
+                          ? activeTab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
+                          : 'Dashboard'
+                      }
+                    </h1>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {(activeTab || activeReport) && (
+                      <div className="search-box">
+                        <i className="uil uil-search"></i>
+                        <input
+                          type="text"
+                          placeholder="Search..."
+                          value={searchQuery}
+                          onChange={e => setSearchQuery(e.target.value)}
+                        />
+                      </div>
+                    )}
+                    <button onClick={toggleDarkMode} className="btn-outline p-2">
+                      <i className={`uil uil-${isDarkMode ? 'sun' : 'moon'} text-lg`}></i>
+                    </button>
+                    <button onClick={handleLogout} className="btn-outline p-2 text-red-600">
+                      <i className="uil uil-signout text-lg"></i>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Success/Error Messages */}
+                {successMessage && (
+                  <div className="notification success mb-4">
+                    <div className="flex justify-between items-center">
+                      <span>{successMessage}</span>
+                      <button onClick={() => setSuccessMessage('')} className="text-green-700 hover:text-green-900 dark:text-green-300 dark:hover:text-green-100">
+                        <i className="uil uil-times"></i>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {error && (
+                  <div className="notification error mb-4">
+                    <div className="flex justify-between items-center">
+                      <span>{error}</span>
+                      <button onClick={() => setError('')} className="text-red-700 hover:text-red-900 dark:text-red-300 dark:hover:text-red-100">
+                        <i className="uil uil-times"></i>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Content */}
+{/* Content */}
+{activeReport ? (
+  activeReport === 'student_attendance' ? (
+    <AttendanceReport
+      data={data}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setError={setError}
+      setSuccessMessage={setSuccessMessage}
+      searchQuery={searchQuery}
+      refreshData={refreshData}
+      userPermissions={userPermissions[username]}
+      username={username}
+    />
+  ) : activeReport === 'student_reports' ? (
+    <StudentReports
+      data={data}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setError={setError}
+      setSuccessMessage={setSuccessMessage}
+      userPermissions={userPermissions[username]}
+      classes={classes}
+      classSectionMap={classSectionMap}
+      searchQuery={searchQuery}
+      refreshData={refreshData}
+    />
+  ) : activeReport === 'audit_reports' ? (
+    <AuditReports
+      data={data}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setError={setError}
+      setSuccessMessage={setSuccessMessage}
+      userPermissions={userPermissions[username]}
+      searchQuery={searchQuery}
+    />
+  ) : null
+) : activeTab ? (
+activeTab === 'qr_management' ? (
+  userPermissions[username]?.allowedTabs?.includes('qr_management') ? (
+    <QRManagement
+      data={data}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setError={setError}
+      setSuccessMessage={setSuccessMessage}
+      username={username}
+      userPermissions={userPermissions}  // ← ADD THIS
+    />
+  ) : (
+      <div className="card p-6">
+        <div className="text-center py-8">
+          <i className="uil uil-lock text-5xl text-red-500 mb-4"></i>
+          <h3 className="text-xl font-semibold mb-2">Access Denied</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            You do not have permission to access QR Code Management.
+          </p>
+        </div>
+      </div>
+    )
+  ) : activeTab === 'reserve_codes' ? (
+    userPermissions[username]?.allowedTabs?.includes('reserve_codes') ? (
+      <ReserveCodes
+        isLoading={isLoading}
+        setIsLoading={setIsLoading}
+        setError={setError}
+        setSuccessMessage={setSuccessMessage}
+      />
+    ) : (
+      <div className="card p-6">
+        <div className="text-center py-8">
+          <i className="uil uil-lock text-5xl text-red-500 mb-4"></i>
+          <h3 className="text-xl font-semibold mb-2">Access Denied</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            You do not have permission to access Reserve Codes.
+          </p>
+        </div>
+      </div>
+    )
+  ) : activeTab === 'users' ? (
+    <UserManagement
+      table={activeTab}
+      data={data}
+      users={data.users}
+      classSections={classSections}
+      classes={classes}
+      classSectionMap={classSectionMap}
+      onAdd={handleAdd}
+      onEdit={handleEdit}
+      onDelete={handleDelete}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setData={setData}
+      searchQuery={searchQuery}
+      canDeleteStudent={canDeleteStudent}
+        canAmendSIRN={userPermissions[username]?.canAmendSIRN}  // ← ADD THIS
+
+      refreshData={refreshData}
+      setSuccessMessage={setSuccessMessage}
+      setError={setError}
+      username={username}
+      recId={(password || '').split('-')[0]}
+    />
+  ) : (
+    <TableManager
+      table={activeTab}
+      data={data}
+      users={data.users}
+      classSections={classSections}
+      classes={classes}
+      classSectionMap={classSectionMap}
+      onAdd={handleAdd}
+      onEdit={handleEdit}
+      onDelete={handleDelete}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setData={setData}
+      searchQuery={searchQuery}
+      canDeleteStudent={canDeleteStudent}
+        canAmendSIRN={userPermissions[username]?.canAmendSIRN}  // ← ADD THIS LINE
+
+      refreshData={refreshData}
+      genderOptions={genderOptions}
+      setSuccessMessage={setSuccessMessage}
+      setError={setError}
+      username={username}
+      userPermissions={userPermissions}
+      recId={(password || '').split('-')[0]}
+    />
+  )
+) : (
+  <div className="card p-8 text-center">
+    <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-blue-900">
+      <i className="uil uil-dashboard text-3xl text-blue-600 dark:text-blue-400"></i>
+    </div>
+    <h2 className="text-2xl font-bold mb-2">Welcome to Dashboard</h2>
+    <p className="text-gray-600 dark:text-gray-400 mb-6">Select a section from the sidebar to get started.</p>
+  </div>
+)}
+              </div>
+            )}
+          </section>
+        </div>
+      );
+    }
+
+function UserManagement({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, setSuccessMessage, setError, username, recId }) {
+      const [isAdding, setIsAdding] = useState(false);
+      const [editingIndex, setEditingIndex] = useState(null);
+      const [formData, setFormData] = useState({});
+      const [formErrors, setFormErrors] = useState({});
+      const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+      const [deleteParams, setDeleteParams] = useState({ table: '', index: null, rowNumber: null });
+      const [message, setMessage] = useState('');
+      const [activeView, setActiveView] = useState('cards'); // 'cards' or 'table'
+      const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+      const clearForm = () => {
+        setFormData({});
+        setFormErrors({});
+        setMessage('');
+        setIsAdding(false);
+        setEditingIndex(null);
+      };
+
+      const formatTimeDisplay = (timeValue) => {
+        if (!timeValue) return 'Not set';
+        
+        // Handle different time formats
+        if (typeof timeValue === 'string') {
+          // If it's already in HH:MM format
+          if (timeValue.includes(':')) {
+            return timeValue;
+          }
+          // If it's a decimal number (Excel time format)
+          if (!isNaN(timeValue)) {
+            const totalMinutes = Math.round(timeValue * 24 * 60);
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+          }
+        }
+        
+        // If it's a number (Excel time format)
+        if (typeof timeValue === 'number') {
+          const totalMinutes = Math.round(timeValue * 24 * 60);
+          const hours = Math.floor(totalMinutes / 60);
+          const minutes = totalMinutes % 60;
+          return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+        }
+        
+        return 'Invalid time';
+      };
+
+      const tableConfigs = {
+        users: {
+          fields: [
+            { section: 'Account Information', fields: [
+              { name: 'Username', type: 'text', required: true, placeholder: 'Enter username' },
+              { name: 'Password', type: 'text', required: true, placeholder: 'Enter password' },
+              { name: 'UserType', type: 'select', options: ['admin', 'teacher'], required: true, placeholder: 'Select user type' },
+              { name: 'Teacher_Name', type: 'text', required: true, placeholder: 'Enter teacher name' },
+            ]},
+            { section: 'Access Control', fields: [
+  { name: 'AllowedDays', type: 'select-multiple', options: daysOfWeek, required: true, placeholder: 'Select allowed days' },
+  { name: 'StartTime', type: 'text', required: true, placeholder: 'Enter start time (HH:MM)' },
+  { name: 'EndTime', type: 'text', required: true, placeholder: 'Enter end time (HH:MM)' },
+  { name: 'allowedTabs', type: 'select-multiple', 
+    options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'qr_management', 'reserve_codes'], 
+    required: true, 
+    placeholder: 'Select allowed tabs' 
+  },
+  { name: 'REC_ID', type: 'text', disabled: true, placeholder: 'School ID (auto-populated)' },  // ← ADD THIS
+]},
+          { section: 'Permissions', fields: [
+  { name: 'student_delete', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow student delete' },
+  { name: 'canQueryAttendance', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow query attendance' },
+  { name: 'canDownload', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow download attendance' },
+  { name: 'canAmendSIRN', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow amend SIRN' },  // ← ADD THIS
+]}
+          ],
+        }
+      };
+
+      const filteredData = searchQuery
+        ? data[table].filter(item => {
+            return Object.values(item).some(val =>
+              val?.toString().toLowerCase().includes(searchQuery.toLowerCase())
+            );
+          })
+        : data[table];
+
+      const validateForm = () => {
+        const errors = {};
+        const config = tableConfigs[table];
+        config.fields.forEach(section => {
+          section.fields.forEach(field => {
+            if (field.required && !formData[field.name]) {
+              errors[field.name] = `${field.name.replace('_', ' ')} is required`;
+            }
+          });
+        });
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+      };
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!validateForm()) return;
+        const dataToSubmit = { ...formData };
+if (formData.allowedTabs) {
+  dataToSubmit.allowedTabs = formData.allowedTabs.join(',');
+}
+if (formData.AllowedDays) {
+  dataToSubmit.AllowedDays = formData.AllowedDays.join(',');
+}
+// REC_ID will be auto-filled by the server, so we don't need to set it here
+        if (recId) dataToSubmit.REC_ID = recId;
+        setIsLoading(true);
+        setMessage('');
+        if (editingIndex !== null) {
+          const rowNumber = filteredData[editingIndex]._rowNumber;
+          try {
+            const result = await callWithRetry('updateSheetRow', table, rowNumber, dataToSubmit);
+            if (result.success) {
+              setData(prev => ({
+                ...prev,
+                [table]: prev[table].map((item) =>
+                  item._rowNumber === rowNumber ? { ...item, ...result.data } : item
+                ),
+              }));
+              setSuccessMessage('User updated successfully');
+              setFormData({});
+              setEditingIndex(null);
+              setFormErrors({});
+            } else {
+              setError(result.message || 'Update failed');
+            }
+          } catch (err) {
+            setError('Update failed after retries: ' + err.message);
+          }
+          setIsLoading(false);
+        } else {
+          try {
+            const result = await callWithRetry('addSheetRow', table, dataToSubmit, username);
+            if (result.success) {
+              setData(prev => ({
+                ...prev,
+                [table]: [...prev[table], result.data],
+              }));
+              setSuccessMessage('User added successfully');
+              setFormData({});
+              setIsAdding(false);
+              setFormErrors({});
+            } else {
+              setError(result.message || 'Add failed');
+            }
+          } catch (err) {
+            setError('Add failed after retries: ' + err.message);
+          }
+          setIsLoading(false);
+        }
+      };
+
+      const handleEditClick = (index) => {
+        setEditingIndex(index);
+        setIsAdding(false);
+        const item = filteredData[index];
+        const newFormData = { ...item };
+        newFormData.allowedTabs = item.allowedTabs ? item.allowedTabs.split(',') : [];
+        newFormData.AllowedDays = item.AllowedDays ? item.AllowedDays.split(',') : [];
+        setFormData(newFormData);
+      };
+
+      const handleDeleteClick = (table, index, rowNumber) => {
+        setDeleteParams({ table, index, rowNumber });
+        setShowDeleteConfirm(true);
+      };
+
+      const confirmDelete = async () => {
+        try {
+          await onDelete(deleteParams.table, deleteParams.rowNumber);
+        } catch (err) {
+          setError('Delete failed: ' + err.message);
+        }
+        setShowDeleteConfirm(false);
+        setDeleteParams({ table: '', index: null, rowNumber: null });
+      };
+
+      const handleInputChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setFormData(prev => ({
+          ...prev,
+          [name]: type === 'checkbox' ? checked : value,
+        }));
+        setFormErrors(prev => ({ ...prev, [name]: '' }));
+      };
+
+      const handleMultipleSelect = (e, name) => {
+        const options = Array.from(e.target.selectedOptions).map(option => option.value);
+        setFormData(prev => ({ ...prev, [name]: options }));
+      };
+
+      const renderFormFields = () => {
+        const config = tableConfigs[table];
+        
+        return config.fields.map((section, sectionIndex) => (
+          <div key={sectionIndex} className="form-section">
+            <div className="form-section-title">
+              <i className="uil uil-folder"></i>
+              {section.section}
+            </div>
+            <div className="form-row">
+              {section.fields.map(field => (
+                <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
+                  {field.type === 'select' ? (
+                    <>
+                      <select
+                        name={field.name}
+                        value={formData[field.name] || ''}
+                        onChange={handleInputChange}
+                        className="form-input"
+                        id={field.name}
+                        disabled={field.disabled}
+                        required={field.required}
+                      >
+                        <option value="" disabled>{field.placeholder}</option>
+                        {field.options.map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                    </>
+                  ) : field.type === 'select-multiple' ? (
+                    <>
+                      <select
+                        multiple
+                        name={field.name}
+                        value={formData[field.name] || []}
+                        onChange={e => handleMultipleSelect(e, field.name)}
+                        className="form-input"
+                        id={field.name}
+                        required={field.required}
+                      >
+                        {field.options.map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                    </>
+                  ) : field.type === 'checkbox' ? (
+                    <>
+                      <input
+                        type="checkbox"
+                        name={field.name}
+                        checked={formData[field.name] || false}
+                        onChange={handleInputChange}
+                        id={field.name}
+                      />
+                      <label htmlFor={field.name}>{field.placeholder}</label>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        type={field.type}
+                        name={field.name}
+                        value={formData[field.name] || ''}
+                        onChange={handleInputChange}
+                        placeholder={field.placeholder}
+                        className="form-input"
+                        id={field.name}
+                        disabled={field.disabled}
+                        required={field.required}
+                      />
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                    </>
+                  )}
+                  {formErrors[field.name] && (
+                    <p className="form-error">{formErrors[field.name]}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ));
+      };
+
+      const UserCard = ({ user, index }) => (
+        <div className="user-card">
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="user-avatar">
+                {user.Teacher_Name ? user.Teacher_Name.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <div>
+                <h3 className="font-semibold text-lg">{user.Teacher_Name}</h3>
+                <p className="text-gray-600 dark:text-gray-400 text-sm">@{user.Username}</p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleEditClick(index)}
+                className="text-blue-500 hover:text-blue-700"
+              >
+                <i className="uil uil-edit"></i>
+              </button>
+              <button
+                onClick={() => handleDeleteClick(table, index, user._rowNumber)}
+                className="text-red-500 hover:text-red-700"
+              >
+                <i className="uil uil-trash"></i>
+              </button>
+            </div>
+          </div>
+          
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">User Type</span>
+              <span className={`badge ${user.UserType === 'admin' ? 'badge-info' : 'badge-success'}`}>
+                {user.UserType}
+              </span>
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600 dark:text-gray-400">Access Hours</span>
+              <span className="text-sm font-medium">
+                {formatTimeDisplay(user.StartTime)} - {formatTimeDisplay(user.EndTime)}
+              </span>
+            </div>
+            
+            <div>
+              <span className="text-sm text-gray-600 dark:text-gray-400 block mb-2">Permissions</span>
+             <div className="flex flex-wrap gap-1">
+  {user.student_delete === 'Yes' && (
+    <span className="permission-badge">
+      <i className="uil uil-trash"></i>
+      Delete Students
+    </span>
+  )}
+  {user.canQueryAttendance === 'Yes' && (
+    <span className="permission-badge">
+      <i className="uil uil-search"></i>
+      Query Attendance
+    </span>
+  )}
+  {user.canDownload === 'Yes' && (
+    <span className="permission-badge">
+      <i className="uil uil-download"></i>
+      Download Reports
+    </span>
+  )}
+  {user.canAmendSIRN === 'Yes' && (
+    <span className="permission-badge">
+      <i className="uil uil-edit"></i>
+      Amend SIRN
+    </span>
+  )}
+</div>
+            </div>
+            
+            <div>
+              <span className="text-sm text-gray-600 dark:text-gray-400 block mb-1">Allowed Days</span>
+              <p className="text-sm">{user.AllowedDays || 'No days specified'}</p>
+            </div>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center">
+              <i className="uil uil-users-alt text-2xl text-blue-500 mr-2"></i>
+              <h2 className="text-xl font-semibold">User Management</h2>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden">
+                <button
+                  onClick={() => setActiveView('cards')}
+                  className={`px-3 py-2 ${activeView === 'cards' ? 'bg-blue-500 text-white' : 'bg-white dark:bg-gray-800'}`}
+                >
+                  <i className="uil uil-apps"></i>
+                </button>
+                <button
+                  onClick={() => setActiveView('table')}
+                  className={`px-3 py-2 ${activeView === 'table' ? 'bg-blue-500 text-white' : 'bg-white dark:bg-gray-800'}`}
+                >
+                  <i className="uil uil-list-ul"></i>
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  setIsAdding(true);
+                  setFormData({});
+                }}
+                className="btn-primary"
+              >
+                <i className="uil uil-plus"></i>
+                Add User
+              </button>
+              <button
+                onClick={refreshData}
+                className="btn-outline"
+              >
+                <i className="uil uil-refresh"></i>
+              </button>
+            </div>
+          </div>
+
+          {(isAdding || editingIndex !== null) && (
+            <div className="form-container mb-6">
+              <h3 className="text-lg font-semibold mb-4">{editingIndex !== null ? 'Edit' : 'Add'} User</h3>
+              <form onSubmit={handleSubmit}>
+                {renderFormFields()}
+                {message && (
+                  <p className="form-message">{message}</p>
+                )}
+                <div className="form-actions">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+                  >
+                    {isLoading ? (
+                      <>
+                        <i className="uil uil-spinner text-xl loading-spinner"></i>
+                        Saving...
+                      </>
+                    ) : editingIndex !== null ? 'Update User' : 'Add User'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearForm}
+                    className="btn-outline"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {isLoading ? (
+            <p className="text-gray-500">Loading...</p>
+          ) : filteredData.length === 0 ? (
+            <p className="text-gray-500">No users available</p>
+          ) : activeView === 'cards' ? (
+           <div className="user-grid">
+  {filteredData
+    .filter(user => user.Username !== 'superadmin')
+    .map((user, index) => (
+      <UserCard key={index} user={user} index={index} />
+    ))}
+</div>
+          ) : (
+            <div className="table-container max-h-[600px]">
+              <table className="min-w-full">
+                <thead className="sticky-header">
+                  <tr>
+                   {tableConfigs[table].fields.flatMap(s => s.fields).map(field => (
+  <th key={field.name}>
+    {field.name.replace('_', ' ')}
+  </th>
+))}
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+               <tbody>
+  {filteredData
+    .filter(item => item.Username !== 'superadmin')
+    .map((item, index) => (
+      <tr key={index}>
+                      {tableConfigs[table].fields.flatMap(s => s.fields).map(field => (
+                        <td key={field.name}>
+                          {field.name === 'StartTime' || field.name === 'EndTime' 
+                            ? formatTimeDisplay(item[field.name])
+                            : item[field.name] || ''}
+                        </td>
+                      ))}
+                      <td>
+                        <button
+                          onClick={() => handleEditClick(index)}
+                          className="text-blue-500 hover:underline mr-4"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClick(table, index, item._rowNumber)}
+                          className="text-red-500 hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {showDeleteConfirm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="card p-6 max-w-sm w-full">
+                <h3 className="text-lg font-semibold mb-4">Confirm Delete</h3>
+                <p className="text-gray-600 dark:text-gray-400 mb-4">Are you sure you want to delete this user?</p>
+                <div className="flex space-x-4">
+                  <button
+                    onClick={confirmDelete}
+                    className="btn-primary"
+                  >
+                    Yes, Delete
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="btn-outline"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function AttendanceReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, searchQuery, refreshData, userPermissions, username }) {
+      const [formData, setFormData] = useState({
+        searchType: 'Std_ID',
+        searchValue: '',
+        studentClass: '',
+        studentSection: '',
+        startDate: '',
+        endDate: '',
+        statusFilter: 'Present',
+        format: 'CSV'
+      });
+      const [attendanceData, setAttendanceData] = useState([]);
+      const [formErrors, setFormErrors] = useState({});
+
+      const uniqueClasses = [...new Set(data.student_attendance.map(item => item.Student_Class).filter(Boolean))];
+      const sectionMap = {};
+      uniqueClasses.forEach(cls => {
+        sectionMap[cls] = [...new Set(data.student_attendance.filter(item => item.Student_Class === cls).map(item => item.Student_Section).filter(Boolean))];
+      });
+
+      const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+        setFormErrors(prev => ({ ...prev, [name]: '' }));
+      };
+
+      const validateForm = () => {
+        const errors = {};
+        if (!formData.startDate || !formData.endDate) {
+          errors.date = 'Both start and end dates are required';
+        }
+        if (formData.startDate && formData.endDate && new Date(formData.startDate) > new Date(formData.endDate)) {
+          errors.date = 'Start date must be before end date';
+        }
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+      };
+
+      const handleSearch = async (e) => {
+        e.preventDefault();
+        if (!userPermissions?.canQueryAttendance) {
+          setError('You do not have permission to query attendance');
+          return;
+        }
+        if (!validateForm()) return;
+        setIsLoading(true);
+        try {
+          const result = await callWithRetry('getStudentAttendance', { ...formData, username });
+          let filteredResult = result;
+          if (formData.studentClass) {
+            filteredResult = filteredResult.filter(item => item.Student_Class === formData.studentClass);
+          }
+          if (formData.studentSection) {
+            filteredResult = filteredResult.filter(item => item.Student_Section === formData.studentSection);
+          }
+          if (formData.statusFilter !== 'All') {
+            filteredResult = filteredResult.filter(item => item.Status === formData.statusFilter);
+          }
+          setAttendanceData(filteredResult);
+          setError('');
+        } catch (err) {
+          setError('Failed to fetch attendance after retries: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+
+      const handleDownload = async (e, type) => {
+        e.preventDefault();
+        if (!userPermissions?.canDownload) {
+          setError('You do not have permission to download attendance reports');
+          return;
+        }
+        if (!validateForm()) return;
+        setIsLoading(true);
+        try {
+          let dataToDownload = attendanceData;
+          if (dataToDownload.length === 0) {
+            const result = await callWithRetry('getStudentAttendance', { ...formData, username });
+            dataToDownload = result;
+            if (formData.studentClass) {
+              dataToDownload = dataToDownload.filter(item => item.Student_Class === formData.studentClass);
+            }
+            if (formData.studentSection) {
+              dataToDownload = dataToDownload.filter(item => item.Student_Section === formData.studentSection);
+            }
+            if (formData.statusFilter !== 'All') {
+              dataToDownload = dataToDownload.filter(item => item.Status === formData.statusFilter);
+            }
+          }
+          const headers = ['Attendance_ID', 'Date', 'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section', 'Status', 'Timestamp', 'Teacher_ID', 'Class_Section'];
+          if (type === 'CSV') {
+            let csv = headers.join(',') + '\n';
+            dataToDownload.forEach(item => {
+              const row = headers.map(h => `"${(item[h] || '').toString().replace(/"/g, '""')}"`);
+              csv += row.join(',') + '\n';
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `attendance_${new Date().toISOString()}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+          } else { // PDF
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.autoTable({
+              head: [headers],
+              body: dataToDownload.map(item => headers.map(h => item[h] || '')),
+            });
+            doc.save(`attendance_${new Date().toISOString()}.pdf`);
+          }
+          setSuccessMessage('Download successful');
+        } catch (err) {
+          setError('Download failed: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+
+      const filteredData = searchQuery
+        ? attendanceData.filter(item =>
+            Object.values(item).some(val =>
+              val?.toString().toLowerCase().includes(searchQuery.toLowerCase())
+            )
+          )
+        : attendanceData;
+
+      if (!userPermissions?.canQueryAttendance) {
+        return (
+          <div className="card p-6">
+            <p className="text-red-500">You do not have permission to view attendance data.</p>
+          </div>
+        );
+      }
+
+      return (
+        <div className="card p-6">
+          <div className="flex items-center mb-4">
+            <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
+            <h2 className="text-xl font-semibold">Attendance Report</h2>
+          </div>
+          <div className="form-container mb-6">
+            <h3 className="text-lg font-semibold mb-4">Generate Attendance Report</h3>
+            <div className="form-row">
+              <div className="form-field">
+                <select
+                  name="searchType"
+                  value={formData.searchType}
+                  onChange={handleInputChange}
+                  className="form-input"
+                  id="searchType"
+                >
+                  <option value="Std_ID">Student ID</option>
+                  <option value="Barcode_ID">Barcode ID</option>
+                  <option value="Student_Name">Student Name</option>
+                </select>
+                <label htmlFor="searchType">Search By</label>
+              </div>
+              <div className="form-field">
+                <input
+                  type="text"
+                  name="searchValue"
+                  value={formData.searchValue}
+                  onChange={handleInputChange}
+                  placeholder="Enter search value"
+                  className="form-input"
+                  id="searchValue"
+                />
+                <label htmlFor="searchValue">Search Value</label>
+              </div>
+              <div className="form-field">
+                <select
+                  name="studentClass"
+                  value={formData.studentClass}
+                  onChange={handleInputChange}
+                  className="form-input"
+                  id="studentClass"
+                >
+                  <option value="">All Classes</option>
+                  {uniqueClasses.map(cls => (
+                    <option key={cls} value={cls}>{cls}</option>
+                  ))}
+                </select>
+                <label htmlFor="studentClass">Class</label>
+              </div>
+              <div className="form-field">
+                <select
+                  name="studentSection"
+                  value={formData.studentSection}
+                  onChange={handleInputChange}
+                  className="form-input"
+                  id="studentSection"
+                >
+                  <option value="">All Sections</option>
+                  {formData.studentClass && sectionMap[formData.studentClass] ? 
+                    sectionMap[formData.studentClass].map(section => (
+                      <option key={section} value={section}>{section}</option>
+                    )) : null
+                  }
+                </select>
+                <label htmlFor="studentSection">Section</label>
+              </div>
+              <div className="form-field">
+                <input
+                  type="date"
+                  name="startDate"
+                  value={formData.startDate}
+                  onChange={handleInputChange}
+                  className="form-input"
+                  id="startDate"
+                  required
+                />
+                <label htmlFor="startDate">Start Date</label>
+              </div>
+              <div className="form-field">
+                <input
+                  type="date"
+                  name="endDate"
+                  value={formData.endDate}
+                  onChange={handleInputChange}
+                  className="form-input"
+                  id="endDate"
+                  required
+                />
+                <label htmlFor="endDate">End Date</label>
+              </div>
+              <div className="form-field">
+                <select
+                  name="statusFilter"
+                  value={formData.statusFilter}
+                  onChange={handleInputChange}
+                  className="form-input"
+                  id="statusFilter"
+                >
+                  <option value="All">All Statuses</option>
+                  <option value="Present">Present</option>
+                  <option value="Absent">Absent</option>
+                  <option value="Leave">Leave</option>
+                </select>
+                <label htmlFor="statusFilter">Status Filter</label>
+              </div>
+              <div className="form-field">
+                <select
+                  name="format"
+                  value={formData.format}
+                  onChange={handleInputChange}
+                  className="form-input"
+                  id="format"
+                >
+                  <option value="CSV">CSV</option>
+                  <option value="PDF">PDF</option>
+                </select>
+                <label htmlFor="format">Download Format</label>
+              </div>
+            </div>
+            <div className="form-actions">
+              <button
+                onClick={handleSearch}
+                disabled={isLoading}
+                className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+              >
+                {isLoading ? (
+                  <>
+                    <i className="uil uil-spinner text-xl loading-spinner"></i>
+                    Searching...
+                  </>
+                ) : (
+                  'Search'
+                )}
+              </button>
+              <button
+                onClick={e => handleDownload(e, formData.format)}
+                disabled={isLoading || !userPermissions?.canDownload}
+                className={`btn-secondary ${isLoading || !userPermissions?.canDownload ? 'opacity-75 cursor-not-allowed' : ''}`}
+              >
+                {isLoading ? (
+                  <>
+                    <i className="uil uil-spinner text-xl loading-spinner"></i>
+                    Downloading...
+                  </>
+                ) : (
+                  'Download'
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setFormData({
+                    searchType: 'Std_ID',
+                    searchValue: '',
+                    studentClass: '',
+                    studentSection: '',
+                    startDate: '',
+                    endDate: '',
+                    statusFilter: 'Present',
+                    format: 'CSV'
+                  });
+                  setAttendanceData([]);
+                  setFormErrors({});
+                }}
+                className="btn-outline"
+              >
+                Clear
+              </button>
+            </div>
+            {formErrors.date && (
+              <p className="form-error mt-4">{formErrors.date}</p>
+            )}
+          </div>
+          {isLoading ? (
+            <p className="text-gray-500">Loading...</p>
+          ) : filteredData.length === 0 ? (
+            <p className="text-gray-500">No attendance data available</p>
+          ) : (
+            <div className="table-container max-h-[600px]">
+              <table className="min-w-full">
+                <thead className="sticky-header">
+                  <tr>
+                    {[
+                      { name: 'Attendance_ID' },
+                      { name: 'Date' },
+                      { name: 'Std_ID' },
+                      { name: 'Barcode_ID' },
+                      { name: 'Student_Name' },
+                      { name: 'Student_Class' },
+                      { name: 'Student_Section' },
+                      { name: 'Status' },
+                      { name: 'Timestamp' },
+                      { name: 'Teacher_ID' },
+                      { name: 'Class_Section' },
+                    ].map(field => (
+                      <th key={field.name}>
+                        {field.name.replace('_', ' ')}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+  {filteredData
+    .filter(item => item.Username !== 'superadmin')
+    .map((item, index) => (
+      <tr key={index}>
+                      {['Attendance_ID', 'Date', 'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section', 'Status', 'Timestamp', 'Teacher_ID', 'Class_Section'].map(field => (
+                        <td key={field}>
+                          {item[field] || ''}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+   function StudentReports({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery, refreshData }) {
+  const [formData, setFormData] = useState({
+    studentClass: '',
+    studentSection: '',
+    status: '',
+    studentId: '',
+    month: '',
+    year: new Date().getFullYear()
+  });
+  const [reportData, setReportData] = useState([]);
+  const [formErrors, setFormErrors] = useState({});
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormErrors(prev => ({ ...prev, [name]: '' }));
+  };
+
+  const handleRefresh = async () => {
+    setIsLoading(true);
+    await refreshData();
+    // After refresh, regenerate the report with current filters
+    generateReport(null, true);
+  };
+
+  const generateReport = (e, skipLoading = false) => {
+    if (e) e.preventDefault();
+    if (!skipLoading) setIsLoading(true);
+    
+    // Make sure we have data to filter
+    if (!data.student_data || data.student_data.length === 0) {
+      setReportData([]);
+      if (!skipLoading) setIsLoading(false);
+      return;
+    }
+    
+    // Start with all student data
+    let filtered = [...data.student_data];
+    
+    // Only apply filters if they have values (not empty strings)
+    if (formData.studentClass && formData.studentClass.trim() !== '') {
+      filtered = filtered.filter(student => 
+        student.Student_Class && student.Student_Class.toString() === formData.studentClass.toString()
+      );
+    }
+    
+    if (formData.studentSection && formData.studentSection.trim() !== '') {
+      filtered = filtered.filter(student => 
+        student.Student_Section && student.Student_Section.toString() === formData.studentSection.toString()
+      );
+    }
+    
+    if (formData.status && formData.status.trim() !== '') {
+      filtered = filtered.filter(student => 
+        student.Status && student.Status.toString() === formData.status.toString()
+      );
+    }
+    
+    if (formData.studentId && formData.studentId.trim() !== '') {
+      filtered = filtered.filter(student => 
+        student.Std_ID && student.Std_ID.toString().includes(formData.studentId.toString())
+      );
+    }
+    
+    // Handle year filtering - check BOTH Creation_Date and Inactive_Date based on status
+    if (formData.year && formData.year.toString().trim() !== '') {
+      filtered = filtered.filter(student => {
+        const selectedYear = parseInt(formData.year);
+        
+        // If status filter is specifically set to 'Inactive', only check Inactive_Date
+        if (formData.status === 'Inactive') {
+          if (!student.Inactive_Date) return false;
+          
+          try {
+            const dateStr = student.Inactive_Date.toString();
+            const dateParts = dateStr.split('-');
+            
+            if (dateParts.length === 3) {
+              const yearStr = dateParts[2];
+              const studentYear = parseInt(yearStr);
+              return studentYear === selectedYear;
+            }
+            return false;
+          } catch (e) {
+            return false;
+          }
+        }
+        
+        // If status filter is specifically set to 'Active', only check Creation_Date
+        else if (formData.status === 'Active') {
+          if (!student.Creation_Date) return false;
+          
+          try {
+            const dateStr = student.Creation_Date.toString();
+            const dateParts = dateStr.split('-');
+            
+            if (dateParts.length === 3) {
+              const yearStr = dateParts[2];
+              const studentYear = parseInt(yearStr);
+              return studentYear === selectedYear;
+            }
+            return false;
+          } catch (e) {
+            return false;
+          }
+        }
+        
+        // If no status filter or status is 'All', check both dates
+        else {
+          let matchesYear = false;
+          
+          // Check Creation_Date
+          if (student.Creation_Date) {
+            try {
+              const dateStr = student.Creation_Date.toString();
+              const dateParts = dateStr.split('-');
+              if (dateParts.length === 3) {
+                const yearStr = dateParts[2];
+                const studentYear = parseInt(yearStr);
+                if (studentYear === selectedYear) matchesYear = true;
+              }
+            } catch (e) {}
+          }
+          
+          // Check Inactive_Date (if not already matched)
+          if (!matchesYear && student.Inactive_Date) {
+            try {
+              const dateStr = student.Inactive_Date.toString();
+              const dateParts = dateStr.split('-');
+              if (dateParts.length === 3) {
+                const yearStr = dateParts[2];
+                const studentYear = parseInt(yearStr);
+                if (studentYear === selectedYear) matchesYear = true;
+              }
+            } catch (e) {}
+          }
+          
+          return matchesYear;
+        }
+      });
+    }
+    
+    // Handle month filtering - similar logic for month
+    if (formData.month && formData.month.trim() !== '') {
+      filtered = filtered.filter(student => {
+        const selectedMonth = parseInt(formData.month);
+        
+        // Month mapping
+        const monthMap = {
+          'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+          'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+        };
+        
+        // If status filter is specifically set to 'Inactive', only check Inactive_Date
+        if (formData.status === 'Inactive') {
+          if (!student.Inactive_Date) return false;
+          
+          try {
+            const dateStr = student.Inactive_Date.toString();
+            const dateParts = dateStr.split('-');
+            
+            if (dateParts.length === 3) {
+              const monthStr = dateParts[1];
+              const studentMonth = monthMap[monthStr];
+              return studentMonth === selectedMonth;
+            }
+            return false;
+          } catch (e) {
+            return false;
+          }
+        }
+        
+        // If status filter is specifically set to 'Active', only check Creation_Date
+        else if (formData.status === 'Active') {
+          if (!student.Creation_Date) return false;
+          
+          try {
+            const dateStr = student.Creation_Date.toString();
+            const dateParts = dateStr.split('-');
+            
+            if (dateParts.length === 3) {
+              const monthStr = dateParts[1];
+              const studentMonth = monthMap[monthStr];
+              return studentMonth === selectedMonth;
+            }
+            return false;
+          } catch (e) {
+            return false;
+          }
+        }
+        
+        // If no status filter or status is 'All', check both dates
+        else {
+          let matchesMonth = false;
+          
+          // Check Creation_Date
+          if (student.Creation_Date) {
+            try {
+              const dateStr = student.Creation_Date.toString();
+              const dateParts = dateStr.split('-');
+              if (dateParts.length === 3) {
+                const monthStr = dateParts[1];
+                const studentMonth = monthMap[monthStr];
+                if (studentMonth === selectedMonth) matchesMonth = true;
+              }
+            } catch (e) {}
+          }
+          
+          // Check Inactive_Date (if not already matched)
+          if (!matchesMonth && student.Inactive_Date) {
+            try {
+              const dateStr = student.Inactive_Date.toString();
+              const dateParts = dateStr.split('-');
+              if (dateParts.length === 3) {
+                const monthStr = dateParts[1];
+                const studentMonth = monthMap[monthStr];
+                if (studentMonth === selectedMonth) matchesMonth = true;
+              }
+            } catch (e) {}
+          }
+          
+          return matchesMonth;
+        }
+      });
+    }
+    
+    setReportData(filtered);
+    if (!skipLoading) setIsLoading(false);
+  };
+
+  const downloadReport = () => {
+    if (reportData.length === 0) {
+      setError('No data to download');
+      return;
+    }
+    
+    const headers = ['Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section', 'Status', 'Gender', 'Date_of_Joining', 'Inactive_Date', 'Creation_Date', 'Created_By', 'Last_Modified_Date', 'Last_Modified_By'];
+    let csv = headers.join(',') + '\n';
+    
+    reportData.forEach(student => {
+      const row = headers.map(header => {
+        const value = student[header] || '';
+        // Escape quotes and wrap in quotes for CSV
+        return `"${value.toString().replace(/"/g, '""')}"`;
+      });
+      csv += row.join(',') + '\n';
+    });
+    
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `student_report_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    setSuccessMessage('Report downloaded successfully');
+  };
+
+  const clearForm = () => {
+    setFormData({
+      studentClass: '',
+      studentSection: '',
+      status: '',
+      studentId: '',
+      month: '',
+      year: new Date().getFullYear()
+    });
+    setReportData([]);
+    setFormErrors({});
+  };
+
+  const months = [
+    { value: '', label: 'All Months' },
+    { value: '1', label: 'January' },
+    { value: '2', label: 'February' },
+    { value: '3', label: 'March' },
+    { value: '4', label: 'April' },
+    { value: '5', label: 'May' },
+    { value: '6', label: 'June' },
+    { value: '7', label: 'July' },
+    { value: '8', label: 'August' },
+    { value: '9', label: 'September' },
+    { value: '10', label: 'October' },
+    { value: '11', label: 'November' },
+    { value: '12', label: 'December' }
+  ];
+
+  const currentYear = new Date().getFullYear();
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - i);
+
+  const filteredData = searchQuery
+    ? reportData.filter(item =>
+        Object.values(item).some(val =>
+          val?.toString().toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      )
+    : reportData;
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center">
+          <i className="uil uil-file-graph text-2xl text-blue-500 mr-2"></i>
+          <h2 className="text-xl font-semibold">Student Reports</h2>
+        </div>
+        <button
+          onClick={handleRefresh}
+          disabled={isLoading}
+          className="btn-outline flex items-center gap-2"
+          title="Refresh data from database"
+        >
+          <i className={`uil uil-refresh ${isLoading ? 'loading-spinner' : ''}`}></i>
+          <span className="hidden sm:inline">Refresh Data</span>
+        </button>
+      </div>
+      
+      <div className="form-container mb-6">
+        <h3 className="text-lg font-semibold mb-4">Generate Student Report</h3>
+        <div className="form-row">
+          <div className="form-field">
+            <select
+              name="studentClass"
+              value={formData.studentClass}
+              onChange={handleInputChange}
+              className="form-input"
+              id="studentClass"
+            >
+              <option value="">All Classes</option>
+              {classes.map(cls => (
+                <option key={cls} value={cls}>{cls}</option>
+              ))}
+            </select>
+            <label htmlFor="studentClass">Class</label>
+          </div>
+          
+          <div className="form-field">
+            <select
+              name="studentSection"
+              value={formData.studentSection}
+              onChange={handleInputChange}
+              className="form-input"
+              id="studentSection"
+              disabled={!formData.studentClass}
+            >
+              <option value="">All Sections</option>
+              {formData.studentClass && classSectionMap[formData.studentClass] ? 
+                classSectionMap[formData.studentClass].map(section => (
+                  <option key={section} value={section}>{section}</option>
+                )) : null
+              }
+            </select>
+            <label htmlFor="studentSection">Section</label>
+          </div>
+          
+          <div className="form-field">
+            <select
+              name="status"
+              value={formData.status}
+              onChange={handleInputChange}
+              className="form-input"
+              id="status"
+            >
+              <option value="">All Statuses</option>
+              <option value="Active">Active</option>
+              <option value="Inactive">Inactive</option>
+            </select>
+            <label htmlFor="status">Status</label>
+          </div>
+          
+          <div className="form-field">
+            <input
+              type="text"
+              name="studentId"
+              value={formData.studentId}
+              onChange={handleInputChange}
+              placeholder="Enter student ID"
+              className="form-input"
+              id="studentId"
+            />
+            <label htmlFor="studentId">Student ID</label>
+          </div>
+          
+          <div className="form-field">
+            <select
+              name="month"
+              value={formData.month}
+              onChange={handleInputChange}
+              className="form-input"
+              id="month"
+            >
+              {months.map(month => (
+                <option key={month.value} value={month.value}>{month.label}</option>
+              ))}
+            </select>
+            <label htmlFor="month">Month</label>
+          </div>
+          
+          <div className="form-field">
+            <select
+              name="year"
+              value={formData.year}
+              onChange={handleInputChange}
+              className="form-input"
+              id="year"
+            >
+              <option value="">All Years</option>
+              {years.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+            <label htmlFor="year">Year</label>
+          </div>
+        </div>
+        
+        <div className="form-actions">
+          <button
+            onClick={generateReport}
+            disabled={isLoading}
+            className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+          >
+            {isLoading ? (
+              <>
+                <i className="uil uil-spinner text-xl loading-spinner"></i>
+                Generating...
+              </>
+            ) : (
+              'Generate Report'
+            )}
+          </button>
+          
+          <button
+            onClick={downloadReport}
+            disabled={reportData.length === 0 || isLoading}
+            className={`btn-secondary ${(reportData.length === 0 || isLoading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            Download CSV
+          </button>
+          
+          <button
+            onClick={clearForm}
+            disabled={isLoading}
+            className="btn-outline"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <p className="text-gray-500">Loading...</p>
+      ) : filteredData.length === 0 ? (
+        <p className="text-gray-500">No student data available for the selected criteria</p>
+      ) : (
+        <>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">Report Results ({filteredData.length} students)</h3>
+            <div className="text-sm text-gray-600 dark:text-gray-400">
+              Generated on {new Date().toLocaleDateString()}
+            </div>
+          </div>
+          
+          <div className="table-container max-h-[600px]">
+            <table className="min-w-full">
+              <thead className="sticky-header">
+                <tr>
+                  {[
+                    'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 
+                    'Student_Section', 'Status', 'Gender', 'Date_of_Joining',
+                    'Inactive_Date', 'Creation_Date', 'Created_By', 'Last_Modified_Date', 'Last_Modified_By'
+                  ].map(field => (
+                    <th key={field}>
+                      {field.replace('_', ' ')}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredData.map((student, index) => (
+                  <tr key={index}>
+                    {[
+                      'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 
+                      'Student_Section', 'Status', 'Gender', 'Date_of_Joining',
+                      'Inactive_Date', 'Creation_Date', 'Created_By', 'Last_Modified_Date', 'Last_Modified_By'
+                    ].map(field => (
+                      <td key={field}>
+                        {student[field] || ''}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessage, username, userPermissions }) {
+  const [unprintedStudents, setUnprintedStudents] = useState([]);
+  const [selectedStudents, setSelectedStudents] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    loadUnprintedStudents();
+  }, []);
+
+  const loadUnprintedStudents = async () => {
+    setIsLoading(true);
+    try {
+      // Get REC_ID from userPermissions
+      const recId = userPermissions[username]?.REC_ID || '';
+      const result = await callWithRetry('getUnprintedStudents', recId);
+      setUnprintedStudents(result);
+    } catch (err) {
+      setError('Failed to load unprinted students: ' + err.message);
+    }
+    setIsLoading(false);
+  };
+  
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedStudents([]);
+    } else {
+      setSelectedStudents(unprintedStudents.map(s => s.Std_ID));
+    }
+    setSelectAll(!selectAll);
+  };
+
+  const handleSelectStudent = (stdId) => {
+    if (selectedStudents.includes(stdId)) {
+      setSelectedStudents(selectedStudents.filter(id => id !== stdId));
+      setSelectAll(false);
+    } else {
+      setSelectedStudents([...selectedStudents, stdId]);
+    }
+  };
+
+  const handlePrintQR = async () => {
+    if (selectedStudents.length === 0) {
+      setError('Please select at least one student');
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      // Get selected student objects
+      const studentsToPrint = unprintedStudents.filter(s => 
+        selectedStudents.includes(s.Std_ID)
+      );
+      
+      // Generate QR codes and open print window
+      const result = await callWithRetry('generateQRCodePDF', studentsToPrint);
+      
+      // Create a new window with the QR codes
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(result);
+      printWindow.document.close();
+      
+      // Mark students as printed
+      await callWithRetry('markStudentsAsPrinted', selectedStudents);
+      
+      setSuccessMessage(`QR codes generated for ${selectedStudents.length} students`);
+      setSelectedStudents([]);
+      setSelectAll(false);
+      loadUnprintedStudents(); // Refresh list
+      
+    } catch (err) {
+      setError('Failed to generate QR codes: ' + err.message);
+    }
+    setIsGenerating(false);
+  };
+
+  const handlePrintAll = async () => {
+    if (unprintedStudents.length === 0) {
+      setError('No unprinted students available');
+      return;
+    }
+    
+    setSelectedStudents(unprintedStudents.map(s => s.Std_ID));
+    setTimeout(() => handlePrintQR(), 100);
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <i className="uil uil-qrcode-scan text-2xl text-blue-500 mr-2"></i>
+          <h2 className="text-xl font-semibold">QR Code Management</h2>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={loadUnprintedStudents}
+            className="btn-outline"
+            disabled={isLoading}
+          >
+            <i className={`uil uil-refresh ${isLoading ? 'loading-spinner' : ''}`}></i>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
+        <h3 className="font-semibold mb-2">Instructions:</h3>
+        <ul className="list-disc list-inside text-sm text-gray-700 dark:text-gray-300">
+          <li>Select students whose QR codes haven't been printed</li>
+          <li>Click "Generate QR Codes" to create printable QR codes</li>
+          <li>QR codes will include student name, SIRN, and Barcode ID</li>
+          <li>Once printed, students won't appear in this list again</li>
+        </ul>
+      </div>
+
+      <div className="flex gap-4 mb-6">
+        <button
+          onClick={handlePrintQR}
+          disabled={selectedStudents.length === 0 || isGenerating}
+          className={`btn-primary ${(selectedStudents.length === 0 || isGenerating) ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          {isGenerating ? (
+            <>
+              <i className="uil uil-spinner text-xl loading-spinner"></i>
+              Generating...
+            </>
+          ) : (
+            <>
+              <i className="uil uil-print"></i>
+              Generate QR Codes ({selectedStudents.length})
+            </>
+          )}
+        </button>
+        
+        <button
+          onClick={handlePrintAll}
+          disabled={unprintedStudents.length === 0 || isGenerating}
+          className={`btn-secondary ${(unprintedStudents.length === 0 || isGenerating) ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          <i className="uil uil-copy"></i>
+          Select All Unprinted ({unprintedStudents.length})
+        </button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-gray-500">Loading unprinted students...</p>
+      ) : unprintedStudents.length === 0 ? (
+        <div className="text-center p-8 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          <i className="uil uil-check-circle text-5xl text-green-500 mb-4"></i>
+          <p className="text-gray-600 dark:text-gray-400">All QR codes have been printed!</p>
+          <p className="text-sm text-gray-500 mt-2">No unprinted students found.</p>
+        </div>
+      ) : (
+        <>
+          <div className="mb-4 flex items-center">
+            <label className="flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectAll}
+                onChange={handleSelectAll}
+                className="form-checkbox h-5 w-5 text-blue-600"
+              />
+              <span className="ml-2 text-sm font-medium">Select All</span>
+            </label>
+            <span className="ml-4 text-sm text-gray-500">
+              {selectedStudents.length} of {unprintedStudents.length} selected
+            </span>
+          </div>
+
+          <div className="table-container max-h-[500px]">
+            <table className="min-w-full">
+              <thead className="sticky-header">
+                <tr>
+                  <th className="w-12">Select</th>
+                  <th>SIRN</th>
+                  <th>Barcode ID</th>
+                  <th>Student Name</th>
+                  <th>Class</th>
+                  <th>Section</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unprintedStudents.map((student, index) => (
+                  <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedStudents.includes(student.Std_ID)}
+                        onChange={() => handleSelectStudent(student.Std_ID)}
+                        className="form-checkbox h-5 w-5 text-blue-600"
+                      />
+                    </td>
+                    <td>{student.Std_ID}</td>
+                    <td className="font-mono font-bold text-blue-600">{student.Barcode_ID}</td>
+                    <td>{student.Student_Name}</td>
+                    <td>{student.Student_Class}</td>
+                    <td>{student.Student_Section}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage }) {
+  const [reserveCount, setReserveCount] = useState(10);
+  const [generatedCodes, setGeneratedCodes] = useState([]);
+
+  const handleGenerate = async () => {
+    setIsLoading(true);
+    try {
+      const codes = await callWithRetry('generateReserveCodes', reserveCount);
+      setGeneratedCodes(codes);
+      setSuccessMessage(`Generated ${codes.length} reserve codes`);
+    } catch (err) {
+      setError('Failed to generate reserve codes: ' + err.message);
+    }
+    setIsLoading(false);
+  };
+
+  const handleCopyToClipboard = () => {
+    const text = generatedCodes.join('\n');
+    navigator.clipboard.writeText(text);
+    setSuccessMessage('Codes copied to clipboard');
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center mb-6">
+        <i className="uil uil-copy text-2xl text-blue-500 mr-2"></i>
+        <h2 className="text-xl font-semibold">Reserve Codes Generator</h2>
+      </div>
+
+      <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
+        <h3 className="font-semibold mb-2">About Reserve Codes:</h3>
+        <p className="text-sm text-gray-700 dark:text-gray-300">
+          Generate reserve barcode IDs that can be assigned to new students. 
+          These codes follow the same format (BC + number) as automatically generated codes.
+        </p>
+      </div>
+
+      <div className="flex gap-4 items-end mb-8">
+        <div className="form-field flex-1">
+          <input
+            type="number"
+            min="1"
+            max="100"
+            value={reserveCount}
+            onChange={(e) => setReserveCount(parseInt(e.target.value) || 1)}
+            className="form-input"
+            id="reserveCount"
+          />
+          <label htmlFor="reserveCount">Number of codes to generate</label>
+        </div>
+        
+        <button
+          onClick={handleGenerate}
+          disabled={isLoading}
+          className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+        >
+          {isLoading ? (
+            <>
+              <i className="uil uil-spinner text-xl loading-spinner"></i>
+              Generating...
+            </>
+          ) : (
+            <>
+              <i className="uil uil-copy"></i>
+              Generate Codes
+            </>
+          )}
+        </button>
+      </div>
+
+      {generatedCodes.length > 0 && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-semibold">Generated Reserve Codes:</h3>
+            <button
+              onClick={handleCopyToClipboard}
+              className="btn-outline text-sm"
+            >
+              <i className="uil uil-copy"></i>
+              Copy All
+            </button>
+          </div>
+          
+          <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {generatedCodes.map((code, index) => (
+                <div
+                  key={index}
+                  className="bg-white dark:bg-gray-700 p-2 rounded border border-gray-200 dark:border-gray-600 text-center font-mono font-bold text-blue-600"
+                >
+                  {code}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+    function AuditReports({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, searchQuery }) {
+      const [reportData, setReportData] = useState([]);
+      const [filter, setFilter] = useState('all'); // all, created, modified
+
+      const generateAuditReport = () => {
+        setIsLoading(true);
+        
+        let auditData = data.student_data.map(student => ({
+          type: 'Student Record',
+          id: student.Std_ID,
+          name: student.Student_Name,
+          action: 'Created/Modified',
+          createdBy: student.Created_By,
+          createdDate: student.Creation_Date,
+          modifiedBy: student.Last_Modified_By,
+          modifiedDate: student.Last_Modified_Date,
+          details: `Class: ${student.Student_Class}, Section: ${student.Student_Section}, Status: ${student.Status}`
+        }));
+
+        // Filter based on selection
+        if (filter === 'created') {
+          auditData = auditData.filter(item => item.createdBy);
+        } else if (filter === 'modified') {
+          auditData = auditData.filter(item => item.modifiedBy && item.modifiedDate !== item.createdDate);
+        }
+
+        setReportData(auditData);
+        setIsLoading(false);
+      };
+
+      const downloadAuditReport = () => {
+        if (reportData.length === 0) {
+          setError('No audit data to download');
+          return;
+        }
+        
+        const headers = ['Type', 'ID', 'Name', 'Action', 'Created By', 'Creation Date', 'Last Modified By', 'Last Modified Date', 'Details'];
+        let csv = headers.join(',') + '\n';
+        
+        reportData.forEach(record => {
+          const row = headers.map(header => {
+            const value = record[header.replace(' ', '')] || '';
+            return `"${value.toString().replace(/"/g, '""')}"`;
+          });
+          csv += row.join(',') + '\n';
+        });
+        
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `audit_report_${new Date().toISOString()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        setSuccessMessage('Audit report downloaded successfully');
+      };
+
+      useEffect(() => {
+        generateAuditReport();
+      }, [filter, data.student_data]);
+
+      const filteredData = searchQuery
+        ? reportData.filter(item =>
+            Object.values(item).some(val =>
+              val?.toString().toLowerCase().includes(searchQuery.toLowerCase())
+            )
+          )
+        : reportData;
+
+      return (
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center">
+              <i className="uil uil-file-check text-2xl text-blue-500 mr-2"></i>
+              <h2 className="text-xl font-semibold">Audit Reports</h2>
+            </div>
+            <div className="flex items-center gap-4">
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="form-input"
+                style={{ width: 'auto', padding: '0.5rem 1rem' }}
+              >
+                <option value="all">All Activities</option>
+                <option value="created">Creation Only</option>
+                <option value="modified">Modifications Only</option>
+              </select>
+              <button
+                onClick={downloadAuditReport}
+                disabled={filteredData.length === 0}
+                className={`btn-secondary ${filteredData.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                Download CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold mb-4">System Audit Trail</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">
+              This report shows all student record creation and modification activities with timestamps and user information.
+            </p>
+          </div>
+
+          {isLoading ? (
+            <p className="text-gray-500">Loading audit data...</p>
+          ) : filteredData.length === 0 ? (
+            <p className="text-gray-500">No audit data available</p>
+          ) : (
+            <>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold">Audit Results ({filteredData.length} records)</h3>
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  Generated on {new Date().toLocaleDateString()}
+                </div>
+              </div>
+              
+              <div className="table-container max-h-[600px]">
+                <table className="min-w-full">
+                  <thead className="sticky-header">
+                    <tr>
+                      {[
+                        'Type', 'ID', 'Name', 'Action', 'Created By', 
+                        'Creation Date', 'Last Modified By', 'Last Modified Date', 'Details'
+                      ].map(field => (
+                        <th key={field}>
+                          {field}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredData.map((record, index) => (
+                      <tr key={index}>
+                        <td>{record.type}</td>
+                        <td>{record.id}</td>
+                        <td>{record.name}</td>
+                        <td>{record.action}</td>
+                        <td>{record.createdBy}</td>
+                        <td>{record.createdDate}</td>
+                        <td>{record.modifiedBy}</td>
+                        <td>{record.modifiedDate}</td>
+                        <td>{record.details}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
+  function TableManager({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, genderOptions, setSuccessMessage, setError, username, userPermissions, recId }) {
+      const [isAdding, setIsAdding] = useState(false);
+      const [editingIndex, setEditingIndex] = useState(null);
+      const [formData, setFormData] = useState({});
+      const [isStdIdEditable, setIsStdIdEditable] = useState(false);
+      const [formErrors, setFormErrors] = useState({});
+      const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+      const [deleteParams, setDeleteParams] = useState({ table: '', index: null, rowNumber: null });
+      const [subTab, setSubTab] = useState('class_sections');
+      const [message, setMessage] = useState('');
+      const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+      const clearForm = () => {
+        setFormData({});
+        setFormErrors({});
+        setMessage('');
+        setIsAdding(false);
+        setEditingIndex(null);
+        setIsStdIdEditable(table === 'student_data' ? false : false);
+      };
+
+      const getDayOfWeek = (dateStr) => {
+        const date = new Date(dateStr);
+        return daysOfWeek[date.getDay()];
+      };
+
+      const parseDDMMMYYYYToDate = (dateStr) => {
+  if (!dateStr) return '';
+  try {
+    // Parse the dd-MMM-yyyy format directly
+    const [day, monthStr, year] = dateStr.split('-');
+    const monthMap = {
+      'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+      'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+    };
+    const month = monthMap[monthStr];
+    if (!month) return dateStr; // Return original if parsing fails
+    
+    // Format as yyyy-mm-dd for HTML date input
+    return `${year}-${month}-${day.padStart(2, '0')}`;
+  } catch (e) {
+    return dateStr; // Return original if parsing fails
+  }
+};
+
+const formatDateToDDMMMYYYY = (dateStr) => {
+  if (!dateStr) return '';
+  try {
+    // If it's already in dd-MMM-yyyy format, return as is
+    if (typeof dateStr === 'string' && dateStr.match(/^\d{2}-[A-Za-z]{3}-\d{4}$/)) {
+      return dateStr;
+    }
+    
+    // Parse the date string
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return dateStr; // Return original if invalid
+    
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = date.toLocaleString('default', { month: 'short' });
+    const year = date.getFullYear();
+    
+    return `${day}-${month}-${year}`;
+  } catch (e) {
+    return dateStr; // Return original if formatting fails
+  }
+};
+
+      const tableConfigs = {
+        user_permissions: {
+          fields: [
+            { section: 'User Permissions', fields: [
+              { name: 'Username', type: 'select', options: users.map(u => u.Username), required: true, placeholder: 'Select username' },
+              { name: 'canMarkManual', type: 'checkbox', placeholder: 'Can mark manual attendance' },
+              { name: 'canMarkBarcode', type: 'checkbox', placeholder: 'Can mark barcode attendance' },
+              { name: 'canSeeSummary', type: 'checkbox', placeholder: 'Can see attendance summary' },
+            ]}
+          ],
+        },
+        class_sections: {
+          fields: [
+            { section: 'Class Sections', fields: [
+              { name: 'Class_Section', type: 'text', required: true, placeholder: 'Enter class section (e.g., 1A, 2B)' },
+            ]}
+          ],
+        },
+        class_mappings: {
+          fields: [
+            { section: 'Class Mappings', fields: [
+              { name: 'Class', type: 'text', required: true, placeholder: 'Enter class (e.g., 1, 2, 3)' },
+              { name: 'Sections', type: 'text', required: true, placeholder: 'Comma-separated sections (e.g., A,B,C)' },
+            ]}
+          ],
+        },
+        previous_date_permissions: {
+          fields: [
+            { section: 'Date Permissions', fields: [
+              { name: 'Username', type: 'select', options: users.map(u => u.Username), required: true, placeholder: 'Select username' },
+              { name: 'Allowed_Date', type: 'date', required: true, placeholder: 'Select date' },
+              { name: 'Day', type: 'text', disabled: true, placeholder: 'Day' },
+              { name: 'Password', type: 'text', required: true, placeholder: 'Enter password' },
+            ]}
+          ],
+        },
+        teacher_assignments: {
+          fields: [
+            { section: 'Teacher Assignments', fields: [
+              { name: 'Username', type: 'select', options: users.map(u => u.Username), required: true, placeholder: 'Select username' },
+              { name: 'Class_Section', type: 'select-multiple', options: classSections, required: true, placeholder: 'Select class sections' },
+            ]}
+          ],
+        },
+   student_data: {
+  fields: [
+    { section: 'Student Information', fields: [
+      { name: 'Std_ID', type: 'text', required: true, disabled: !isStdIdEditable, placeholder: 'Numeric Student ID' },
+      { name: 'Barcode_ID', type: 'text', disabled: true, placeholder: 'Barcode ID (auto-generated)' },
+      { name: 'Student_Name', type: 'text', required: true, placeholder: 'Student Full Name' },
+      { name: 'Gender', type: 'select', options: genderOptions, required: true, placeholder: 'Select Gender' },
+      { name: 'Date_of_Joining', type: 'date', required: true, placeholder: 'Date of Joining' },
+      { name: 'Unique_ID', type: 'text', required: true, placeholder: 'Enter B.Form Last Six Digits without Dash' },  // ← MOVED HERE
+    ]},
+    { section: 'Class Information', fields: [
+      { name: 'Student_Class', type: 'select', options: classes, required: true, placeholder: 'Select Class' },
+      { name: 'Student_Section', type: 'select', options: [], required: true, placeholder: 'Select Section' },
+      { name: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true, placeholder: 'Select Status' },
+    ]},
+    { section: 'Audit Information (Read Only)', fields: [
+      { name: 'Inactive_Date', type: 'text', disabled: true, placeholder: 'Auto-populated when inactive' },
+      { name: 'Creation_Date', type: 'text', disabled: true, placeholder: 'Auto-populated on creation' },
+      { name: 'Created_By', type: 'text', disabled: true, placeholder: 'Auto-populated on creation' },
+      { name: 'Last_Modified_Date', type: 'text', disabled: true, placeholder: 'Auto-populated on update' },
+      { name: 'Last_Modified_By', type: 'text', disabled: true, placeholder: 'Auto-populated on update' },
+      { name: 'REC_ID', type: 'text', disabled: true, placeholder: 'School ID' },
+    ]}
+  ],
+},
+};   // ← ADD THIS closing brace and comma
+
+      const filteredData = searchQuery
+        ? data[table === 'class_sections' ? subTab : table].filter(item => {
+            if (table === 'student_data') {
+              return (
+                item.Std_ID?.toString().toLowerCase().includes(searchQuery.toLowerCase()) ||
+                item.Student_Name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                item.Barcode_ID?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                item.Gender?.toLowerCase().includes(searchQuery.toLowerCase())
+              );
+            }
+            return Object.values(item).some(val =>
+              val?.toString().toLowerCase().includes(searchQuery.toLowerCase())
+            );
+          })
+        : data[table === 'class_sections' ? subTab : table];
+
+   const validateStudentForm = () => {
+  const errors = {};
+  if (!formData.Std_ID || !formData.Student_Name || !formData.Student_Class || !formData.Student_Section || !formData.Gender || !formData.Date_of_Joining) {
+    errors.general = 'Please fill all required fields';
+  }
+  if (formData.Std_ID && !/^\d+$/.test(formData.Std_ID)) {
+    errors.Std_ID = 'Std_ID must be numeric';
+  }
+  // ✅ ADD Unique_ID validation
+  if (formData.Unique_ID && !/^\d{6}$/.test(formData.Unique_ID)) {
+    errors.Unique_ID = 'Unique_ID must be exactly 6 digits';
+  }
+  setFormErrors(errors);
+  return Object.keys(errors).length === 0;
+};
+
+      const validateForm = () => {
+        if (table === 'student_data') {
+          return validateStudentForm();
+        }
+        const errors = {};
+        const config = table === 'class_sections' ? tableConfigs[subTab] : tableConfigs[table];
+        config.fields.forEach(section => {
+          section.fields.forEach(field => {
+            if (field.disabled && formData[field.name] === undefined) return;
+            if (field.required && !formData[field.name]) {
+              errors[field.name] = `${field.name.replace('_', ' ')} is required`;
+            }
+            if (field.name === 'Std_ID' && formData[field.name] && !/^\d+$/.test(formData[field.name])) {
+              errors.Std_ID = 'Std_ID must be numeric';
+            }
+          });
+        });
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+      };
+
+ const handleStudentSubmit = async (e) => {
+  e.preventDefault();
+  if (!validateStudentForm()) return;
+  
+  // Get REC_ID from user permissions
+  const recId = userPermissions[username]?.REC_ID || '';
+  
+  const studentData = {
+    Std_ID: formData.Std_ID,
+    Student_Name: formData.Student_Name,
+    Student_Class: formData.Student_Class,
+    Student_Section: formData.Student_Section,
+    Status: formData.Status || 'Active',
+    Barcode_ID: formData.Barcode_ID || '',
+    Gender: formData.Gender,
+    Date_of_Joining: formData.Date_of_Joining || '',
+    Unique_ID: formData.Unique_ID || '',
+  };
+  
+  setIsLoading(true);
+  setMessage('');
+  setFormErrors({ general: 'Processing...' });
+  
+  if (editingIndex !== null) {
+    const rowNumber = filteredData[editingIndex]._rowNumber;
+    try {
+      // For edit, pass recId too
+      const result = await callWithRetry('updateSheetRow', 'Student_Data', rowNumber, studentData, username);
+      if (result.success) {
+        setSuccessMessage(result.message);
+        setData(prev => ({
+          ...prev,
+          student_data: prev.student_data.map((item) =>
+            item._rowNumber === rowNumber ? { ...item, ...result.data } : item
+          ),
+        }));
+        setFormData({});
+        setEditingIndex(null);
+        setIsStdIdEditable(false);
+        setFormErrors({});
+        setError('');
+      } else {
+        setError(result.message || 'Update failed');
+      }
+    } catch (err) {
+      setError('Update failed after retries: ' + err.message);
+    }
+    setIsLoading(false);
+  } else {
+    try {
+      // ✅ PASS recId correctly
+      const result = await callWithRetry('addStudent', studentData, username, recId);
+      if (result.success) {
+        setSuccessMessage(result.message);
+        setData(prev => ({
+          ...prev,
+          student_data: [...prev.student_data, result.data],
+        }));
+        setFormData({});
+        setIsAdding(false);
+        setFormErrors({});
+        setError('');
+      } else {
+        setError(result.message || 'Add failed');
+      }
+    } catch (err) {
+      setError('Add failed after retries: ' + err.message);
+    }
+    setIsLoading(false);
+  }
+};
+
+  const handleSubmit = async (e) => {
+  e.preventDefault();
+  if (!validateForm()) return;
+  const targetTable = table === 'class_sections' ? subTab : table;
+  const dataToSubmit = { ...formData };
+  if (table === 'class_sections' && subTab === 'class_mappings') {
+    dataToSubmit.Sections = formData.Sections;
+  }
+  if (table === 'teacher_assignments' && formData.Class_Section) {
+    dataToSubmit.Class_Section = formData.Class_Section.join(',');
+  }
+  if (recId) dataToSubmit.REC_ID = recId;
+  
+  setIsLoading(true);
+  setMessage('');
+  
+  if (editingIndex !== null) {
+    const rowNumber = filteredData[editingIndex]._rowNumber;
+    try {
+      const result = await callWithRetry('updateSheetRow', targetTable, rowNumber, dataToSubmit, 
+        targetTable === 'Student_Data' ? username : undefined);
+      if (result.success) {
+        setSuccessMessage('Record updated successfully');
+        setData(prev => ({
+          ...prev,
+          [targetTable]: prev[targetTable].map((item) =>
+            item._rowNumber === rowNumber ? { ...item, ...result.data } : item
+          ),
+        }));
+        setFormData({});
+        setEditingIndex(null);
+        setFormErrors({});
+        setError('');  // ✅ CLEAR ERROR MESSAGE
+      } else {
+        setError(result.message || 'Update failed');
+      }
+    } catch (err) {
+      setError('Update failed after retries: ' + err.message);
+    }
+    setIsLoading(false);
+  } else {
+    try {
+      const result = await callWithRetry('addSheetRow', targetTable, dataToSubmit,
+        targetTable === 'Student_Data' ? username : undefined);
+      if (result.success) {
+        setSuccessMessage('Record added successfully');
+        setData(prev => ({
+          ...prev,
+          [targetTable]: [...prev[targetTable], result.data],
+        }));
+        setFormData({});
+        setIsAdding(false);
+        setFormErrors({});
+        setError('');  // ✅ CLEAR ERROR MESSAGE
+        if (targetTable === 'class_sections' || targetTable === 'class_mappings') {
+          refreshData();
+        }
+      } else {
+        setError(result.message || 'Add failed');
+      }
+    } catch (err) {
+      setError('Add failed after retries: ' + err.message);
+    }
+    setIsLoading(false);
+  }
+};
+
+      const handleEditClick = (index) => {
+        setEditingIndex(index);
+        setIsAdding(false);
+        const item = filteredData[index];
+        const newFormData = { ...item };
+        if (table === 'users') {
+          newFormData.allowedTabs = item.allowedTabs ? item.allowedTabs.split(',') : [];
+          newFormData.AllowedDays = item.AllowedDays ? item.AllowedDays.split(',') : [];
+        }
+        if (table === 'teacher_assignments') {
+          newFormData.Class_Section = item.Class_Section ? item.Class_Section.split(',') : [];
+        }
+        if (table === 'student_data') {
+          newFormData.Date_of_Joining = parseDDMMMYYYYToDate(item.Date_of_Joining);
+        }
+        setFormData(newFormData);
+        setIsStdIdEditable(false);
+      };
+
+      const handleDeleteClick = (table, index, rowNumber) => {
+        setDeleteParams({ table: table === 'class_sections' ? subTab : table, index, rowNumber });
+        setShowDeleteConfirm(true);
+      };
+
+      const confirmDelete = async () => {
+        try {
+          await onDelete(deleteParams.table, deleteParams.rowNumber);
+        } catch (err) {
+          setError('Delete failed: ' + err.message);
+        }
+        setShowDeleteConfirm(false);
+        setDeleteParams({ table: '', index: null, rowNumber: null });
+      };
+
+      const handleInputChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        setFormData(prev => ({
+          ...prev,
+          [name]: type === 'checkbox' ? checked : value,
+        }));
+        setFormErrors(prev => ({ ...prev, [name]: '' }));
+        if (name === 'Student_Class' && table === 'student_data') {
+          setFormData(prev => ({ ...prev, Student_Section: '' }));
+        }
+        if (name === 'Allowed_Date' && table === 'previous_date_permissions') {
+          setFormData(prev => ({ ...prev, Day: getDayOfWeek(value) }));
+        }
+      };
+
+      const handleMultipleSelect = (e, name) => {
+        const options = Array.from(e.target.selectedOptions).map(option => option.value);
+        setFormData(prev => ({ ...prev, [name]: options }));
+      };
+
+      const renderFormFields = () => {
+        const config = table === 'class_sections' ? tableConfigs[subTab] : tableConfigs[table];
+        
+        return config.fields.map((section, sectionIndex) => (
+          <div key={sectionIndex} className="form-section">
+            <div className="form-section-title">
+              <i className="uil uil-folder"></i>
+              {section.section}
+            </div>
+            <div className="form-row">
+              {section.fields.map(field => (
+                <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
+                  {field.type === 'select' ? (
+                    <>
+                      <select
+                        name={field.name}
+                        value={formData[field.name] || ''}
+                        onChange={handleInputChange}
+                        className="form-input"
+                        id={field.name}
+                        disabled={field.disabled}
+                        required={field.required}
+                      >
+                        <option value="" disabled>{field.placeholder}</option>
+                        {(field.name === 'Student_Section' ? classSectionMap[formData.Student_Class] || [] : field.options).map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                    </>
+                  ) : field.type === 'select-multiple' ? (
+                    <>
+                      <select
+                        multiple
+                        name={field.name}
+                        value={formData[field.name] || []}
+                        onChange={e => handleMultipleSelect(e, field.name)}
+                        className="form-input"
+                        id={field.name}
+                        required={field.required}
+                      >
+                        {field.options.map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                    </>
+                  ) : field.type === 'checkbox' ? (
+                    <>
+                      <input
+                        type="checkbox"
+                        name={field.name}
+                        checked={formData[field.name] || false}
+                        onChange={handleInputChange}
+                        id={field.name}
+                      />
+                      <label htmlFor={field.name}>{field.placeholder}</label>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        type={field.type}
+                        name={field.name}
+                        value={formData[field.name] || ''}
+                        onChange={handleInputChange}
+                        placeholder={field.placeholder}
+                        className="form-input"
+                        id={field.name}
+                        disabled={field.disabled}
+                        required={field.required}
+                      />
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                    </>
+                  )}
+                  {formErrors[field.name] && (
+                    <p className="form-error">{formErrors[field.name]}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ));
+      };
+
+      return (
+        <div className="card p-6">
+          <div className="flex items-center mb-4">
+            <i className={`uil uil-${table === 'users' ? 'users-alt' : table === 'user_permissions' ? 'lock' : table === 'class_sections' ? 'map' : table === 'previous_date_permissions' ? 'calendar-alt' : table === 'teacher_assignments' ? 'user-check' : 'graduation-cap'} text-2xl text-blue-500 mr-2`}></i>
+            <h2 className="text-xl font-semibold">{table.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</h2>
+          </div>
+          {table === 'class_sections' && (
+            <div className="mb-4 flex space-x-2">
+              <button
+                onClick={() => setSubTab('class_sections')}
+                className={`px-4 py-2 rounded-md ${subTab === 'class_sections' ? 'btn-primary' : 'btn-outline'}`}
+              >
+                Class Sections
+              </button>
+              <button
+                onClick={() => setSubTab('class_mappings')}
+                className={`px-4 py-2 rounded-md ${subTab === 'class_mappings' ? 'btn-primary' : 'btn-outline'}`}
+              >
+                Class Mappings
+              </button>
+            </div>
+          )}
+          {(isAdding || editingIndex !== null) && (
+            <div className="form-container mb-6">
+              <h3 className="text-lg font-semibold mb-4">{editingIndex !== null ? 'Edit' : 'Add'} {table === 'class_sections' ? subTab.replace('_', ' ') : table.replace('_', ' ')}</h3>
+              <form onSubmit={table === 'student_data' ? handleStudentSubmit : handleSubmit}>
+                {renderFormFields()}
+                {formErrors.general && (
+                  <p className={`${formErrors.general.includes('successfully') ? 'form-message' : 'form-error'}`}>{formErrors.general}</p>
+                )}
+                {message && (
+                  <p className="form-message">{message}</p>
+                )}
+                <div className="form-actions">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+                  >
+                    {isLoading ? (
+                      <>
+                        <i className="uil uil-spinner text-xl loading-spinner"></i>
+                        Saving...
+                      </>
+                    ) : editingIndex !== null ? 'Update' : 'Add'}
+                  </button>
+                 {table === 'student_data' && editingIndex !== null && canAmendSIRN && (
+  <button
+    type="button"
+    onClick={() => setIsStdIdEditable(!isStdIdEditable)}
+    className="btn-outline"
+  >
+    {isStdIdEditable ? 'Lock SIRN' : 'Amend SIRN'}
+  </button>
+)}
+                  <button
+                    type="button"
+                    onClick={clearForm}
+                    className="btn-outline"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+          {!isAdding && editingIndex === null && (
+            <div className="flex flex-wrap gap-2 mb-6">
+              <button
+                onClick={() => {
+                  setIsAdding(true);
+                  setFormData({});
+                  setIsStdIdEditable(table === 'student_data');
+                }}
+                className="btn-primary"
+              >
+                Add New {table === 'class_sections' ? subTab.replace('_', ' ') : table.replace('_', ' ')}
+              </button>
+              <button
+                onClick={() => refreshData()} 
+                className="btn-secondary"
+              >
+                Refresh Data
+              </button>
+            </div>
+          )}
+          {isLoading ? (
+            <p className="text-gray-500">Loading...</p>
+          ) : filteredData.length === 0 ? (
+            <p className="text-gray-500">No data available</p>
+          ) : (
+            <div className="table-container max-h-[600px]">
+              <table className="min-w-full">
+                <thead className="sticky-header">
+                  <tr>
+                    {(table === 'student_data'
+                      ? [
+                      { name: 'Unique_ID' },  // ← ADD THIS FIRST
+                          { name: 'Std_ID' },
+                          { name: 'Barcode_ID' },
+                          { name: 'Student_Name' },
+                          { name: 'Gender' },
+                          { name: 'Date_of_Joining' },
+                          { name: 'Student_Class' },
+                          { name: 'Student_Section' },
+                          { name: 'Status' },
+                          { name: 'Inactive_Date' },
+                          { name: 'Creation_Date' },
+                          { name: 'Created_By' },
+                          { name: 'Last_Modified_Date' },
+                          { name: 'Last_Modified_By' },
+                          { name: 'REC_ID' },  // ← ADD THIS
+                        ]
+                      : (table === 'class_sections' ? tableConfigs[subTab].fields.flatMap(s => s.fields) : tableConfigs[table].fields.flatMap(s => s.fields))
+                    ).map(field => (
+                      <th key={field.name}>
+                        {field.name.replace('_', ' ')}
+                      </th>
+                    ))}
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+               <tbody>
+  {filteredData
+    .filter(item => item.Username !== 'superadmin')
+    .map((item, index) => (
+      <tr key={index}>
+                      {(table === 'student_data'
+                        ? [
+                         { name: 'Unique_ID' },  // ← ADD THIS
+                            { name: 'Std_ID' },
+                            { name: 'Barcode_ID' },
+                            { name: 'Student_Name' },
+                            { name: 'Gender' },
+                            { name: 'Date_of_Joining' },
+                            { name: 'Student_Class' },
+                            { name: 'Student_Section' },
+                            { name: 'Status' },
+                            { name: 'Inactive_Date' },
+                            { name: 'Creation_Date' },
+                            { name: 'Created_By' },
+                            { name: 'Last_Modified_Date' },
+                            { name: 'Last_Modified_By' },
+                            { name: 'REC_ID' },  // ← ADD THIS
+                          ]
+                        : (table === 'class_sections' ? tableConfigs[subTab].fields.flatMap(s => s.fields) : tableConfigs[table].fields.flatMap(s => s.fields))
+                      ).map(field => (
+                        <td key={field.name}>
+                          {item[field.name] || ''}
+                        </td>
+                      ))}
+                      <td>
+                        <button
+                          onClick={() => handleEditClick(index)}
+                          className="text-blue-500 hover:underline mr-4"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (table === 'student_data' && !canDeleteStudent) {
+                              setError('You do not have permission to delete student records');
+                              return;
+                            }
+                            handleDeleteClick(table, index, item._rowNumber);
+                          }}
+                          className={`text-red-500 hover:underline ${table === 'student_data' && !canDeleteStudent ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          disabled={table === 'student_data' && !canDeleteStudent}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {showDeleteConfirm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="card p-6 max-w-sm w-full">
+                <h3 className="text-lg font-semibold mb-4">Confirm Delete</h3>
+                <p className="text-gray-600 dark:text-gray-400 mb-4">Are you sure you want to delete this record?</p>
+                <div className="flex space-x-4">
+                  <button
+                    onClick={confirmDelete}
+                    className="btn-primary"
+                  >
+                    Yes, Delete
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="btn-outline"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>

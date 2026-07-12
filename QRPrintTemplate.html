@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student QR Codes</title>
+  <link rel="stylesheet" href="https://unicons.iconscout.com/release/v4.0.0/css/line.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      background: #f8fafc;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #1e293b;
+    }
+    .qr-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 20px;
+    }
+    .qr-card {
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+      text-align: center;
+      border: 1px solid #e2e8f0;
+    }
+    .qr-card img {
+      width: 150px;
+      height: 150px;
+      margin: 0 auto 10px;
+      display: block;
+    }
+    .qr-card .name {
+      font-weight: 600;
+      font-size: 16px;
+      color: #1e293b;
+    }
+    .qr-card .details {
+      font-size: 13px;
+      color: #64748b;
+      margin-top: 5px;
+    }
+    .qr-card .barcode {
+      font-family: monospace;
+      font-size: 14px;
+      color: #3b82f6;
+      font-weight: 600;
+      margin-top: 5px;
+    }
+    @media print {
+      body { background: white; padding: 10px; }
+      .qr-card { border: 1px solid #ddd; box-shadow: none; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1><?= pageTitle ?></h1>
+    <div class="qr-grid">
+      <? for (var i = 0; i < students.length; i++) { 
+        var student = students[i];
+      ?>
+      <div class="qr-card">
+        <img src="<?= student.qrCodeUrl ?>" alt="QR Code for <?= student.Student_Name ?>">
+        <div class="name"><?= student.Student_Name ?></div>
+        <div class="details">Class: <?= student.Student_Class ?> - Section: <?= student.Student_Section ?></div>
+        <div class="barcode"><?= student.Barcode_ID ?></div>
+        <div class="details" style="font-size:11px;color:#94a3b8;">SIRN: <?= student.Std_ID ?></div>
+      </div>
+      <? } ?>
+    </div>
+    <div style="text-align:center;margin-top:30px;" class="no-print">
+      <button onclick="window.print()" style="padding:10px 30px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:16px;cursor:pointer;">
+        <i class="uil uil-print"></i> Print QR Codes
+      </button>
+    </div>
+  </div>
+  <script>
+    // Auto-print when loaded
+    window.onload = function() {
+      setTimeout(function() {
+        window.print();
+      }, 500);
+    };
+  </script>
+</body>
+</html>
