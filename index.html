@@ -492,6 +492,33 @@
       gap: 1rem;
     }
 
+        .form-row.checkbox-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1.75rem;
+    }
+
+    .form-row.checkbox-row .form-field {
+      margin-bottom: 0;
+      flex: 0 0 auto;
+    }
+
+    .form-field.checkbox label {
+      position: static;
+      background: none;
+      padding: 0;
+      pointer-events: auto;
+      cursor: pointer;
+      font-size: 0.875rem;
+      color: var(--text-color);
+      white-space: nowrap;
+    }
+
+    .form-field.checkbox input:focus + label {
+      font-size: 0.875rem;
+      color: var(--text-color);
+    }
+
     .form-actions {
       display: flex;
       gap: 0.75rem;
@@ -1978,6 +2005,13 @@ if (formData.AllowedDays) {
       );
     }
 
+  const ATTENDANCE_COLUMNS = [
+      'Attendance_ID', 'Date', 'Std_ID', 'Barcode_ID', 'Student_Name',
+      'Student_Class', 'Student_Section', 'Status', 'Timestamp', 'Teacher_ID',
+      'Class_Section', 'Hours', 'Category', 'Attendance_Type',
+      'Term_ID', 'Term_Name', 'Event_Name', 'REC_ID'
+    ];
+
     function AttendanceReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, searchQuery, refreshData, userPermissions, username }) {
       const [formData, setFormData] = useState({
         searchType: 'Std_ID',
@@ -2067,7 +2101,7 @@ if (formData.AllowedDays) {
               dataToDownload = dataToDownload.filter(item => item.Status === formData.statusFilter);
             }
           }
-          const headers = ['Attendance_ID', 'Date', 'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section', 'Status', 'Timestamp', 'Teacher_ID', 'Class_Section'];
+          const headers = ATTENDANCE_COLUMNS;
           if (type === 'CSV') {
             let csv = headers.join(',') + '\n';
             dataToDownload.forEach(item => {
@@ -2085,10 +2119,12 @@ if (formData.AllowedDays) {
             window.URL.revokeObjectURL(url);
           } else { // PDF
             const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
+            const doc = new jsPDF({ orientation: 'landscape' });
             doc.autoTable({
               head: [headers],
               body: dataToDownload.map(item => headers.map(h => item[h] || '')),
+              styles: { fontSize: 6, cellPadding: 1 },
+              headStyles: { fontSize: 6 },
             });
             doc.save(`attendance_${new Date().toISOString()}.pdf`);
           }
@@ -2296,22 +2332,10 @@ if (formData.AllowedDays) {
             <div className="table-container max-h-[600px]">
               <table className="min-w-full">
                 <thead className="sticky-header">
-                  <tr>
-                    {[
-                      { name: 'Attendance_ID' },
-                      { name: 'Date' },
-                      { name: 'Std_ID' },
-                      { name: 'Barcode_ID' },
-                      { name: 'Student_Name' },
-                      { name: 'Student_Class' },
-                      { name: 'Student_Section' },
-                      { name: 'Status' },
-                      { name: 'Timestamp' },
-                      { name: 'Teacher_ID' },
-                      { name: 'Class_Section' },
-                    ].map(field => (
-                      <th key={field.name}>
-                        {field.name.replace('_', ' ')}
+                                    <tr>
+                    {ATTENDANCE_COLUMNS.map(field => (
+                      <th key={field} className="whitespace-nowrap">
+                        {field.replace(/_/g, ' ')}
                       </th>
                     ))}
                   </tr>
@@ -2321,8 +2345,8 @@ if (formData.AllowedDays) {
     .filter(item => item.Username !== 'superadmin')
     .map((item, index) => (
       <tr key={index}>
-                      {['Attendance_ID', 'Date', 'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section', 'Status', 'Timestamp', 'Teacher_ID', 'Class_Section'].map(field => (
-                        <td key={field}>
+                                            {ATTENDANCE_COLUMNS.map(field => (
+                        <td key={field} className="whitespace-nowrap">
                           {item[field] || ''}
                         </td>
                       ))}
@@ -2335,6 +2359,13 @@ if (formData.AllowedDays) {
         </div>
       );
     }
+
+    const STUDENT_COLUMNS = [
+      'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section',
+      'Status', 'Gender', 'Date_of_Joining', 'Active_Date', 'Inactive_Date',
+      'Creation_Date', 'Created_By', 'Last_Modified_Date', 'Last_Modified_By',
+      'Unique_ID', 'QR_Printed', 'REC_ID'
+    ];
 
    function StudentReports({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery, refreshData }) {
   const [formData, setFormData] = useState({
@@ -2572,7 +2603,7 @@ if (formData.AllowedDays) {
       return;
     }
     
-    const headers = ['Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section', 'Status', 'Gender', 'Date_of_Joining', 'Inactive_Date', 'Creation_Date', 'Created_By', 'Last_Modified_Date', 'Last_Modified_By'];
+        const headers = STUDENT_COLUMNS;
     let csv = headers.join(',') + '\n';
     
     reportData.forEach(student => {
@@ -2802,27 +2833,19 @@ if (formData.AllowedDays) {
           <div className="table-container max-h-[600px]">
             <table className="min-w-full">
               <thead className="sticky-header">
-                <tr>
-                  {[
-                    'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 
-                    'Student_Section', 'Status', 'Gender', 'Date_of_Joining',
-                    'Inactive_Date', 'Creation_Date', 'Created_By', 'Last_Modified_Date', 'Last_Modified_By'
-                  ].map(field => (
-                    <th key={field}>
-                      {field.replace('_', ' ')}
+                                <tr>
+                  {STUDENT_COLUMNS.map(field => (
+                    <th key={field} className="whitespace-nowrap">
+                      {field.replace(/_/g, ' ')}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filteredData.map((student, index) => (
+                                {filteredData.map((student, index) => (
                   <tr key={index}>
-                    {[
-                      'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 
-                      'Student_Section', 'Status', 'Gender', 'Date_of_Joining',
-                      'Inactive_Date', 'Creation_Date', 'Created_By', 'Last_Modified_Date', 'Last_Modified_By'
-                    ].map(field => (
-                      <td key={field}>
+                    {STUDENT_COLUMNS.map(field => (
+                      <td key={field} className="whitespace-nowrap">
                         {student[field] || ''}
                       </td>
                     ))}
@@ -3370,14 +3393,35 @@ const formatDateToDDMMMYYYY = (dateStr) => {
   }
 };
 
+      const assignedPermissionUsers = new Set((data.user_permissions || []).map(p => p.Username));
+      const availablePermissionUsers = users
+        .map(u => u.Username)
+        .filter(u => u === formData.Username || !assignedPermissionUsers.has(u));
+
       const tableConfigs = {
-        user_permissions: {
+                user_permissions: {
           fields: [
-            { section: 'User Permissions', fields: [
-              { name: 'Username', type: 'select', options: users.map(u => u.Username), required: true, placeholder: 'Select username' },
+            { section: 'User', fields: [
+            { name: 'Username', type: 'select', options: availablePermissionUsers, required: true, placeholder: 'Select username' },
+            ]},
+            { section: 'Attendance Marking', fields: [
               { name: 'canMarkManual', type: 'checkbox', placeholder: 'Can mark manual attendance' },
               { name: 'canMarkBarcode', type: 'checkbox', placeholder: 'Can mark barcode attendance' },
               { name: 'canSeeSummary', type: 'checkbox', placeholder: 'Can see attendance summary' },
+            ]},
+            { section: 'Hours & Episodic', fields: [
+              { name: 'canSetupHours', type: 'checkbox', placeholder: 'Can setup hours' },
+              { name: 'Can_Update_Batch_Hours', type: 'checkbox', placeholder: 'Can update batch hours' },
+              { name: 'canEditStudentHours', type: 'checkbox', placeholder: 'Can edit student hours' },
+              { name: 'canCreateEpisodic', type: 'checkbox', placeholder: 'Can create episodic events' },
+              { name: 'canMarkEpisodic', type: 'checkbox', placeholder: 'Can mark episodic attendance' },
+            ]},
+            { section: 'Reports', fields: [
+              { name: 'canDownloadReports', type: 'checkbox', placeholder: 'Can download reports' },
+              { name: 'canDownloadAllReports', type: 'checkbox', placeholder: 'Can download all reports' },
+            ]},
+            { section: 'School', fields: [
+              { name: 'REC_ID', type: 'text', disabled: true, placeholder: 'School ID (auto-populated)' },
             ]}
           ],
         },
@@ -3585,8 +3629,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
   if (editingIndex !== null) {
     const rowNumber = filteredData[editingIndex]._rowNumber;
     try {
-      const result = await callWithRetry('updateSheetRow', targetTable, rowNumber, dataToSubmit, 
-        targetTable === 'Student_Data' ? username : undefined);
+            const result = await callWithRetry('updateSheetRow', targetTable, rowNumber, dataToSubmit, username);
       if (result.success) {
         setSuccessMessage('Record updated successfully');
         setData(prev => ({
@@ -3608,8 +3651,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
     setIsLoading(false);
   } else {
     try {
-      const result = await callWithRetry('addSheetRow', targetTable, dataToSubmit,
-        targetTable === 'Student_Data' ? username : undefined);
+            const result = await callWithRetry('addSheetRow', targetTable, dataToSubmit, username);
       if (result.success) {
         setSuccessMessage('Record added successfully');
         setData(prev => ({
@@ -3645,8 +3687,16 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         if (table === 'teacher_assignments') {
           newFormData.Class_Section = item.Class_Section ? item.Class_Section.split(',') : [];
         }
-        if (table === 'student_data') {
+                if (table === 'student_data') {
           newFormData.Date_of_Joining = parseDDMMMYYYYToDate(item.Date_of_Joining);
+        }
+        if (table === 'user_permissions') {
+          Object.keys(newFormData).forEach(key => {
+            if (key !== 'Username' && key !== 'REC_ID' && key !== '_rowNumber') {
+              const v = newFormData[key];
+              newFormData[key] = v === true || v === 'true' || v === 'TRUE';
+            }
+          });
         }
         setFormData(newFormData);
         setIsStdIdEditable(false);
@@ -3696,7 +3746,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
               <i className="uil uil-folder"></i>
               {section.section}
             </div>
-            <div className="form-row">
+              <div className={`form-row ${section.fields.every(f => f.type === 'checkbox') ? 'checkbox-row' : ''}`}>
               {section.fields.map(field => (
                 <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
                   {field.type === 'select' ? (
@@ -3839,10 +3889,17 @@ const formatDateToDDMMMYYYY = (dateStr) => {
           )}
           {!isAdding && editingIndex === null && (
             <div className="flex flex-wrap gap-2 mb-6">
-              <button
+                            <button
                 onClick={() => {
                   setIsAdding(true);
-                  setFormData({});
+                  const defaults = {};
+                  const cfg = table === 'class_sections' ? tableConfigs[subTab] : tableConfigs[table];
+                  if (cfg) {
+                    cfg.fields.forEach(section => section.fields.forEach(f => {
+                      if (f.type === 'checkbox') defaults[f.name] = false;
+                    }));
+                  }
+                  setFormData(defaults);
                   setIsStdIdEditable(table === 'student_data');
                 }}
                 className="btn-primary"
@@ -3882,6 +3939,8 @@ const formatDateToDDMMMYYYY = (dateStr) => {
                           { name: 'Created_By' },
                           { name: 'Last_Modified_Date' },
                           { name: 'Last_Modified_By' },
+                          { name: 'Active_Date' },
+                          { name: 'QR_Printed' },
                           { name: 'REC_ID' },  // ← ADD THIS
                         ]
                       : (table === 'class_sections' ? tableConfigs[subTab].fields.flatMap(s => s.fields) : tableConfigs[table].fields.flatMap(s => s.fields))
@@ -3914,13 +3973,18 @@ const formatDateToDDMMMYYYY = (dateStr) => {
                             { name: 'Created_By' },
                             { name: 'Last_Modified_Date' },
                             { name: 'Last_Modified_By' },
+                            { name: 'Active_Date' },
+                            { name: 'QR_Printed' },
                             { name: 'REC_ID' },  // ← ADD THIS
                           ]
                         : (table === 'class_sections' ? tableConfigs[subTab].fields.flatMap(s => s.fields) : tableConfigs[table].fields.flatMap(s => s.fields))
                       ).map(field => (
-                        <td key={field.name}>
-                          {item[field.name] || ''}
+                                                <td key={field.name}>
+                          {table === 'user_permissions' && !['Username', 'REC_ID'].includes(field.name)
+                            ? ((item[field.name] === true || item[field.name] === 'true' || item[field.name] === 'TRUE') ? 'Yes' : 'No')
+                            : (item[field.name] || '')}
                         </td>
+                        
                       ))}
                       <td>
                         <button

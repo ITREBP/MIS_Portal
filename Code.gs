@@ -200,7 +200,7 @@ function addSheetRow(sheetName, rowData, currentUsername) {
       }
       
       // Handle special formatting cases
-      if (sheetName === 'User_Permissions' && ['canMarkManual', 'canMarkBarcode', 'canSeeSummary'].includes(header)) {
+        if (sheetName.toLowerCase() === 'user_permissions' && !['Username', 'REC_ID'].includes(header)) {
         return value === 'true' || value === true;
       }
       if (sheetName === 'Users' && ['StartTime', 'EndTime'].includes(header)) {
@@ -545,7 +545,7 @@ return {
     // ✅ OTHER SHEETS (Users, User_Permissions, etc.)
     const newRow = headers.map(function(header) {
       const value = rowData[header];
-      if (sheetName === 'User_Permissions' && ['canMarkManual', 'canMarkBarcode', 'canSeeSummary'].includes(header)) {
+        if (sheetName.toLowerCase() === 'user_permissions' && !['Username', 'REC_ID'].includes(header)) {
         return value === 'true' || value === true;
       }
       if (sheetName === 'Users' && ['StartTime', 'EndTime'].includes(header)) {
