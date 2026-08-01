@@ -19,7 +19,8 @@
   <link rel="stylesheet" href="https://unicons.iconscout.com/release/v4.0.0/css/line.css">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style>
     :root {
       --primary-color: #3b82f6;
@@ -1237,7 +1238,7 @@ const refreshData = (recIdOverride = null) => {
                     </a>
                     {expandedSections.reports && isSidebarOpen && (
                       <div className="sub-nav">
-                        {['student_attendance', 'student_reports', 'audit_reports'].map(report => (
+                        {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports'].map(report => (
                           userPermissions[username]?.allowedTabs.includes(report) && (report !== 'student_attendance' || userPermissions[username]?.canQueryAttendance) && (
                             <a
                               key={report}
@@ -1374,6 +1375,14 @@ const refreshData = (recIdOverride = null) => {
       setSuccessMessage={setSuccessMessage}
       userPermissions={userPermissions[username]}
       searchQuery={searchQuery}
+    />
+  ) : activeReport === 'attendance_reports' ? (
+    <AttendanceReportsPage
+      data={data}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setError={setError}
+      setSuccessMessage={setSuccessMessage}
     />
   ) : null
 ) : activeTab ? (
@@ -1547,7 +1556,7 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
   { name: 'StartTime', type: 'text', required: true, placeholder: 'Enter start time (HH:MM)' },
   { name: 'EndTime', type: 'text', required: true, placeholder: 'Enter end time (HH:MM)' },
   { name: 'allowedTabs', type: 'select-multiple', 
-    options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'qr_management', 'reserve_codes'], 
+        options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'qr_management', 'reserve_codes'], 
     required: true, 
     placeholder: 'Select allowed tabs' 
   },
@@ -3325,6 +3334,356 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage }) 
         </div>
       );
     }
+
+    function AttendanceReportsPage({ data, isLoading, setIsLoading, setError, setSuccessMessage }) {
+  const [dailyDate, setDailyDate] = useState('');
+  const [dailyClass, setDailyClass] = useState('');
+  const [dailySection, setDailySection] = useState('');
+  const [dailyFormat, setDailyFormat] = useState('png');
+
+  const [reportType, setReportType] = useState('single');
+  const [monthlyClass, setMonthlyClass] = useState('');
+  const [monthlySection, setMonthlySection] = useState('');
+  const [monthlyStudentId, setMonthlyStudentId] = useState('');
+  const [monthlyMonth, setMonthlyMonth] = useState('');
+  const [monthlyFormat, setMonthlyFormat] = useState('png');
+  const [downloadHistory, setDownloadHistory] = useState([]);
+
+  const classesList = [...new Set(data.student_data.map(s => s.Student_Class).filter(Boolean))];
+  const sectionsByClass = {};
+  classesList.forEach(cls => {
+    sectionsByClass[cls] = [...new Set(data.student_data.filter(s => s.Student_Class === cls).map(s => s.Student_Section).filter(Boolean))];
+  });
+
+  // Handles both "dd-MMM-yyyy" strings (Portal's own format) and native Date/ISO strings
+  const parseAnyDate = (d) => {
+    if (!d) return null;
+    if (typeof d === 'string' && /^\d{2}-[A-Za-z]{3}-\d{4}$/.test(d)) {
+      const [day, monStr, year] = d.split('-');
+      const monthMap = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+      return new Date(parseInt(year), monthMap[monStr], parseInt(day));
+    }
+    const dt = new Date(d);
+    return isNaN(dt) ? null : dt;
+  };
+
+  const toYMD = (d) => {
+    const dt = parseAnyDate(d);
+    if (!dt) return '';
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  };
+
+  const monthlyStudents = monthlyClass && monthlySection
+    ? data.student_data.filter(s => s.Student_Class === monthlyClass && s.Student_Section === monthlySection)
+    : [];
+
+  const availableMonths = (() => {
+    const source = reportType === 'single' && monthlyStudentId
+      ? data.student_attendance.filter(a => String(a.Std_ID) === String(monthlyStudentId))
+      : (monthlyClass && monthlySection ? data.student_attendance.filter(a => a.Student_Class === monthlyClass && a.Student_Section === monthlySection) : []);
+    const set = new Set();
+    source.forEach(a => {
+      const dt = parseAnyDate(a.Date);
+      if (dt) set.add(`${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`);
+    });
+    return Array.from(set).sort((a, b) => b.localeCompare(a)).map(key => {
+      const [y, m] = key.split('-').map(Number);
+      return { key, display: `${new Date(y, m - 1).toLocaleString('default', { month: 'long' })} ${y}` };
+    });
+  })();
+
+  const computeSummary = (stdId, month, year) => {
+    let presents = 0, absents = 0, leaves = 0, totalDays = 0;
+    data.student_attendance.forEach(r => {
+      if (String(r.Std_ID) !== String(stdId)) return;
+      const dt = parseAnyDate(r.Date);
+      if (!dt || dt.getFullYear() !== year || (dt.getMonth() + 1) !== month) return;
+      totalDays++;
+      const st = (r.Status || '').toLowerCase();
+      if (st === 'present') presents++;
+      else if (st === 'absent') absents++;
+      else if (st === 'leave') leaves++;
+    });
+    return { presents, absents, leaves, totalDays, presentPercentage: totalDays > 0 ? Math.round((presents / totalDays) * 10000) / 100 : 0 };
+  };
+
+  const downloadCSVReport = (rows, filename) => {
+    const headers = Object.keys(rows[0]);
+    let csv = headers.join(',') + '\n';
+    rows.forEach(row => {
+      csv += headers.map(h => `"${(row[h] ?? '').toString().replace(/"/g, '""')}"`).join(',') + '\n';
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  };
+
+  const getStatusStyle = (status) => {
+    switch ((status || '').toLowerCase()) {
+      case 'present': return 'color:#2e7d32;font-weight:600;background-color:#e8f5e9;';
+      case 'absent': return 'color:#c62828;font-weight:600;background-color:#ffebee;';
+      case 'leave': return 'color:#ef6c00;font-weight:600;background-color:#fff3e0;';
+      default: return 'color:#1a2c3e;font-weight:500;background-color:#f5f5f5;';
+    }
+  };
+
+  const getPercentColor = (pct) => (pct >= 75 ? '#2e7d32' : pct >= 50 ? '#ef6c00' : '#c62828');
+  const getPercentBg = (pct) => (pct >= 75 ? '#e8f5e9' : pct >= 50 ? '#fff3e0' : '#ffebee');
+
+  const renderAsPNG = async (rows, filename, title, isMonthly) => {
+    setIsLoading(true);
+    const reportDiv = document.createElement('div');
+    reportDiv.setAttribute('data-theme', 'light');
+    reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:1100px;background:white;padding:40px;font-family:sans-serif;color:#1a2c3e;';
+    const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const headers = Object.keys(rows[0]);
+    let html = `
+      <div style="margin-bottom:20px;text-align:center;">
+        <h1 style="color:#1a2c3e;margin-bottom:10px;">${title}</h1>
+        <div style="font-size:13px;color:#666;">Generated on ${currentDate}</div>
+        <hr style="border:2px solid #1a73e8;margin-top:10px;">
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#1a73e8;color:white;">
+          ${headers.map(h => `<th style="padding:10px;text-align:left;border:1px solid #ddd;">${h}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+    `;
+    rows.forEach((row, idx) => {
+      const isTotal = row['Student Name'] === 'CLASS TOTAL';
+      const bg = isTotal ? '#e3f2fd' : (idx % 2 === 0 ? '#ffffff' : '#f8f9fa');
+      html += `<tr style="background:${bg};">`;
+      headers.forEach(h => {
+        let val = row[h] ?? '';
+        let style = `padding:8px 10px;border:1px solid #ddd;${isTotal ? 'font-weight:700;' : ''}`;
+        if (h === 'Status') style += getStatusStyle(val);
+        if (h === 'Attendance %') {
+          const pct = parseFloat(val) || 0;
+          style += `color:${isTotal ? '#1a2c3e' : getPercentColor(pct)};font-weight:700;background:${isTotal ? 'transparent' : getPercentBg(pct)};`;
+        }
+        html += `<td style="${style}">${val}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    reportDiv.innerHTML = html;
+    document.body.appendChild(reportDiv);
+    await new Promise(r => setTimeout(r, 100));
+    try {
+      const canvas = await html2canvas(reportDiv, { scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      document.body.removeChild(reportDiv);
+      const link = document.createElement('a');
+      link.download = `${filename}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      setSuccessMessage('PNG report downloaded!');
+    } catch (err) {
+      document.body.removeChild(reportDiv);
+      setError('Failed to generate PNG: ' + err.message);
+    }
+    setIsLoading(false);
+  };
+
+  const logDownload = (name, format) => {
+    setDownloadHistory(prev => [{ name, format, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }, ...prev].slice(0, 5));
+  };
+
+  const generateDaily = (e) => {
+    e.preventDefault();
+    if (!dailyDate || !dailyClass || !dailySection) { setError('Please select date, class and section.'); return; }
+    let rows = data.student_attendance
+      .filter(a => a.Student_Class === dailyClass && a.Student_Section === dailySection && toYMD(a.Date) === dailyDate)
+      .map(a => ({ 'Student Name': a.Student_Name, 'Student ID': a.Std_ID, 'Class': a.Student_Class, 'Section': a.Student_Section, 'Date': dailyDate, 'Status': a.Status }));
+    if (rows.length === 0) {
+      rows = data.student_data
+        .filter(s => s.Student_Class === dailyClass && s.Student_Section === dailySection)
+        .map(s => ({ 'Student Name': s.Student_Name, 'Student ID': s.Std_ID, 'Class': s.Student_Class, 'Section': s.Student_Section, 'Date': dailyDate, 'Status': 'Not Marked' }));
+    }
+    if (rows.length === 0) { setError('No attendance data found.'); return; }
+    rows.sort((a, b) => (a['Student Name'] || '').localeCompare(b['Student Name'] || ''));
+    const filename = `attendance_${dailyClass}_${dailySection}_${dailyDate}`;
+    if (dailyFormat === 'csv') {
+      downloadCSVReport(rows, `${filename}.csv`);
+      setSuccessMessage('CSV report downloaded!');
+    } else {
+      renderAsPNG(rows, filename, 'Daily Attendance Report', false);
+    }
+    logDownload(`Attendance - ${dailyClass}-${dailySection} - ${dailyDate}`, dailyFormat.toUpperCase());
+  };
+
+  const generateMonthly = (e) => {
+    e.preventDefault();
+    if (!monthlyClass || !monthlySection || !monthlyMonth) { setError('Please fill all fields.'); return; }
+    const [year, month] = monthlyMonth.split('-').map(Number);
+    const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
+
+    if (reportType === 'single') {
+      if (!monthlyStudentId) { setError('Please select a student.'); return; }
+      const student = data.student_data.find(s => String(s.Std_ID) === String(monthlyStudentId));
+      const summary = computeSummary(monthlyStudentId, month, year);
+      const rows = [{
+        'Student Name': student?.Student_Name || '', 'Student ID': monthlyStudentId, 'Class Section': `${monthlyClass}-${monthlySection}`,
+        'Month': monthName, 'Year': year, 'Presents': summary.presents, 'Absents': summary.absents, 'Leaves': summary.leaves,
+        'Total Days': summary.totalDays, 'Attendance %': `${summary.presentPercentage}%`
+      }];
+      const filename = `${(student?.Student_Name || 'student').replace(/\s+/g, '_')}_${monthlyClass}_${monthlySection}_${monthName}_${year}`;
+      if (monthlyFormat === 'csv') {
+        downloadCSVReport(rows, `student_summary_${filename}.csv`);
+        setSuccessMessage('CSV report downloaded!');
+      } else {
+        renderAsPNG(rows, `student_summary_${filename}`, 'Student Monthly Summary', true);
+      }
+      logDownload(`Student Summary - ${student?.Student_Name || monthlyStudentId} - ${monthName} ${year}`, monthlyFormat.toUpperCase());
+    } else {
+      if (monthlyStudents.length === 0) { setError('No students found.'); return; }
+      const rows = monthlyStudents.map(s => {
+        const summary = computeSummary(s.Std_ID, month, year);
+        return {
+          'Student Name': s.Student_Name, 'Student ID': s.Std_ID, 'Class Section': `${monthlyClass}-${monthlySection}`,
+          'Month': monthName, 'Year': year, 'Presents': summary.presents, 'Absents': summary.absents, 'Leaves': summary.leaves,
+          'Total Days': summary.totalDays, 'Attendance %': `${summary.presentPercentage}%`
+        };
+      });
+      const totalPresents = rows.reduce((s, r) => s + r.Presents, 0);
+      const totalAbsents = rows.reduce((s, r) => s + r.Absents, 0);
+      const totalLeaves = rows.reduce((s, r) => s + r.Leaves, 0);
+      const totalDays = rows.reduce((s, r) => s + r['Total Days'], 0);
+      rows.push({
+        'Student Name': 'CLASS TOTAL', 'Student ID': '', 'Class Section': `${monthlyClass}-${monthlySection}`, 'Month': monthName, 'Year': year,
+        'Presents': totalPresents, 'Absents': totalAbsents, 'Leaves': totalLeaves, 'Total Days': totalDays,
+        'Attendance %': totalDays > 0 ? `${Math.round((totalPresents / totalDays) * 10000) / 100}%` : '0%'
+      });
+      const filename = `class_summary_${monthlyClass}_${monthlySection}_${monthName}_${year}`;
+      if (monthlyFormat === 'csv') {
+        downloadCSVReport(rows, `${filename}.csv`);
+        setSuccessMessage('CSV report downloaded!');
+      } else {
+        renderAsPNG(rows, filename, 'Class Monthly Summary', true);
+      }
+      logDownload(`Class Summary - ${monthlyClass}-${monthlySection} - ${monthName} ${year}`, monthlyFormat.toUpperCase());
+    }
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center mb-4">
+        <i className="uil uil-file-download text-2xl text-blue-500 mr-2"></i>
+        <h2 className="text-xl font-semibold">Attendance Reports</h2>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Daily Attendance Report */}
+        <div className="form-container">
+          <h3 className="text-lg font-semibold mb-4">Daily Attendance Report</h3>
+          <form onSubmit={generateDaily}>
+            <div className="form-field">
+              <input type="date" className="form-input" id="dailyDate" value={dailyDate} onChange={e => setDailyDate(e.target.value)} required />
+              <label htmlFor="dailyDate">Date</label>
+            </div>
+            <div className="form-field">
+              <select className="form-input" id="dailyClass" value={dailyClass} onChange={e => { setDailyClass(e.target.value); setDailySection(''); }} required>
+                <option value="" disabled>Select Class</option>
+                {classesList.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <label htmlFor="dailyClass">Class</label>
+            </div>
+            <div className="form-field">
+              <select className="form-input" id="dailySection" value={dailySection} onChange={e => setDailySection(e.target.value)} required disabled={!dailyClass}>
+                <option value="" disabled>Select Section</option>
+                {(sectionsByClass[dailyClass] || []).map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <label htmlFor="dailySection">Section</label>
+            </div>
+            <div className="form-field">
+              <select className="form-input" id="dailyFormat" value={dailyFormat} onChange={e => setDailyFormat(e.target.value)}>
+                <option value="png">PNG (High Quality)</option>
+                <option value="csv">CSV</option>
+              </select>
+              <label htmlFor="dailyFormat">Format</label>
+            </div>
+            <button type="submit" disabled={isLoading} className={`btn-primary w-full ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
+              <i className="uil uil-download"></i> Download Report
+            </button>
+          </form>
+        </div>
+
+        {/* Monthly Summary Report */}
+        <div className="form-container">
+          <h3 className="text-lg font-semibold mb-4">Monthly Summary Report</h3>
+          <form onSubmit={generateMonthly}>
+            <div className="form-field">
+              <select className="form-input" id="reportType" value={reportType} onChange={e => { setReportType(e.target.value); setMonthlyMonth(''); }}>
+                <option value="single">Single Student</option>
+                <option value="all">All Students in Class</option>
+              </select>
+              <label htmlFor="reportType">Report Type</label>
+            </div>
+            <div className="form-field">
+              <select className="form-input" id="monthlyClass" value={monthlyClass} onChange={e => { setMonthlyClass(e.target.value); setMonthlySection(''); setMonthlyStudentId(''); setMonthlyMonth(''); }} required>
+                <option value="" disabled>Select Class</option>
+                {classesList.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <label htmlFor="monthlyClass">Class</label>
+            </div>
+            <div className="form-field">
+              <select className="form-input" id="monthlySection" value={monthlySection} onChange={e => { setMonthlySection(e.target.value); setMonthlyStudentId(''); setMonthlyMonth(''); }} required disabled={!monthlyClass}>
+                <option value="" disabled>Select Section</option>
+                {(sectionsByClass[monthlyClass] || []).map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <label htmlFor="monthlySection">Section</label>
+            </div>
+            {reportType === 'single' && (
+              <div className="form-field">
+                <select className="form-input" id="monthlyStudent" value={monthlyStudentId} onChange={e => { setMonthlyStudentId(e.target.value); setMonthlyMonth(''); }} required disabled={!monthlySection}>
+                  <option value="" disabled>Select Student</option>
+                  {monthlyStudents.map(s => <option key={s.Std_ID} value={s.Std_ID}>{s.Student_Name} ({s.Std_ID})</option>)}
+                </select>
+                <label htmlFor="monthlyStudent">Student</label>
+              </div>
+            )}
+            <div className="form-field">
+              <select className="form-input" id="monthlyMonth" value={monthlyMonth} onChange={e => setMonthlyMonth(e.target.value)} required>
+                <option value="" disabled>Select Month</option>
+                {availableMonths.map(m => <option key={m.key} value={m.key}>{m.display}</option>)}
+              </select>
+              <label htmlFor="monthlyMonth">Month</label>
+            </div>
+            <div className="form-field">
+              <select className="form-input" id="monthlyFormat" value={monthlyFormat} onChange={e => setMonthlyFormat(e.target.value)}>
+                <option value="png">PNG (High Quality)</option>
+                <option value="csv">CSV</option>
+              </select>
+              <label htmlFor="monthlyFormat">Format</label>
+            </div>
+            <button type="submit" disabled={isLoading} className={`btn-primary w-full ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
+              <i className="uil uil-download"></i> Download Summary
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <div className="form-container mt-6">
+        <h3 className="text-lg font-semibold mb-3">Recent Downloads</h3>
+        {downloadHistory.length === 0 ? (
+          <p className="text-gray-500 text-center">No recent downloads</p>
+        ) : (
+          downloadHistory.map((h, i) => (
+            <div key={i} className="flex justify-between items-center py-2 border-b border-gray-200 dark:border-gray-700 last:border-0">
+              <span><i className={`uil ${h.format === 'PNG' ? 'uil-image-v' : 'uil-file'} mr-2`}></i>{h.name}</span>
+              <span className="text-sm text-gray-500">{h.time}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
 
   function TableManager({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, genderOptions, setSuccessMessage, setError, username, userPermissions, recId }) {
       const [isAdding, setIsAdding] = useState(false);
