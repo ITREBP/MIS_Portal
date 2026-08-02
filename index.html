@@ -1580,13 +1580,15 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
         }
       };
 
-      const filteredData = searchQuery
+           const filteredData = searchQuery
         ? data[table].filter(item => {
             return Object.values(item).some(val =>
               val?.toString().toLowerCase().includes(searchQuery.toLowerCase())
             );
           })
         : data[table];
+
+      const visibleUsers = filteredData.filter(user => user.Username !== 'superadmin');
 
       const validateForm = () => {
         const errors = {};
@@ -1617,7 +1619,7 @@ if (formData.AllowedDays) {
         setIsLoading(true);
         setMessage('');
         if (editingIndex !== null) {
-          const rowNumber = filteredData[editingIndex]._rowNumber;
+                    const rowNumber = visibleUsers[editingIndex]._rowNumber;
           try {
             const result = await callWithRetry('updateSheetRow', table, rowNumber, dataToSubmit);
             if (result.success) {
@@ -1663,7 +1665,7 @@ if (formData.AllowedDays) {
       const handleEditClick = (index) => {
         setEditingIndex(index);
         setIsAdding(false);
-        const item = filteredData[index];
+                const item = visibleUsers[index];
         const newFormData = { ...item };
         newFormData.allowedTabs = item.allowedTabs ? item.allowedTabs.split(',') : [];
         newFormData.AllowedDays = item.AllowedDays ? item.AllowedDays.split(',') : [];
