@@ -216,7 +216,7 @@
       color: var(--primary-color);
     }
 
-    .form-field input,
+        .form-field input,
     .form-field select {
       width: 100%;
       padding: 0.75rem 1rem;
@@ -226,6 +226,14 @@
       color: var(--text-color);
       font-size: 0.875rem;
       transition: var(--transition);
+    }
+
+    .form-field input::placeholder {
+      color: transparent;
+    }
+
+    .form-field input:focus::placeholder {
+      color: var(--text-light);
     }
 
     .form-field input:focus,
@@ -1553,8 +1561,8 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
             ]},
             { section: 'Access Control', fields: [
   { name: 'AllowedDays', type: 'select-multiple', options: daysOfWeek, required: true, placeholder: 'Select allowed days' },
-  { name: 'StartTime', type: 'text', required: true, placeholder: 'Enter start time (HH:MM)' },
-  { name: 'EndTime', type: 'text', required: true, placeholder: 'Enter end time (HH:MM)' },
+  { name: 'StartTime', type: 'text', required: true, placeholder: 'Default start time (HH:MM)' },
+  { name: 'EndTime', type: 'text', required: true, placeholder: 'Default end time (HH:MM)' },
   { name: 'allowedTabs', type: 'select-multiple', 
         options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'qr_management', 'reserve_codes'], 
     required: true, 
@@ -1901,7 +1909,52 @@ if (formData.AllowedDays) {
             <div className="form-container mb-6">
               <h3 className="text-lg font-semibold mb-4">{editingIndex !== null ? 'Edit' : 'Add'} User</h3>
               <form onSubmit={handleSubmit}>
-                {renderFormFields()}
+                                {renderFormFields()}
+                {(formData.AllowedDays || []).length > 0 && (
+                  <div className="form-section">
+                    <div className="form-section-title">
+                      <i className="uil uil-clock"></i>
+                      Per-Day Schedule Override (optional)
+                    </div>
+                    <p className="text-sm text-gray-500 mb-3">Leave a day blank to use the default Start/End Time above.</p>
+                    {(formData.AllowedDays || []).map(day => {
+                      let daySchedule = {};
+                      try { daySchedule = formData.DaySchedule ? JSON.parse(formData.DaySchedule) : {}; } catch (e) { daySchedule = {}; }
+                      const updateDay = (field, value) => {
+                        const updated = { ...daySchedule, [day]: { ...daySchedule[day], [field]: value } };
+                        setFormData(prev => ({ ...prev, DaySchedule: JSON.stringify(updated) }));
+                      };
+                                            return (
+                        <div key={day} className="form-row">
+                          <div className="form-field">
+                            <input
+                              type="text"
+                              name={`daySchedule_${day}_start`}
+                              value={daySchedule[day]?.start || ''}
+                              onChange={e => updateDay('start', e.target.value)}
+                              placeholder="Enter start time (HH:MM)"
+                              className="form-input"
+                              id={`daySchedule_${day}_start`}
+                            />
+                            <label htmlFor={`daySchedule_${day}_start`}>{day} Start Time</label>
+                          </div>
+                          <div className="form-field">
+                            <input
+                              type="text"
+                              name={`daySchedule_${day}_end`}
+                              value={daySchedule[day]?.end || ''}
+                              onChange={e => updateDay('end', e.target.value)}
+                              placeholder="Enter end time (HH:MM)"
+                              className="form-input"
+                              id={`daySchedule_${day}_end`}
+                            />
+                            <label htmlFor={`daySchedule_${day}_end`}>{day} End Time</label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {message && (
                   <p className="form-message">{message}</p>
                 )}
