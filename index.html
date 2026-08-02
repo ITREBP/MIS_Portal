@@ -1254,7 +1254,7 @@ const refreshData = (recIdOverride = null) => {
                               onClick={e => { e.preventDefault(); setActiveReport(report); setActiveTab(null); }}
                               className={`sub-nav-item ${activeReport === report ? 'active' : ''}`}
                             >
-                              {report.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                                            {report.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             </a>
                           )
                         ))}
@@ -1295,7 +1295,7 @@ const refreshData = (recIdOverride = null) => {
                     </button>
                     <h1 className="text-xl font-bold">
                       {activeReport 
-                        ? activeReport.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
+                          ? activeReport.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) 
                         : activeTab 
                           ? activeTab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
                           : 'Dashboard'
