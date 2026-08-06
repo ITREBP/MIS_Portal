@@ -767,6 +767,7 @@ const refreshData = (recIdOverride = null) => {
               canQueryAttendance: user.canQueryAttendance === 'Yes',
               canDownload: user.canDownload === 'Yes',
               canAmendSIRN: user.canAmendSIRN === 'Yes',
+              canCorrectAttendance: user.canCorrectAttendance === 'Yes',
               REC_ID: user.REC_ID || ''
             };
           });
@@ -914,6 +915,7 @@ const refreshData = (recIdOverride = null) => {
             canQueryAttendance: result.user.canQueryAttendance === 'Yes',
             canDownload: result.user.canDownload === 'Yes',
             canAmendSIRN: result.user.canAmendSIRN === 'Yes',
+            canCorrectAttendance: result.user.canCorrectAttendance === 'Yes',
             REC_ID: userRecId
           }
         };
@@ -1177,7 +1179,7 @@ const refreshData = (recIdOverride = null) => {
               <div className="nav-section">
                 <div className="nav-section-title">Class Management</div>
                 <ul>
-                  {['class_sections', 'student_data', 'previous_date_permissions'].map(tab => (
+                  {['class_sections', 'student_data', 'previous_date_permissions', 'attendance_correction'].map(tab => (
                     userPermissions[username]?.allowedTabs.includes(tab) && (
                       <li key={tab}>
                         <a
@@ -1185,8 +1187,8 @@ const refreshData = (recIdOverride = null) => {
                           onClick={e => { e.preventDefault(); setActiveTab(tab); setActiveReport(null); }}
                           className={`nav-item ${activeTab === tab ? 'active' : ''}`}
                         >
-                          <i className={`uil uil-${tab === 'class_sections' ? 'map' : tab === 'student_data' ? 'graduation-cap' : 'calendar-alt'} text-lg`}></i>
-                          {isSidebarOpen && <span>{tab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>}
+                          <i className={`uil uil-${tab === 'class_sections' ? 'map' : tab === 'student_data' ? 'graduation-cap' : tab === 'attendance_correction' ? 'edit-alt' : 'calendar-alt'} text-lg`}></i>
+                          {isSidebarOpen && <span>{tab.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>}
                         </a>
                       </li>
                     )
@@ -1246,7 +1248,7 @@ const refreshData = (recIdOverride = null) => {
                     </a>
                     {expandedSections.reports && isSidebarOpen && (
                       <div className="sub-nav">
-                                                {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'batch_hours_log'].map(report => (
+                                                {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'batch_hours_log', 'attendance_correction_log'].map(report => (
                           userPermissions[username]?.allowedTabs.includes(report) && (report !== 'student_attendance' || userPermissions[username]?.canQueryAttendance) && (
                             <a
                               key={report}
@@ -1401,6 +1403,15 @@ const refreshData = (recIdOverride = null) => {
       userPermissions={userPermissions}
       username={username}
     />
+  ) : activeReport === 'attendance_correction_log' ? (
+    <AttendanceCorrectionLog
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setError={setError}
+      setSuccessMessage={setSuccessMessage}
+      userPermissions={userPermissions}
+      username={username}
+    />
   ) : null
 ) : activeTab ? (
 activeTab === 'qr_management' ? (
@@ -1413,6 +1424,7 @@ activeTab === 'qr_management' ? (
       setSuccessMessage={setSuccessMessage}
       username={username}
       userPermissions={userPermissions}  // ← ADD THIS
+      refreshData={refreshData}
     />
   ) : (
       <div className="card p-6">
@@ -1425,6 +1437,27 @@ activeTab === 'qr_management' ? (
         </div>
       </div>
     )
+  ) : activeTab === 'attendance_correction' ? (
+    userPermissions[username]?.allowedTabs?.includes('attendance_correction') ? (
+      <AttendanceCorrection
+        isLoading={isLoading}
+        setIsLoading={setIsLoading}
+        setError={setError}
+        setSuccessMessage={setSuccessMessage}
+        userPermissions={userPermissions}
+        username={username}
+      />
+    ) : (
+      <div className="card p-6">
+        <div className="text-center py-8">
+          <i className="uil uil-lock text-5xl text-red-500 mb-4"></i>
+          <h3 className="text-xl font-semibold mb-2">Access Denied</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            You do not have permission to access Attendance Correction.
+          </p>
+        </div>
+      </div>
+    )
   ) : activeTab === 'reserve_codes' ? (
     userPermissions[username]?.allowedTabs?.includes('reserve_codes') ? (
       <ReserveCodes
@@ -1432,6 +1465,8 @@ activeTab === 'qr_management' ? (
         setIsLoading={setIsLoading}
         setError={setError}
         setSuccessMessage={setSuccessMessage}
+        userPermissions={userPermissions}
+        username={username}
       />
     ) : (
       <div className="card p-6">
@@ -1573,7 +1608,7 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
   { name: 'StartTime', type: 'text', required: true, placeholder: 'Default start time (HH:MM)' },
   { name: 'EndTime', type: 'text', required: true, placeholder: 'Default end time (HH:MM)' },
   { name: 'allowedTabs', type: 'select-multiple', 
-        options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'batch_hours_log', 'qr_management', 'reserve_codes'], 
+        options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
     required: true, 
     placeholder: 'Select allowed tabs' 
   },
@@ -1584,6 +1619,7 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
   { name: 'canQueryAttendance', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow query attendance' },
   { name: 'canDownload', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow download attendance' },
   { name: 'canAmendSIRN', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow amend SIRN' },  // ← ADD THIS
+  { name: 'canCorrectAttendance', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow correct attendance' },
 ]}
           ],
         }
@@ -1642,6 +1678,7 @@ if (formData.AllowedDays) {
               setFormData({});
               setEditingIndex(null);
               setFormErrors({});
+              refreshData(); // rebuild userPermissions so sidebar/allowedTabs reflect the change immediately
             } else {
               setError(result.message || 'Update failed');
             }
@@ -1661,6 +1698,7 @@ if (formData.AllowedDays) {
               setFormData({});
               setIsAdding(false);
               setFormErrors({});
+              refreshData();
             } else {
               setError(result.message || 'Add failed');
             }
@@ -2433,6 +2471,251 @@ if (formData.AllowedDays) {
       );
     }
 
+    function AttendanceCorrection({ isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, username }) {
+      const [formData, setFormData] = useState({
+        searchType: 'Std_ID',
+        searchValue: '',
+        startDate: '',
+        endDate: '',
+        statusFilter: 'All'
+      });
+      const [results, setResults] = useState([]);
+      const [searched, setSearched] = useState(false);
+      const [editingId, setEditingId] = useState(null);
+      const [editStatus, setEditStatus] = useState('');
+
+      const perms = userPermissions[username] || {};
+
+      const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+      };
+
+      const handleSearch = async (e) => {
+        e.preventDefault();
+        if (!formData.startDate || !formData.endDate) {
+          setError('Please select both start and end dates');
+          return;
+        }
+        setIsLoading(true);
+        try {
+          const result = await callWithRetry('getStudentAttendance', { ...formData, username });
+          setResults(result);
+          setSearched(true);
+          setError('');
+        } catch (err) {
+          setError('Search failed: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+
+      const startEdit = (row) => {
+        setEditingId(row.Attendance_ID);
+        setEditStatus(row.Status);
+      };
+
+      const cancelEdit = () => {
+        setEditingId(null);
+        setEditStatus('');
+      };
+
+      const saveEdit = async (row) => {
+        if (editStatus === row.Status) {
+          cancelEdit();
+          return;
+        }
+        setIsLoading(true);
+        try {
+          const result = await callWithRetry('correctAttendanceRecord', row.Attendance_ID, editStatus, username);
+          if (result.success) {
+            setResults(prev => prev.map(r =>
+              r.Attendance_ID === row.Attendance_ID ? { ...r, Status: editStatus } : r
+            ));
+            setSuccessMessage(result.message);
+            setError('');
+            cancelEdit();
+          } else {
+            setError(result.message || 'Correction failed');
+          }
+        } catch (err) {
+          setError('Correction failed: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+
+      if (!perms.canQueryAttendance) {
+        return (
+          <div className="card p-6">
+            <p className="text-red-500">You do not have permission to view attendance data.</p>
+          </div>
+        );
+      }
+
+      return (
+        <div className="card p-6">
+          <div className="flex items-center mb-4">
+            <i className="uil uil-edit-alt text-2xl text-blue-500 mr-2"></i>
+            <h2 className="text-xl font-semibold">Attendance Correction</h2>
+          </div>
+
+          <div className="form-container mb-6">
+            <h3 className="text-lg font-semibold mb-4">Find Attendance Record</h3>
+            <form onSubmit={handleSearch}>
+              <div className="form-row">
+                <div className="form-field">
+                  <select
+                    name="searchType"
+                    value={formData.searchType}
+                    onChange={handleInputChange}
+                    className="form-input"
+                    id="correctionSearchType"
+                  >
+                    <option value="Std_ID">Student ID</option>
+                    <option value="Barcode_ID">Barcode ID</option>
+                    <option value="Student_Name">Student Name</option>
+                  </select>
+                  <label htmlFor="correctionSearchType">Search By</label>
+                </div>
+                <div className="form-field">
+                  <input
+                    type="text"
+                    name="searchValue"
+                    value={formData.searchValue}
+                    onChange={handleInputChange}
+                    placeholder="Enter search value"
+                    className="form-input"
+                    id="correctionSearchValue"
+                  />
+                  <label htmlFor="correctionSearchValue">Search Value</label>
+                </div>
+                <div className="form-field">
+                  <input
+                    type="date"
+                    name="startDate"
+                    value={formData.startDate}
+                    onChange={handleInputChange}
+                    className="form-input"
+                    id="correctionStartDate"
+                    required
+                  />
+                  <label htmlFor="correctionStartDate">Start Date</label>
+                </div>
+                <div className="form-field">
+                  <input
+                    type="date"
+                    name="endDate"
+                    value={formData.endDate}
+                    onChange={handleInputChange}
+                    className="form-input"
+                    id="correctionEndDate"
+                    required
+                  />
+                  <label htmlFor="correctionEndDate">End Date</label>
+                </div>
+                <div className="form-field">
+                  <select
+                    name="statusFilter"
+                    value={formData.statusFilter}
+                    onChange={handleInputChange}
+                    className="form-input"
+                    id="correctionStatusFilter"
+                  >
+                    <option value="All">All Statuses</option>
+                    <option value="Present">Present</option>
+                    <option value="Absent">Absent</option>
+                    <option value="Leave">Leave</option>
+                  </select>
+                  <label htmlFor="correctionStatusFilter">Status Filter</label>
+                </div>
+              </div>
+              <div className="form-actions">
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+                >
+                  {isLoading ? (
+                    <>
+                      <i className="uil uil-spinner text-xl loading-spinner"></i>
+                      Searching...
+                    </>
+                  ) : (
+                    'Search'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {isLoading ? (
+            <p className="text-gray-500">Loading...</p>
+          ) : !searched ? (
+            <p className="text-gray-500">Search for a student and date range to find records to correct.</p>
+          ) : results.length === 0 ? (
+            <p className="text-gray-500">No attendance records found.</p>
+          ) : (
+            <div className="table-container max-h-[600px]">
+              <table className="min-w-full">
+                <thead className="sticky-header">
+                  <tr>
+                    <th>Date</th>
+                    <th>Std ID</th>
+                    <th>Student Name</th>
+                    <th>Class Section</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((row, index) => (
+                    <tr key={index}>
+                      <td className="whitespace-nowrap">{row.Date}</td>
+                      <td className="whitespace-nowrap">{row.Std_ID}</td>
+                      <td className="whitespace-nowrap">{row.Student_Name}</td>
+                      <td className="whitespace-nowrap">{row.Class_Section}</td>
+                      <td className="whitespace-nowrap">
+                        {editingId === row.Attendance_ID ? (
+                          <select
+                            value={editStatus}
+                            onChange={e => setEditStatus(e.target.value)}
+                            className="form-input"
+                            style={{
+                              width: 'auto',
+                              padding: '0.375rem 0.5rem',
+                              background: 'var(--panel-color)',
+                              color: 'var(--text-color)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: 'var(--radius-md)'
+                            }}
+                          >
+                            <option value="Present">Present</option>
+                            <option value="Absent">Absent</option>
+                            <option value="Leave">Leave</option>
+                          </select>
+                        ) : (
+                          row.Status
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap">
+                        {!perms.canCorrectAttendance ? null : editingId === row.Attendance_ID ? (
+                          <>
+                            <button onClick={() => saveEdit(row)} className="text-green-600 hover:underline mr-3">Save</button>
+                            <button onClick={cancelEdit} className="text-gray-500 hover:underline">Cancel</button>
+                          </>
+                        ) : (
+                          <button onClick={() => startEdit(row)} className="text-blue-500 hover:underline">Edit</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     const STUDENT_COLUMNS = [
       'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section',
       'Status', 'Gender', 'Date_of_Joining', 'Active_Date', 'Inactive_Date',
@@ -2933,34 +3216,29 @@ if (formData.AllowedDays) {
   );
 }
 
-function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessage, username, userPermissions }) {
-  const [unprintedStudents, setUnprintedStudents] = useState([]);
+function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessage, username, userPermissions, refreshData }) {
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [selectAll, setSelectAll] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [viewFilter, setViewFilter] = useState('unprinted'); // 'unprinted' | 'printed' | 'all'
 
-  useEffect(() => {
-    loadUnprintedStudents();
-  }, []);
+  const displayedStudents = data.student_data.filter(s => {
+    if (viewFilter === 'unprinted') return s.QR_Printed !== 'Yes';
+    if (viewFilter === 'printed') return s.QR_Printed === 'Yes';
+    return true;
+  });
 
-  const loadUnprintedStudents = async () => {
+  const handleRefresh = async () => {
     setIsLoading(true);
-    try {
-      // Get REC_ID from userPermissions
-      const recId = userPermissions[username]?.REC_ID || '';
-      const result = await callWithRetry('getUnprintedStudents', recId);
-      setUnprintedStudents(result);
-    } catch (err) {
-      setError('Failed to load unprinted students: ' + err.message);
-    }
+    await refreshData();
     setIsLoading(false);
   };
-  
+
   const handleSelectAll = () => {
     if (selectAll) {
       setSelectedStudents([]);
     } else {
-      setSelectedStudents(unprintedStudents.map(s => s.Std_ID));
+      setSelectedStudents(displayedStudents.map(s => s.Std_ID));
     }
     setSelectAll(!selectAll);
   };
@@ -2982,27 +3260,23 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
 
     setIsGenerating(true);
     try {
-      // Get selected student objects
-      const studentsToPrint = unprintedStudents.filter(s => 
+      const studentsToPrint = displayedStudents.filter(s =>
         selectedStudents.includes(s.Std_ID)
       );
-      
-      // Generate QR codes and open print window
+
       const result = await callWithRetry('generateQRCodePDF', studentsToPrint);
-      
-      // Create a new window with the QR codes
+
       const printWindow = window.open('', '_blank');
       printWindow.document.write(result);
       printWindow.document.close();
-      
-      // Mark students as printed
+
       await callWithRetry('markStudentsAsPrinted', selectedStudents);
-      
+
       setSuccessMessage(`QR codes generated for ${selectedStudents.length} students`);
       setSelectedStudents([]);
       setSelectAll(false);
-      loadUnprintedStudents(); // Refresh list
-      
+      await refreshData(); // reload data.student_data so QR_Printed reflects the change
+
     } catch (err) {
       setError('Failed to generate QR codes: ' + err.message);
     }
@@ -3010,12 +3284,12 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
   };
 
   const handlePrintAll = async () => {
-    if (unprintedStudents.length === 0) {
-      setError('No unprinted students available');
+    if (displayedStudents.length === 0) {
+      setError('No students in this view');
       return;
     }
-    
-    setSelectedStudents(unprintedStudents.map(s => s.Std_ID));
+
+    setSelectedStudents(displayedStudents.map(s => s.Std_ID));
     setTimeout(() => handlePrintQR(), 100);
   };
 
@@ -3028,7 +3302,7 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
         </div>
         <div className="flex gap-2">
           <button
-            onClick={loadUnprintedStudents}
+            onClick={handleRefresh}
             className="btn-outline"
             disabled={isLoading}
           >
@@ -3041,11 +3315,22 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
       <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
         <h3 className="font-semibold mb-2">Instructions:</h3>
         <ul className="list-disc list-inside text-sm text-gray-700 dark:text-gray-300">
-          <li>Select students whose QR codes haven't been printed</li>
-          <li>Click "Generate QR Codes" to create printable QR codes</li>
+          <li>Select students to generate printable QR codes</li>
           <li>QR codes will include student name, SIRN, and Barcode ID</li>
-          <li>Once printed, students won't appear in this list again</li>
+          <li>Already-printed students can be reprinted anytime from the "Printed" tab</li>
         </ul>
+      </div>
+
+      <div className="flex gap-2 mb-4">
+        {['unprinted', 'printed', 'all'].map(f => (
+          <button
+            key={f}
+            onClick={() => { setViewFilter(f); setSelectedStudents([]); setSelectAll(false); }}
+            className={`px-4 py-2 rounded-md ${viewFilter === f ? 'btn-primary' : 'btn-outline'}`}
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
       </div>
 
       <div className="flex gap-4 mb-6">
@@ -3062,28 +3347,29 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
           ) : (
             <>
               <i className="uil uil-print"></i>
-              Generate QR Codes ({selectedStudents.length})
+              {viewFilter === 'printed' ? 'Reprint' : 'Print'} QR Codes ({selectedStudents.length})
             </>
           )}
         </button>
-        
+
         <button
           onClick={handlePrintAll}
-          disabled={unprintedStudents.length === 0 || isGenerating}
-          className={`btn-secondary ${(unprintedStudents.length === 0 || isGenerating) ? 'opacity-50 cursor-not-allowed' : ''}`}
+          disabled={displayedStudents.length === 0 || isGenerating}
+          className={`btn-secondary ${(displayedStudents.length === 0 || isGenerating) ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           <i className="uil uil-copy"></i>
-          Select All Unprinted ({unprintedStudents.length})
+          Select All in View ({displayedStudents.length})
         </button>
       </div>
 
       {isLoading ? (
-        <p className="text-gray-500">Loading unprinted students...</p>
-      ) : unprintedStudents.length === 0 ? (
+        <p className="text-gray-500">Loading students...</p>
+      ) : displayedStudents.length === 0 ? (
         <div className="text-center p-8 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <i className="uil uil-check-circle text-5xl text-green-500 mb-4"></i>
-          <p className="text-gray-600 dark:text-gray-400">All QR codes have been printed!</p>
-          <p className="text-sm text-gray-500 mt-2">No unprinted students found.</p>
+          <p className="text-gray-600 dark:text-gray-400">
+            {viewFilter === 'unprinted' ? 'All QR codes have been printed!' : 'No students found for this view.'}
+          </p>
         </div>
       ) : (
         <>
@@ -3098,7 +3384,7 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
               <span className="ml-2 text-sm font-medium">Select All</span>
             </label>
             <span className="ml-4 text-sm text-gray-500">
-              {selectedStudents.length} of {unprintedStudents.length} selected
+              {selectedStudents.length} of {displayedStudents.length} selected
             </span>
           </div>
 
@@ -3112,10 +3398,11 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
                   <th>Student Name</th>
                   <th>Class</th>
                   <th>Section</th>
+                  <th>Printed</th>
                 </tr>
               </thead>
               <tbody>
-                {unprintedStudents.map((student, index) => (
+                {displayedStudents.map((student, index) => (
                   <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                     <td className="text-center">
                       <input
@@ -3130,6 +3417,7 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
                     <td>{student.Student_Name}</td>
                     <td>{student.Student_Class}</td>
                     <td>{student.Student_Section}</td>
+                    <td>{student.QR_Printed === 'Yes' ? 'Yes' : 'No'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -3141,16 +3429,48 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
   );
 }
 
-function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage }) {
+function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, username }) {
   const [reserveCount, setReserveCount] = useState(10);
   const [generatedCodes, setGeneratedCodes] = useState([]);
+  const [reserveList, setReserveList] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [viewFilter, setViewFilter] = useState('unprinted'); // 'unprinted' | 'printed' | 'all'
+  const [selectedCodes, setSelectedCodes] = useState([]);
+  const [selectAll, setSelectAll] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  const recId = userPermissions[username]?.REC_ID || '';
+
+  const loadReserveCodes = async () => {
+    setIsLoading(true);
+    try {
+      const result = await callWithRetry('getSheetData', 'Reserve_Codes', recId);
+      setReserveList(result);
+      setLoaded(true);
+    } catch (err) {
+      // Sheet may not exist yet if no reserve codes have ever been generated
+      if ((err.message || '').toLowerCase().includes('not found')) {
+        setReserveList([]);
+        setLoaded(true);
+      } else {
+        setError('Failed to load reserve codes: ' + err.message);
+      }
+    }
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    loadReserveCodes();
+  }, []);
 
   const handleGenerate = async () => {
     setIsLoading(true);
     try {
-      const codes = await callWithRetry('generateReserveCodes', reserveCount);
+      const codes = await callWithRetry('generateReserveCodes', reserveCount, recId, username);
       setGeneratedCodes(codes);
       setSuccessMessage(`Generated ${codes.length} reserve codes`);
+      setViewFilter('unprinted');
+      await loadReserveCodes();
     } catch (err) {
       setError('Failed to generate reserve codes: ' + err.message);
     }
@@ -3163,6 +3483,64 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage }) 
     setSuccessMessage('Codes copied to clipboard');
   };
 
+  const displayedCodes = reserveList.filter(r => {
+    if (viewFilter === 'unprinted') return r.Printed !== 'Yes';
+    if (viewFilter === 'printed') return r.Printed === 'Yes';
+    return true;
+  });
+
+  const handleSelectAll = () => {
+    if (selectAll) {
+      setSelectedCodes([]);
+    } else {
+      setSelectedCodes(displayedCodes.map(r => r.Barcode_ID));
+    }
+    setSelectAll(!selectAll);
+  };
+
+  const handleSelectCode = (barcode) => {
+    if (selectedCodes.includes(barcode)) {
+      setSelectedCodes(selectedCodes.filter(c => c !== barcode));
+      setSelectAll(false);
+    } else {
+      setSelectedCodes([...selectedCodes, barcode]);
+    }
+  };
+
+  const handlePrintSelected = async () => {
+    if (selectedCodes.length === 0) {
+      setError('Please select at least one code');
+      return;
+    }
+    setIsPrinting(true);
+    try {
+      const result = await callWithRetry('generateBlankQRCodePDF', selectedCodes);
+
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(result);
+      printWindow.document.close();
+
+      await callWithRetry('markReserveCodesAsPrinted', selectedCodes);
+
+      setSuccessMessage(`QR cards generated for ${selectedCodes.length} reserve codes`);
+      setSelectedCodes([]);
+      setSelectAll(false);
+      await loadReserveCodes();
+    } catch (err) {
+      setError('Failed to generate QR cards: ' + err.message);
+    }
+    setIsPrinting(false);
+  };
+
+  const handlePrintAllInView = () => {
+    if (displayedCodes.length === 0) {
+      setError('No codes in this view');
+      return;
+    }
+    setSelectedCodes(displayedCodes.map(r => r.Barcode_ID));
+    setTimeout(() => handlePrintSelected(), 100);
+  };
+
   return (
     <div className="card p-6">
       <div className="flex items-center mb-6">
@@ -3173,8 +3551,8 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage }) 
       <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
         <h3 className="font-semibold mb-2">About Reserve Codes:</h3>
         <p className="text-sm text-gray-700 dark:text-gray-300">
-          Generate reserve barcode IDs that can be assigned to new students. 
-          These codes follow the same format (BC + number) as automatically generated codes.
+          Generate reserve barcode IDs that can be printed as blank QR cards ahead of time, then
+          automatically assigned to the next new student added — no manual selection needed.
         </p>
       </div>
 
@@ -3191,7 +3569,7 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage }) 
           />
           <label htmlFor="reserveCount">Number of codes to generate</label>
         </div>
-        
+
         <button
           onClick={handleGenerate}
           disabled={isLoading}
@@ -3212,9 +3590,9 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage }) 
       </div>
 
       {generatedCodes.length > 0 && (
-        <div>
+        <div className="mb-8">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="font-semibold">Generated Reserve Codes:</h3>
+            <h3 className="font-semibold">Just Generated:</h3>
             <button
               onClick={handleCopyToClipboard}
               className="btn-outline text-sm"
@@ -3223,7 +3601,7 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage }) 
               Copy All
             </button>
           </div>
-          
+
           <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
               {generatedCodes.map((code, index) => (
@@ -3237,6 +3615,111 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage }) 
             </div>
           </div>
         </div>
+      )}
+
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold">Manage Reserve Codes</h3>
+        <button onClick={loadReserveCodes} className="btn-outline" disabled={isLoading}>
+          <i className={`uil uil-refresh ${isLoading ? 'loading-spinner' : ''}`}></i> Refresh
+        </button>
+      </div>
+
+      <div className="flex gap-2 mb-4">
+        {['unprinted', 'printed', 'all'].map(f => (
+          <button
+            key={f}
+            onClick={() => { setViewFilter(f); setSelectedCodes([]); setSelectAll(false); }}
+            className={`px-4 py-2 rounded-md ${viewFilter === f ? 'btn-primary' : 'btn-outline'}`}
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-4 mb-6">
+        <button
+          onClick={handlePrintSelected}
+          disabled={selectedCodes.length === 0 || isPrinting}
+          className={`btn-primary ${(selectedCodes.length === 0 || isPrinting) ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          {isPrinting ? (
+            <>
+              <i className="uil uil-spinner text-xl loading-spinner"></i>
+              Generating...
+            </>
+          ) : (
+            <>
+              <i className="uil uil-print"></i>
+              {viewFilter === 'printed' ? 'Reprint' : 'Print'} Selected ({selectedCodes.length})
+            </>
+          )}
+        </button>
+
+        <button
+          onClick={handlePrintAllInView}
+          disabled={displayedCodes.length === 0 || isPrinting}
+          className={`btn-secondary ${(displayedCodes.length === 0 || isPrinting) ? 'opacity-50 cursor-not-allowed' : ''}`}
+        >
+          <i className="uil uil-copy"></i>
+          Select All in View ({displayedCodes.length})
+        </button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-gray-500">Loading...</p>
+      ) : !loaded ? null : displayedCodes.length === 0 ? (
+        <p className="text-gray-500">No reserve codes {reserveList.length === 0 ? 'generated yet' : 'for the selected view'}.</p>
+      ) : (
+        <>
+          <div className="mb-4 flex items-center">
+            <label className="flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectAll}
+                onChange={handleSelectAll}
+                className="form-checkbox h-5 w-5 text-blue-600"
+              />
+              <span className="ml-2 text-sm font-medium">Select All</span>
+            </label>
+            <span className="ml-4 text-sm text-gray-500">
+              {selectedCodes.length} of {displayedCodes.length} selected
+            </span>
+          </div>
+
+          <div className="table-container max-h-[500px]">
+            <table className="min-w-full">
+              <thead className="sticky-header">
+                <tr>
+                  <th className="w-12">Select</th>
+                  <th>Barcode ID</th>
+                  <th>Status</th>
+                  <th>Printed</th>
+                  <th>Generated On</th>
+                  <th>Used By (SIRN)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedCodes.map((row, index) => (
+                  <tr key={index} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedCodes.includes(row.Barcode_ID)}
+                        onChange={() => handleSelectCode(row.Barcode_ID)}
+                        className="form-checkbox h-5 w-5 text-blue-600"
+                      />
+                    </td>
+                    <td className="font-mono font-bold text-blue-600">{row.Barcode_ID}</td>
+                    <td>{row.Status}</td>
+                    <td>{row.Printed === 'Yes' ? 'Yes' : 'No'}</td>
+                    <td>{row.Generated_Date}</td>
+                    <td>{row.Used_By_Std_ID || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
@@ -3965,6 +4448,227 @@ function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, u
   );
 }
 
+function AttendanceCorrectionLog({ isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, username }) {
+  const [logData, setLogData] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [studentFilter, setStudentFilter] = useState('');
+  const [classSectionFilter, setClassSectionFilter] = useState('');
+  const [correctedByFilter, setCorrectedByFilter] = useState('');
+
+  const recId = userPermissions[username]?.REC_ID || '';
+
+  const formatLogDate = (val) => {
+    if (!val) return '';
+    if (typeof val === 'string' && /^\d{2}-[A-Za-z]{3}-\d{4}$/.test(val)) return val;
+    const dt = new Date(val);
+    if (isNaN(dt)) return val;
+    const day = dt.getDate().toString().padStart(2, '0');
+    const month = dt.toLocaleString('default', { month: 'short' });
+    return `${day}-${month}-${dt.getFullYear()}`;
+  };
+
+  const loadLog = async () => {
+    setIsLoading(true);
+    try {
+      const result = await callWithRetry('getSheetData', 'Attendance_Correction_Log', recId);
+      const sorted = [...result].sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+      setLogData(sorted);
+      setLoaded(true);
+    } catch (err) {
+      if ((err.message || '').toLowerCase().includes('not found')) {
+        setLogData([]);
+        setLoaded(true);
+      } else {
+        setError('Failed to load correction log: ' + err.message);
+      }
+    }
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
+    loadLog();
+  }, []);
+
+  const classSections = [...new Set(logData.map(r => r.Class_Section).filter(Boolean))].sort();
+  const correctors = [...new Set(logData.map(r => r.Corrected_By).filter(Boolean))].sort();
+
+  const filteredData = logData.filter(row => {
+    if (fromDate && row.Date < fromDate) return false;
+    if (toDate && row.Date > toDate) return false;
+    if (studentFilter && !`${row.Std_ID} ${row.Student_Name}`.toLowerCase().includes(studentFilter.toLowerCase())) return false;
+    if (classSectionFilter && row.Class_Section !== classSectionFilter) return false;
+    if (correctedByFilter && row.Corrected_By !== correctedByFilter) return false;
+    return true;
+  });
+
+  const clearFilters = () => {
+    setFromDate('');
+    setToDate('');
+    setStudentFilter('');
+    setClassSectionFilter('');
+    setCorrectedByFilter('');
+  };
+
+  const columns = ['Date', 'Std_ID', 'Student_Name', 'Class_Section', 'Old_Status', 'New_Status', 'Corrected_By', 'REC_ID', 'Timestamp'];
+  const columnLabels = {
+    Date: 'Date', Std_ID: 'Std ID', Student_Name: 'Student Name', Class_Section: 'Class Section',
+    Old_Status: 'Old Status', New_Status: 'New Status', Corrected_By: 'Corrected By', REC_ID: 'REC', Timestamp: 'Timestamp'
+  };
+
+  const downloadCSV = () => {
+    if (filteredData.length === 0) { setError('No data to download'); return; }
+    let csv = columns.map(c => columnLabels[c]).join(',') + '\n';
+    filteredData.forEach(row => {
+      csv += columns.map(c => `"${(c === 'Date' ? formatLogDate(row[c]) : (row[c] ?? '')).toString().replace(/"/g, '""')}"`).join(',') + '\n';
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendance_correction_log_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    setSuccessMessage('CSV downloaded!');
+  };
+
+  const downloadPNG = async () => {
+    if (filteredData.length === 0) { setError('No data to download'); return; }
+    setIsLoading(true);
+    const reportDiv = document.createElement('div');
+    reportDiv.setAttribute('data-theme', 'light');
+    reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:1200px;background:white;padding:40px;font-family:sans-serif;color:#1a2c3e;';
+    const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    let html = `
+      <div style="margin-bottom:20px;text-align:center;">
+        <h1 style="color:#1a2c3e;margin-bottom:10px;">Attendance Correction Log</h1>
+        <div style="font-size:13px;color:#666;">Generated on ${currentDate}</div>
+        <hr style="border:2px solid #1a73e8;margin-top:10px;">
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="background:#1a73e8;color:white;">
+          ${columns.map(c => `<th style="padding:8px;text-align:left;border:1px solid #ddd;">${columnLabels[c]}</th>`).join('')}
+        </tr></thead>
+        <tbody>
+    `;
+    filteredData.forEach((row, idx) => {
+      html += `<tr style="background:${idx % 2 === 0 ? '#ffffff' : '#f8f9fa'};">`;
+      columns.forEach(c => {
+        const val = c === 'Date' ? formatLogDate(row[c]) : (row[c] ?? '');
+        html += `<td style="padding:6px 8px;border:1px solid #ddd;">${val}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    reportDiv.innerHTML = html;
+    document.body.appendChild(reportDiv);
+    await new Promise(r => setTimeout(r, 100));
+    try {
+      const canvas = await html2canvas(reportDiv, { scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      document.body.removeChild(reportDiv);
+      const link = document.createElement('a');
+      link.download = `attendance_correction_log_${new Date().toISOString().split('T')[0]}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      setSuccessMessage('PNG downloaded!');
+    } catch (err) {
+      document.body.removeChild(reportDiv);
+      setError('Failed to generate PNG: ' + err.message);
+    }
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center">
+          <i className="uil uil-history text-2xl text-blue-500 mr-2"></i>
+          <h2 className="text-xl font-semibold">Attendance Correction Log</h2>
+        </div>
+        <button onClick={loadLog} className="btn-outline" disabled={isLoading}>
+          <i className={`uil uil-refresh ${isLoading ? 'loading-spinner' : ''}`}></i> Refresh
+        </button>
+      </div>
+
+      <div className="form-container mb-6">
+        <div className="form-row">
+          <div className="form-field">
+            <input type="date" className="form-input" id="aclFromDate" value={fromDate} onChange={e => setFromDate(e.target.value)} placeholder="From date" />
+            <label htmlFor="aclFromDate">From Date</label>
+          </div>
+          <div className="form-field">
+            <input type="date" className="form-input" id="aclToDate" value={toDate} onChange={e => setToDate(e.target.value)} placeholder="To date" />
+            <label htmlFor="aclToDate">To Date</label>
+          </div>
+          <div className="form-field">
+            <input type="text" className="form-input" id="aclStudent" value={studentFilter} onChange={e => setStudentFilter(e.target.value)} placeholder="Search by Std ID or name" />
+            <label htmlFor="aclStudent">Student</label>
+          </div>
+          <div className="form-field">
+            <select className="form-input" id="aclClassSection" value={classSectionFilter} onChange={e => setClassSectionFilter(e.target.value)}>
+              <option value="">All Class Sections</option>
+              {classSections.map(cs => <option key={cs} value={cs}>{cs}</option>)}
+            </select>
+            <label htmlFor="aclClassSection">Class Section</label>
+          </div>
+          <div className="form-field">
+            <select className="form-input" id="aclCorrectedBy" value={correctedByFilter} onChange={e => setCorrectedByFilter(e.target.value)}>
+              <option value="">All Users</option>
+              {correctors.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+            <label htmlFor="aclCorrectedBy">Corrected By</label>
+          </div>
+        </div>
+        <div className="form-actions">
+          <button onClick={clearFilters} className="btn-outline">Clear Filters</button>
+          <button onClick={downloadCSV} disabled={filteredData.length === 0} className={`btn-secondary ${filteredData.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            <i className="uil uil-file-csv"></i> CSV
+          </button>
+          <button onClick={downloadPNG} disabled={filteredData.length === 0 || isLoading} className={`btn-secondary ${filteredData.length === 0 || isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            <i className="uil uil-image-v"></i> PNG
+          </button>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <p className="text-gray-500">Loading...</p>
+      ) : !loaded ? null : filteredData.length === 0 ? (
+        <p className="text-gray-500">No attendance corrections logged{logData.length === 0 ? ' yet' : ' for the selected filters'}.</p>
+      ) : (
+        <div className="table-container max-h-[600px]">
+          <table className="min-w-full">
+            <thead className="sticky-header">
+              <tr>
+                {columns.map(c => (
+                  <th key={c} className="whitespace-nowrap">{columnLabels[c]}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredData.map((row, index) => (
+                <tr key={index}>
+                  <td className="whitespace-nowrap">{formatLogDate(row.Date)}</td>
+                  <td className="whitespace-nowrap">{row.Std_ID || ''}</td>
+                  <td className="whitespace-nowrap">{row.Student_Name || ''}</td>
+                  <td className="whitespace-nowrap">{row.Class_Section || ''}</td>
+                  <td className="whitespace-nowrap">{row.Old_Status || ''}</td>
+                  <td className="whitespace-nowrap">{row.New_Status || ''}</td>
+                  <td className="whitespace-nowrap">{row.Corrected_By || ''}</td>
+                  <td className="whitespace-nowrap">{row.REC_ID || ''}</td>
+                  <td className="whitespace-nowrap">{row.Timestamp || ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
   function TableManager({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, genderOptions, setSuccessMessage, setError, username, userPermissions, recId }) {
       const [isAdding, setIsAdding] = useState(false);
       const [editingIndex, setEditingIndex] = useState(null);
@@ -4529,7 +5233,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
           {!isAdding && editingIndex === null && (
             <div className="flex flex-wrap gap-2 mb-6">
                             <button
-                onClick={() => {
+                onClick={async () => {
                   setIsAdding(true);
                   const defaults = {};
                   const cfg = table === 'class_sections' ? tableConfigs[subTab] : tableConfigs[table];
@@ -4538,8 +5242,23 @@ const formatDateToDDMMMYYYY = (dateStr) => {
                       if (f.type === 'checkbox') defaults[f.name] = false;
                     }));
                   }
+                  if (table === 'student_data') {
+                    const barcodeField = tableConfigs.student_data.fields
+                      .flatMap(s => s.fields)
+                      .find(f => f.name === 'Barcode_ID');
+                    defaults.Barcode_ID = barcodeField ? barcodeField.placeholder : '';
+                  }
                   setFormData(defaults);
                   setIsStdIdEditable(table === 'student_data');
+                  if (table === 'student_data') {
+                    try {
+                      const reserveResult = await callWithRetry('getSheetData', 'Reserve_Codes', recId);
+                      const unused = reserveResult.find(r => r.Status === 'Unused');
+                      if (unused) setFormData(prev => ({ ...prev, Barcode_ID: unused.Barcode_ID }));
+                    } catch (e) {
+                      // Reserve_Codes sheet may not exist yet — keep the "auto-generated" placeholder text
+                    }
+                  }
                 }}
                 className="btn-primary"
               >

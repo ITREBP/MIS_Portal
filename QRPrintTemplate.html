@@ -279,14 +279,14 @@
                             <div class="id-card" id="${cardId}">
                               <div class="card-header">REC Student ID Card</div>
 
-                              <div class="field-row">
+                                                            <div class="field-row">
                                 <span class="field-label">NAME:</span>
-                                <div class="field-value">${student.Student_Name}</div>
+                                <div class="field-value">${student.Student_Name || ''}</div>
                               </div>
 
                               <div class="field-row">
                                 <span class="field-label">SIRN:</span>
-                                <div class="field-value">${student.Std_ID}</div>
+                                <div class="field-value">${student.Std_ID || ''}</div>
                               </div>
 
                               <div class="bottom-layout">
@@ -338,15 +338,17 @@
                     var student = students[j];
                     var cardId = 'card-' + j;
                     var qrId = 'qr-' + j;
-                    var classTarget = getClassTarget(student.Student_Class);
 
-                    // Highlight bubble
-                    var targetNode = document.getElementById(cardId + '-' + classTarget);
-                    if (targetNode) {
-                        targetNode.classList.add('active-class');
-                    } else {
-                        var fallback = document.getElementById(cardId + '-6');
-                        if (fallback) fallback.classList.add('active-class');
+                    // Highlight bubble — skip entirely for blank reserve-code cards (no Student_Class)
+                    if (student.Student_Class) {
+                        var classTarget = getClassTarget(student.Student_Class);
+                        var targetNode = document.getElementById(cardId + '-' + classTarget);
+                        if (targetNode) {
+                            targetNode.classList.add('active-class');
+                        } else {
+                            var fallback = document.getElementById(cardId + '-6');
+                            if (fallback) fallback.classList.add('active-class');
+                        }
                     }
 
                     // QR code – uses ONLY the Barcode_ID (like the old HTML)
