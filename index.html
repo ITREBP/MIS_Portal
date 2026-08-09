@@ -4906,6 +4906,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
   
   if (editingIndex !== null) {
     const rowNumber = filteredData[editingIndex]._rowNumber;
+    const originalStdId = filteredData[editingIndex].Std_ID;
     try {
       // For edit, pass recId too
       const result = await callWithRetry('updateSheetRow', 'Student_Data', rowNumber, studentData, username);
@@ -4923,6 +4924,12 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         setFormErrors({});
         setError('');
       } else {
+        // 🔒 SIRN change blocked (attendance already marked) — revert value AND re-lock the field
+        if ((result.message || '').includes('attendance records already exist')) {
+          setFormData(prev => ({ ...prev, Std_ID: originalStdId }));
+          setIsStdIdEditable(false);
+        }
+        setFormErrors({});
         setError(result.message || 'Update failed');
       }
     } catch (err) {

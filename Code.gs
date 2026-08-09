@@ -396,6 +396,20 @@ function updateSheetRow(sheetName, rowIndex, rowData, currentUsername) {
           return { success: false, message: 'Std_ID must be numeric' };
         }
         
+        // 🔒 Block the change if the OLD Std_ID already has attendance marked
+        const attendanceSheet = ss.getSheetByName('Student_Attendance');
+        if (attendanceSheet) {
+          const attData = attendanceSheet.getDataRange().getValues();
+          const attStdIdCol = attData[0].indexOf('Std_ID');
+          if (attStdIdCol !== -1) {
+            const hasAttendance = attData.some((row, idx) => idx > 0 && row[attStdIdCol] && row[attStdIdCol].toString() === oldStdId);
+            if (hasAttendance) {
+              Logger.log(`SIRN change blocked: Std_ID ${oldStdId} already has attendance records`);
+              return { success: false, message: `Cannot change SIRN — attendance records already exist for Std_ID ${oldStdId}. SIRN can only be amended before any attendance is marked.` };
+            }
+          }
+        }
+        
         // ✅ Check duplicate ONLY within the same REC_ID
         const stdIdCol = headers.indexOf('Std_ID');
         const recIdCol = headers.indexOf('REC_ID');
