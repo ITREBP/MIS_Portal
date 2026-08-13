@@ -435,6 +435,28 @@ function updateSheetRow(sheetName, rowIndex, rowData, currentUsername) {
         Logger.log(`SIRN not changed. Original: "${oldStdId}", New: "${newStdId}"`);
       }
       
+      // ✅ Check duplicate Unique_ID (global — across all schools) if it's being changed
+      const uniqueIdColIdx = headers.indexOf('Unique_ID');
+      Logger.log(`Unique_ID check: colIdx=${uniqueIdColIdx}, incoming rowData.Unique_ID="${rowData.Unique_ID}", headers=${JSON.stringify(headers)}`);
+      if (uniqueIdColIdx !== -1 && rowData.Unique_ID) {
+        const newUniqueId = rowData.Unique_ID.toString();
+        const oldUniqueId = rowValues[uniqueIdColIdx] ? rowValues[uniqueIdColIdx].toString() : '';
+        Logger.log(`Unique_ID compare: old="${oldUniqueId}" new="${newUniqueId}" changed=${newUniqueId !== oldUniqueId}`);
+        if (newUniqueId !== oldUniqueId) {
+          const allStudentData = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+          for (let i = 0; i < allStudentData.length; i++) {
+            const rowNum = i + 2;
+            if (rowNum !== rowIndex) {
+              const existingUniqueId = allStudentData[i][uniqueIdColIdx] ? allStudentData[i][uniqueIdColIdx].toString() : '';
+              if (existingUniqueId === newUniqueId) {
+                Logger.log(`Duplicate Unique_ID found: ${newUniqueId} at row ${rowNum}`);
+                return { success: false, message: 'Unique_ID already exists' };
+              }
+            }
+          }
+        }
+      }
+      
       // ✅ Format Creation Date
       let creationDate = rowValues[9] || '';
       if (creationDate instanceof Date) {
