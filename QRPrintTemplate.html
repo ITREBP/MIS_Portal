@@ -1,99 +1,375 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <base target="_top">
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Student QR Codes</title>
-  <link rel="stylesheet" href="https://unicons.iconscout.com/release/v4.0.0/css/line.css">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      padding: 20px;
-      background: #f8fafc;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    h1 {
-      text-align: center;
-      margin-bottom: 30px;
-      color: #1e293b;
-    }
-    .qr-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-      gap: 20px;
-    }
-    .qr-card {
-      background: white;
-      border-radius: 12px;
-      padding: 15px;
-      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-      text-align: center;
-      border: 1px solid #e2e8f0;
-    }
-    .qr-card img {
-      width: 150px;
-      height: 150px;
-      margin: 0 auto 10px;
-      display: block;
-    }
-    .qr-card .name {
-      font-weight: 600;
-      font-size: 16px;
-      color: #1e293b;
-    }
-    .qr-card .details {
-      font-size: 13px;
-      color: #64748b;
-      margin-top: 5px;
-    }
-    .qr-card .barcode {
-      font-family: monospace;
-      font-size: 14px;
-      color: #3b82f6;
-      font-weight: 600;
-      margin-top: 5px;
-    }
-    @media print {
-      body { background: white; padding: 10px; }
-      .qr-card { border: 1px solid #ddd; box-shadow: none; }
-      .no-print { display: none; }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REC Student ID Card</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js">
+    </script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: #e8ecf2;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        .print-btn-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .print-btn-container button {
+            padding: 12px 36px;
+            background: #0b2b4a;
+            color: white;
+            border: none;
+            border-radius: 40px;
+            font-size: 18px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .print-btn-container button:hover {
+            background: #1a3f62;
+        }
+
+        .a4-page {
+            width: 210mm;
+            height: 297mm;
+            background-color: #ffffff;
+            margin: 10px auto 20px auto;
+            padding: 10mm 15mm;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+            page-break-after: always;
+            display: grid;
+            grid-template-columns: repeat(2, 7.5cm);
+            grid-template-rows: repeat(6, 4.6cm);
+            gap: 2mm 5mm;
+            justify-content: center;
+            align-content: center;
+        }
+
+        .id-card {
+            width: 7.5cm;
+            height: 4.6cm;
+            background-color: #ffffff;
+            border: 1.5px solid #000000;
+            border-radius: 4px;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            page-break-inside: avoid;
+        }
+
+        .card-header {
+            font-size: 13px;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-bottom: 1.5px solid #000000;
+            padding-bottom: 2px;
+            margin-bottom: 6px;
+            text-align: center;
+            letter-spacing: 0.5px;
+        }
+
+        .field-row {
+            display: flex;
+            align-items: baseline;
+            margin-bottom: 5px;
+        }
+
+        .field-label {
+            font-size: 10px;
+            font-weight: bold;
+            width: 45px;
+            flex-shrink: 0;
+        }
+
+        .field-value {
+            font-size: 12px;
+            border-bottom: 1px solid #000000;
+            flex-grow: 1;
+            padding-left: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .bottom-layout {
+            display: flex;
+            flex-grow: 1;
+            gap: 6px;
+            margin-top: 2px;
+            height: calc(100% - 65px);
+        }
+
+        .matrix-box {
+            flex: 1.3;
+            border: 1px solid #000000;
+            border-radius: 3px;
+            padding: 3px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .matrix-row {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .matrix-cell {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            font-size: 9px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .bubble {
+            width: 9px;
+            height: 9px;
+            border: 1px solid #000000;
+            border-radius: 50%;
+            margin-top: 1px;
+            background-color: #ffffff;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        .matrix-cell.active-class .bubble {
+            background-color: #000000 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+
+        .qr-box {
+            flex: 1;
+            border: 1px solid #000000;
+            border-radius: 3px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+            background-color: #fff;
+        }
+
+        .qrcode-element {
+            width: 75px;
+            height: 75px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .qrcode-element img {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        .barcode-text-label {
+            font-size: 7.5px;
+            font-family: monospace;
+            font-weight: bold;
+            margin-top: 2px;
+            color: #000;
+        }
+
+        .error-msg {
+            color: red;
+            text-align: center;
+            margin: 20px;
+            font-size: 18px;
+        }
+
+        @media print {
+            body {
+                background: none;
+                padding: 0;
+            }
+            .print-btn-container {
+                display: none;
+            }
+            .a4-page {
+                box-shadow: none;
+                margin: 0;
+                padding: 10mm 15mm;
+                width: 210mm;
+                height: 297mm;
+                page-break-after: always;
+            }
+            .bubble,
+            .matrix-cell.active-class .bubble {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+        }
+    </style>
 </head>
 <body>
-  <div class="container">
-    <h1><?= pageTitle ?></h1>
-    <div class="qr-grid">
-      <? for (var i = 0; i < students.length; i++) { 
-        var student = students[i];
-      ?>
-      <div class="qr-card">
-        <img src="<?= student.qrCodeUrl ?>" alt="QR Code for <?= student.Student_Name ?>">
-        <div class="name"><?= student.Student_Name ?></div>
-        <div class="details">Class: <?= student.Student_Class ?> - Section: <?= student.Student_Section ?></div>
-        <div class="barcode"><?= student.Barcode_ID ?></div>
-        <div class="details" style="font-size:11px;color:#94a3b8;">SIRN: <?= student.Std_ID ?></div>
-      </div>
-      <? } ?>
+
+    <div class="print-btn-container">
+        <button onclick="window.print()">🖨️ Print All Pages (A4)</button>
     </div>
-    <div style="text-align:center;margin-top:30px;" class="no-print">
-      <button onclick="window.print()" style="padding:10px 30px;background:#3b82f6;color:white;border:none;border-radius:8px;font-size:16px;cursor:pointer;">
-        <i class="uil uil-print"></i> Print QR Codes
-      </button>
-    </div>
-  </div>
-  <script>
-    // Auto-print when loaded
-    window.onload = function() {
-      setTimeout(function() {
-        window.print();
-      }, 500);
-    };
-  </script>
+
+    <div id="printContainer"></div>
+
+    <script>
+        // ============================================================
+        // DATA INJECTED FROM GOOGLE SHEETS
+        // ============================================================
+        var students = <?!= JSON.stringify(students) ?>;
+        console.log('Students loaded:', students);
+
+        // ============================================================
+        // HELPER FUNCTIONS
+        // ============================================================
+        var romanMap = {
+            "I": "1",
+            "II": "2",
+            "III": "3",
+            "IV": "4",
+            "V": "5",
+            "VI": "6",
+            "VII": "7",
+            "VIII": "8",
+            "IX": "9",
+            "X": "10",
+            "XI": "11",
+            "XII": "12"
+        };
+
+        function getClassTarget(classStr) {
+            if (!classStr) return "7";
+            var trimmed = classStr.trim().toUpperCase();
+            if (romanMap[trimmed]) return romanMap[trimmed];
+            return trimmed;
+        }
+
+        // ============================================================
+        // BUILD CARDS
+        // ============================================================
+        var container = document.getElementById('printContainer');
+        var cardsPerPage = 12;
+
+        if (!students || students.length === 0) {
+            container.innerHTML = '<div class="error-msg">No student data received. Please check your sheet.</div>';
+        } else {
+            for (var i = 0; i < students.length; i += cardsPerPage) {
+                var pageStudents = students.slice(i, i + cardsPerPage);
+                var pageDiv = document.createElement('div');
+                pageDiv.className = 'a4-page';
+
+                pageStudents.forEach(function(student, idx) {
+                    var cardId = 'card-' + (i + idx);
+                    var qrId = 'qr-' + (i + idx);
+                    var classTarget = getClassTarget(student.Student_Class);
+
+                    var cardHTML = `
+                            <div class="id-card" id="${cardId}">
+                              <div class="card-header">REC Student ID Card</div>
+
+                                                            <div class="field-row">
+                                <span class="field-label">NAME:</span>
+                                <div class="field-value">${student.Student_Name || ''}</div>
+                              </div>
+
+                              <div class="field-row">
+                                <span class="field-label">SIRN:</span>
+                                <div class="field-value">${student.Std_ID || ''}</div>
+                              </div>
+
+                              <div class="bottom-layout">
+                                <div class="matrix-box">
+                                  <div class="matrix-row">
+                                    <div class="matrix-cell" id="${cardId}-IBT">IBT <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-NUR">NUR <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-KGI">KG I <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-KGII">KG II <div class="bubble"></div></div>
+                                  </div>
+                                  <div class="matrix-row">
+                                    <div class="matrix-cell" id="${cardId}-1">1 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-2">2 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-3">3 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-4">4 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-5">5 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-6">6 <div class="bubble"></div></div>
+                                  </div>
+                                  <div class="matrix-row">
+                                    <div class="matrix-cell" id="${cardId}-7">7 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-8">8 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-9">9 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-10">10 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-11">11 <div class="bubble"></div></div>
+                                    <div class="matrix-cell" id="${cardId}-12">12 <div class="bubble"></div></div>
+                                  </div>
+                                </div>
+
+                                <div class="qr-box">
+                                  <div id="${qrId}" class="qrcode-element"></div>
+                                  <div class="barcode-text-label">${student.Barcode_ID}</div>
+                                </div>
+                              </div>
+                            </div>
+                          `;
+
+                    pageDiv.innerHTML += cardHTML;
+                });
+
+                container.appendChild(pageDiv);
+            }
+
+            // ============================================================
+            // POST-RENDER: highlight class + generate QR codes
+            // QR uses ONLY the Barcode_ID (matching old HTML behavior)
+            // ============================================================
+            setTimeout(function() {
+                for (var j = 0; j < students.length; j++) {
+                    var student = students[j];
+                    var cardId = 'card-' + j;
+                    var qrId = 'qr-' + j;
+
+                    // Highlight bubble — skip entirely for blank reserve-code cards (no Student_Class)
+                    if (student.Student_Class) {
+                        var classTarget = getClassTarget(student.Student_Class);
+                        var targetNode = document.getElementById(cardId + '-' + classTarget);
+                        if (targetNode) {
+                            targetNode.classList.add('active-class');
+                        } else {
+                            var fallback = document.getElementById(cardId + '-6');
+                            if (fallback) fallback.classList.add('active-class');
+                        }
+                    }
+
+                    // QR code – uses ONLY the Barcode_ID (like the old HTML)
+                    var qrContainer = document.getElementById(qrId);
+                    if (qrContainer && student.Barcode_ID) {
+                        try {
+                            new QRCode(qrContainer, {
+                                text: student.Barcode_ID,
+                                width: 70,
+                                height: 70,
+                                colorDark: "#000000",
+                                colorLight: "#ffffff",
+                                correctLevel: QRCode.CorrectLevel.M
+                            });
+                        } catch (e) {
+                            console.error('QR generation failed for student', student, e);
+                        }
+                    }
+                }
+            }, 200);
+        }
+    </script>
 </body>
 </html>

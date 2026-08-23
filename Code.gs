@@ -33,6 +33,7 @@ function authenticateUser(username, password) {
           continue; // Skip wrong school
         }
         
+        const canCorrectCol = data[0].indexOf('canCorrectAttendance');
         return {
           success: true,
           user: {
@@ -43,6 +44,7 @@ function authenticateUser(username, password) {
             canQueryAttendance: data[i][9] || 'No',
             canDownload: data[i][10] || 'No',
             canAmendSIRN: data[i][16] || 'No',
+            canCorrectAttendance: canCorrectCol !== -1 ? (data[i][canCorrectCol] || 'No') : 'No',
             REC_ID: userRecId,  // ← Correct REC_ID
             allowedTabs: data[i][7] || 'users,user_permissions,class_sections,previous_date_permissions,teacher_assignments,student_data,student_attendance,qr_management,reserve_codes'
           }
@@ -394,6 +396,20 @@ function updateSheetRow(sheetName, rowIndex, rowData, currentUsername) {
           return { success: false, message: 'Std_ID must be numeric' };
         }
         
+        // 🔒 Block the change if the OLD Std_ID already has attendance marked
+        const attendanceSheet = ss.getSheetByName('Student_Attendance');
+        if (attendanceSheet) {
+          const attData = attendanceSheet.getDataRange().getValues();
+          const attStdIdCol = attData[0].indexOf('Std_ID');
+          if (attStdIdCol !== -1) {
+            const hasAttendance = attData.some((row, idx) => idx > 0 && row[attStdIdCol] && row[attStdIdCol].toString() === oldStdId);
+            if (hasAttendance) {
+              Logger.log(`SIRN change blocked: Std_ID ${oldStdId} already has attendance records`);
+              return { success: false, message: `Cannot change SIRN — attendance records already exist for Std_ID ${oldStdId}. SIRN can only be amended before any attendance is marked.` };
+            }
+          }
+        }
+        
         // ✅ Check duplicate ONLY within the same REC_ID
         const stdIdCol = headers.indexOf('Std_ID');
         const recIdCol = headers.indexOf('REC_ID');
@@ -417,6 +433,28 @@ function updateSheetRow(sheetName, rowIndex, rowData, currentUsername) {
         }
       } else {
         Logger.log(`SIRN not changed. Original: "${oldStdId}", New: "${newStdId}"`);
+      }
+      
+      // ✅ Check duplicate Unique_ID (global — across all schools) if it's being changed
+      const uniqueIdColIdx = headers.indexOf('Unique_ID');
+      Logger.log(`Unique_ID check: colIdx=${uniqueIdColIdx}, incoming rowData.Unique_ID="${rowData.Unique_ID}", headers=${JSON.stringify(headers)}`);
+      if (uniqueIdColIdx !== -1 && rowData.Unique_ID) {
+        const newUniqueId = rowData.Unique_ID.toString();
+        const oldUniqueId = rowValues[uniqueIdColIdx] ? rowValues[uniqueIdColIdx].toString() : '';
+        Logger.log(`Unique_ID compare: old="${oldUniqueId}" new="${newUniqueId}" changed=${newUniqueId !== oldUniqueId}`);
+        if (newUniqueId !== oldUniqueId) {
+          const allStudentData = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues();
+          for (let i = 0; i < allStudentData.length; i++) {
+            const rowNum = i + 2;
+            if (rowNum !== rowIndex) {
+              const existingUniqueId = allStudentData[i][uniqueIdColIdx] ? allStudentData[i][uniqueIdColIdx].toString() : '';
+              if (existingUniqueId === newUniqueId) {
+                Logger.log(`Duplicate Unique_ID found: ${newUniqueId} at row ${rowNum}`);
+                return { success: false, message: 'Unique_ID already exists' };
+              }
+            }
+          }
+        }
       }
       
       // ✅ Format Creation Date
@@ -710,21 +748,6 @@ function addStudent(studentData, currentUsername, recId) {
       }
     }
     
-    // Generate Barcode
-    let nextBarcode = 1000001;
-    if (lastRow > 1) {
-      const barcodes = sheet.getRange('B2:B' + lastRow).getValues();
-      const numbers = barcodes
-        .filter(row => row[0] && typeof row[0] === 'string' && row[0].startsWith('BC'))
-        .map(row => parseInt(row[0].replace('BC', '')))
-        .filter(num => !isNaN(num));
-      if (numbers.length > 0) {
-        nextBarcode = Math.max(...numbers) + 1;
-      }
-    }
-    
-    studentData.Barcode_ID = 'BC' + nextBarcode;
-    
     // Get current user and timestamp
     const currentUser = currentUsername;
     const currentDate = new Date();
@@ -778,6 +801,29 @@ function addStudent(studentData, currentUsername, recId) {
       studentData.REC_ID = finalRecId;
     }
     
+    // 🎫 Assign Barcode: prefer an already-generated reserve code for this REC, else auto-generate
+    let assignedReserveRow = -1;
+    const reserveSheetForAssign = ss.getSheetByName('Reserve_Codes');
+    if (reserveSheetForAssign && reserveSheetForAssign.getLastRow() > 1) {
+      const reserveData = reserveSheetForAssign.getDataRange().getValues();
+      const reserveHeaders = reserveData[0];
+      const rBarcodeCol = reserveHeaders.indexOf('Barcode_ID');
+      const rRecCol = reserveHeaders.indexOf('REC_ID');
+      const rStatusCol = reserveHeaders.indexOf('Status');
+      for (let i = 1; i < reserveData.length; i++) {
+        const rowRecId = reserveData[i][rRecCol] ? reserveData[i][rRecCol].toString() : '';
+        const rowStatus = reserveData[i][rStatusCol] || '';
+        if (rowRecId === finalRecId && rowStatus === 'Unused') {
+          studentData.Barcode_ID = reserveData[i][rBarcodeCol];
+          assignedReserveRow = i + 1; // actual sheet row number
+          break;
+        }
+      }
+    }
+    if (assignedReserveRow === -1) {
+      studentData.Barcode_ID = 'BC' + getNextBarcodeNumber(ss);
+    }
+    
     // Ensure Unique_ID column exists
     if (uniqueIdCol === 0) {
       sheet.getRange(1, headers.length + 1).setValue('Unique_ID');
@@ -805,6 +851,18 @@ function addStudent(studentData, currentUsername, recId) {
     
     sheet.getRange(lastRow + 1, 1, 1, 16).setValues([newRow]);
     SpreadsheetApp.flush();
+    
+    // 🎫 Mark the reserve code as used, now that the student row is saved
+    if (assignedReserveRow !== -1) {
+      const reserveHeaders2 = reserveSheetForAssign.getRange(1, 1, 1, reserveSheetForAssign.getLastColumn()).getValues()[0];
+      const statusCol2 = reserveHeaders2.indexOf('Status') + 1;
+      const usedByCol2 = reserveHeaders2.indexOf('Used_By_Std_ID') + 1;
+      const usedDateCol2 = reserveHeaders2.indexOf('Used_Date') + 1;
+      if (statusCol2 > 0) reserveSheetForAssign.getRange(assignedReserveRow, statusCol2).setValue('Used');
+      if (usedByCol2 > 0) reserveSheetForAssign.getRange(assignedReserveRow, usedByCol2).setValue(studentData.Std_ID);
+      if (usedDateCol2 > 0) reserveSheetForAssign.getRange(assignedReserveRow, usedDateCol2).setValue(formattedDate);
+      SpreadsheetApp.flush();
+    }
     
     return {
       success: true,
@@ -1208,38 +1266,72 @@ function markStudentsAsPrinted(studentIds) {
   }
 }
 
-// Generate reserve codes (bulk barcode generation)
-function generateReserveCodes(count) {
+// Get or create the Reserve_Codes sheet with headers
+function getOrCreateReserveCodesSheet(ss) {
+  let sheet = ss.getSheetByName('Reserve_Codes');
+  if (!sheet) {
+    sheet = ss.insertSheet('Reserve_Codes');
+    sheet.appendRow(['Barcode_ID', 'REC_ID', 'Status', 'Generated_By', 'Generated_Date', 'Used_By_Std_ID', 'Used_Date', 'Printed']);
+  }
+  return sheet;
+}
+
+// Compute the next available BC number, checking BOTH Student_Data and Reserve_Codes
+// so reserved-but-unused codes never get re-issued to a different purpose
+function getNextBarcodeNumber(ss) {
+  let maxNumber = 1000000; // Start from 1000001
+
+  const studentSheet = ss.getSheetByName('Student_Data');
+  if (studentSheet) {
+    const lastRow = studentSheet.getLastRow();
+    if (lastRow > 1) {
+      const barcodes = studentSheet.getRange('B2:B' + lastRow).getValues();
+      barcodes.forEach(row => {
+        if (row[0] && typeof row[0] === 'string' && row[0].startsWith('BC')) {
+          const num = parseInt(row[0].replace('BC', ''));
+          if (!isNaN(num) && num > maxNumber) maxNumber = num;
+        }
+      });
+    }
+  }
+
+  const reserveSheet = getOrCreateReserveCodesSheet(ss);
+  const reserveLastRow = reserveSheet.getLastRow();
+  if (reserveLastRow > 1) {
+    const barcodes = reserveSheet.getRange('A2:A' + reserveLastRow).getValues();
+    barcodes.forEach(row => {
+      if (row[0] && typeof row[0] === 'string' && row[0].startsWith('BC')) {
+        const num = parseInt(row[0].replace('BC', ''));
+        if (!isNaN(num) && num > maxNumber) maxNumber = num;
+      }
+    });
+  }
+
+  return maxNumber + 1;
+}
+
+// Generate reserve codes (bulk barcode generation) and SAVE them to Reserve_Codes
+function generateReserveCodes(count, recId, username) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('Student_Data');
-    if (!sheet) throw new Error('Student_Data sheet not found');
-    
-    // Get the last used barcode number
-    const lastRow = sheet.getLastRow();
-    let lastBarcodeNumber = 1000000; // Start from 1000001
-    
-    if (lastRow > 1) {
-      const barcodes = sheet.getRange('B2:B' + lastRow).getValues();
-      const numbers = barcodes
-        .filter(row => row[0] && typeof row[0] === 'string' && row[0].startsWith('BC'))
-        .map(row => parseInt(row[0].replace('BC', '')))
-        .filter(num => !isNaN(num));
-      
-      if (numbers.length > 0) {
-        lastBarcodeNumber = Math.max(...numbers);
-      }
-    }
-    
-    // Generate reserve codes
+    const reserveSheet = getOrCreateReserveCodesSheet(ss);
+
+    const nextNumber = getNextBarcodeNumber(ss);
+    const formattedDate = Utilities.formatDate(new Date(), 'GMT+0500', 'dd-MMM-yyyy');
     const reserveCodes = [];
-    for (let i = 1; i <= count; i++) {
-      const barcodeNumber = lastBarcodeNumber + i;
-      reserveCodes.push('BC' + barcodeNumber);
+    const rowsToAppend = [];
+
+    for (let i = 0; i < count; i++) {
+      const barcode = 'BC' + (nextNumber + i);
+      reserveCodes.push(barcode);
+      rowsToAppend.push([barcode, recId || '', 'Unused', username || '', formattedDate, '', '', 'No']);
     }
-    
+
+    reserveSheet.getRange(reserveSheet.getLastRow() + 1, 1, rowsToAppend.length, 8).setValues(rowsToAppend);
+    SpreadsheetApp.flush();
+
     return reserveCodes;
-    
+
   } catch (e) {
     Logger.log('Error generating reserve codes: ' + e.message);
     throw e;
@@ -1271,5 +1363,166 @@ function generateQRCodePDF(selectedStudents) {
   } catch (e) {
     Logger.log('Error generating QR PDF: ' + e.message);
     throw e;
+  }
+}
+
+
+// Generate PDF with blank QR cards for reserve barcodes (no student info assigned yet)
+function generateBlankQRCodePDF(selectedCodes) {
+  try {
+    const html = HtmlService.createHtmlOutputFromFile('QRPrintTemplate');
+    html.setTitle('Reserve Code QR Cards');
+
+    // Only Barcode_ID is known — everything else stays blank on the card
+    const blankCards = selectedCodes.map(code => ({
+      Std_ID: '',
+      Barcode_ID: code,
+      Student_Name: '',
+      Student_Class: '',
+      Student_Section: ''
+    }));
+
+    const output = HtmlService.createTemplate(html.getContent());
+    output.students = blankCards;
+    output.pageTitle = 'Reserve Code QR Cards';
+
+    return output.evaluate().getContent();
+
+  } catch (e) {
+    Logger.log('Error generating blank QR PDF: ' + e.message);
+    throw e;
+  }
+}
+
+// Mark reserve codes as printed. Always sets 'Yes' regardless of current value,
+// so calling this again (reprint) is a safe no-op on the sheet.
+function markReserveCodesAsPrinted(barcodeIds) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = getOrCreateReserveCodesSheet(ss);
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const barcodeCol = headers.indexOf('Barcode_ID');
+    const printedCol = headers.indexOf('Printed');
+
+    const data = sheet.getDataRange().getValues();
+    let markedCount = 0;
+
+    barcodeIds.forEach(code => {
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][barcodeCol] && data[i][barcodeCol].toString() === code.toString()) {
+          sheet.getRange(i + 1, printedCol + 1).setValue('Yes');
+          markedCount++;
+          break;
+        }
+      }
+    });
+
+    SpreadsheetApp.flush();
+    return { success: true, count: markedCount };
+
+  } catch (e) {
+    Logger.log('Error marking reserve codes as printed: ' + e.message);
+    return { success: false, message: e.message };
+  }
+}
+
+
+// Get or create the Attendance_Correction_Log sheet with headers
+function getOrCreateCorrectionLogSheet(ss) {
+  let sheet = ss.getSheetByName('Attendance_Correction_Log');
+  if (!sheet) {
+    sheet = ss.insertSheet('Attendance_Correction_Log');
+    sheet.appendRow(['Attendance_ID', 'Std_ID', 'Student_Name', 'Date', 'Class_Section', 'Old_Status', 'New_Status', 'Corrected_By', 'REC_ID', 'Timestamp']);
+  }
+  return sheet;
+}
+
+// Correct a single attendance record's Status, with a full audit trail
+function correctAttendanceRecord(attendanceId, newStatus, username) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 🔒 Permission check — reads canCorrectAttendance by header name (position-independent)
+    const usersSheet = ss.getSheetByName('Users');
+    if (!usersSheet) throw new Error('Users sheet not found');
+    const userData = usersSheet.getDataRange().getValues();
+    const userHeaders = userData[0];
+    const canCorrectCol = userHeaders.indexOf('canCorrectAttendance');
+    const userRow = userData.find(row => row[0] === username);
+    if (canCorrectCol === -1 || !userRow || userRow[canCorrectCol] !== 'Yes') {
+      return { success: false, message: 'You do not have permission to correct attendance records' };
+    }
+
+    if (!['Present', 'Absent', 'Leave'].includes(newStatus)) {
+      return { success: false, message: 'Invalid status value' };
+    }
+
+    // Find the exact row by Attendance_ID (not row number — safer across refreshes)
+    const sheet = ss.getSheetByName('Student_Attendance');
+    if (!sheet) throw new Error('Student_Attendance sheet not found');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const idCol = headers.indexOf('Attendance_ID');
+    const statusCol = headers.indexOf('Status');
+    if (idCol === -1 || statusCol === -1) throw new Error('Required columns not found in Student_Attendance');
+
+    const data = sheet.getDataRange().getValues();
+    let rowIndex = -1;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][idCol] && data[i][idCol].toString() === attendanceId.toString()) {
+        rowIndex = i + 1; // actual sheet row number
+        break;
+      }
+    }
+    if (rowIndex === -1) {
+      return { success: false, message: 'Attendance record not found' };
+    }
+
+    const rowValues = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+    const oldStatus = rowValues[statusCol] || '';
+
+    if (oldStatus === newStatus) {
+      return { success: false, message: 'New status is the same as the current status' };
+    }
+
+    sheet.getRange(rowIndex, statusCol + 1).setValue(newStatus);
+    SpreadsheetApp.flush();
+
+    // 📝 Audit log
+    const dateCol = headers.indexOf('Date');
+    const stdIdCol = headers.indexOf('Std_ID');
+    const nameCol = headers.indexOf('Student_Name');
+    const classSectionCol = headers.indexOf('Class_Section');
+    const recIdCol = headers.indexOf('REC_ID');
+
+    const logSheet = getOrCreateCorrectionLogSheet(ss);
+    const timestamp = Utilities.formatDate(new Date(), 'GMT+0500', 'dd-MMM-yyyy HH:mm');
+    const logDate = (dateCol !== -1 && rowValues[dateCol] instanceof Date)
+      ? Utilities.formatDate(rowValues[dateCol], 'GMT+0500', 'yyyy-MMM-dd')
+      : (dateCol !== -1 ? rowValues[dateCol] : '');
+
+    logSheet.appendRow([
+      attendanceId,
+      stdIdCol !== -1 ? rowValues[stdIdCol] : '',
+      nameCol !== -1 ? rowValues[nameCol] : '',
+      logDate,
+      classSectionCol !== -1 ? rowValues[classSectionCol] : '',
+      oldStatus,
+      newStatus,
+      username,
+      recIdCol !== -1 ? rowValues[recIdCol] : '',
+      timestamp
+    ]);
+    SpreadsheetApp.flush();
+
+    return {
+      success: true,
+      message: `Status corrected: ${oldStatus} → ${newStatus}`,
+      data: { Attendance_ID: attendanceId, Status: newStatus, _rowNumber: rowIndex }
+    };
+
+  } catch (e) {
+    Logger.log('Error in correctAttendanceRecord: ' + e.message);
+    return { success: false, message: 'Failed to correct attendance record: ' + e.message };
   }
 }
