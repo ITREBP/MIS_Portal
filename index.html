@@ -4736,8 +4736,14 @@ const formatDateToDDMMMYYYY = (dateStr) => {
   }
 };
 
+      // ✅ admin / superadmin type ke users dropdown mein na dikhein
+      const nonAdminUsers = (users || []).filter(u => {
+        const t = String(u.UserType || '').trim().toLowerCase();
+        return t !== 'admin' && t !== 'superadmin';
+      });
+
       const assignedPermissionUsers = new Set((data.user_permissions || []).map(p => p.Username));
-      const availablePermissionUsers = users
+      const availablePermissionUsers = nonAdminUsers
         .map(u => u.Username)
         .filter(u => u === formData.Username || !assignedPermissionUsers.has(u));
 
@@ -4786,7 +4792,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         previous_date_permissions: {
           fields: [
             { section: 'Date Permissions', fields: [
-              { name: 'Username', type: 'select', options: users.map(u => u.Username), required: true, placeholder: 'Select username' },
+              { name: 'Username', type: 'select', options: nonAdminUsers.map(u => u.Username), required: true, placeholder: 'Select username' },
               { name: 'Allowed_Date', type: 'date', required: true, placeholder: 'Select date' },
               { name: 'Day', type: 'text', disabled: true, placeholder: 'Day' },
               { name: 'Password', type: 'text', required: true, placeholder: 'Enter password' },
