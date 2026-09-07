@@ -4691,8 +4691,15 @@ function AttendanceCorrectionLog({ isLoading, setIsLoading, setError, setSuccess
       };
 
       const getDayOfWeek = (dateStr) => {
-        const date = new Date(dateStr);
-        return daysOfWeek[date.getDay()];
+        if (!dateStr) return '';
+        // "YYYY-MM-DD" ko local date ki tarah parse karein (UTC shift se bachne ke liye)
+        const p = String(dateStr).split('-');
+        const date = p.length === 3
+          ? new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]))
+          : new Date(dateStr);
+        if (isNaN(date.getTime())) return '';
+        // getDay(): Sunday = 0, jabke daysOfWeek Monday se shuru hota hai
+        return daysOfWeek[(date.getDay() + 6) % 7];
       };
 
       const parseDDMMMYYYYToDate = (dateStr) => {
@@ -4795,7 +4802,12 @@ const formatDateToDDMMMYYYY = (dateStr) => {
               { name: 'Username', type: 'select', options: nonAdminUsers.map(u => u.Username), required: true, placeholder: 'Select username' },
               { name: 'Allowed_Date', type: 'date', required: true, placeholder: 'Select date' },
               { name: 'Day', type: 'text', disabled: true, placeholder: 'Day' },
+              { name: 'Attendance_Type', type: 'select', options: ['Normal', 'Episodic', 'Both'], required: true, placeholder: 'Select attendance type' },
               { name: 'Password', type: 'text', required: true, placeholder: 'Enter password' },
+            ]},
+            { section: 'Validity (auto-filled)', fields: [
+              { name: 'Granted_At', type: 'text', disabled: true, placeholder: 'Save karne par set hoga' },
+              { name: 'Expires_At', type: 'text', disabled: true, placeholder: 'Save ke 24 ghante baad expire' },
             ]}
           ],
         },
