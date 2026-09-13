@@ -66,6 +66,9 @@ function getSheetData(sheetName, recId) {
     const sheet = ss.getSheetByName(sheetName);
     if (!sheet) throw new Error(sheetName + ' sheet not found');
     
+    // 🆕 naye columns na hon to auto add
+        if (isPrevPermSheet_(sheetName)) ensurePrevPermColumns_(sheet);
+    
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
     const result = [];
@@ -146,6 +149,76 @@ function getClassMappingData() {
   }
 }
 
+// ============ PREVIOUS_DATE_PERMISSIONS AUTO-SETUP ============
+const PREV_PERM_SHEET = 'Previous_Date_Permissions';
+const PREV_PERM_NEW_COLUMNS = ['Attendance_Type', 'Granted_At', 'Expires_At'];
+
+/** Frontend kabhi 'previous_date_permissions' bhejta hai, kabhi 'Previous_Date_Permissions' */
+function isPrevPermSheet_(sheetName) {
+  return String(sheetName || '').trim().toLowerCase() === PREV_PERM_SHEET.toLowerCase();
+}
+
+/**
+ * Previous_Date_Permissions sheet mein missing columns automatically add karta hai.
+ * Har call par safe hai — jo column pehle se mojood hai use dobara add nahi karega.
+ */
+function ensurePrevPermColumns_(sheet) {
+  if (!sheet) return [];
+
+  let lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return [];
+
+  let headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+
+  const missing = PREV_PERM_NEW_COLUMNS.filter(c => headers.indexOf(c) === -1);
+  if (missing.length === 0) return headers;
+
+  sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
+
+  const totalRows = sheet.getMaxRows();
+  missing.forEach(function (name, i) {
+    const colIndex = lastCol + 1 + i;
+    if (name === 'Granted_At' || name === 'Expires_At') {
+      if (totalRows > 1) {
+        sheet.getRange(2, colIndex, totalRows - 1, 1).setNumberFormat('dd-MMM-yyyy hh:mm AM/PM');
+      }
+      sheet.setColumnWidth(colIndex, 180);
+    }
+  });
+
+  SpreadsheetApp.flush();
+  Logger.log('Previous_Date_Permissions: added columns -> ' + missing.join(', '));
+
+  lastCol = sheet.getLastColumn();
+  return sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+}
+
+/** Manually run karne ke liye — columns turant ban jayenge */
+function setupPrevPermColumns() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(PREV_PERM_SHEET);
+  if (!sheet) throw new Error(PREV_PERM_SHEET + ' sheet not found');
+  Logger.log('Final headers: ' + ensurePrevPermColumns_(sheet).join(' | '));
+}
+
+/** Granted_At = ab, Expires_At = ab + 24 ghante */
+function stampPrevPermTimestamps_(rowData) {
+  const grantedAt = new Date();
+  rowData.Granted_At = grantedAt;
+  rowData.Expires_At = new Date(grantedAt.getTime() + 24 * 60 * 60 * 1000);
+  if (!rowData.Attendance_Type) rowData.Attendance_Type = 'Both';
+}
+
+/** Date objects ko string bana deta hai taaki React unhein render kar sake */
+function sanitizeRowForClient_(row) {
+  const tz = Session.getScriptTimeZone() || 'Asia/Karachi';
+  Object.keys(row).forEach(function (k) {
+    if (row[k] instanceof Date) {
+      row[k] = Utilities.formatDate(row[k], tz, 'dd-MMM-yyyy hh:mm a');
+    }
+  });
+  return row;
+}
+
 // Add a new row to a sheet
 // Add a new row to a sheet
 function addSheetRow(sheetName, rowData, currentUsername) {
@@ -172,7 +245,15 @@ function addSheetRow(sheetName, rowData, currentUsername) {
       }
     }
     
+    // 🆕 naye columns na hon to auto add
+        // 🆕 naye columns na hon to auto add
+    if (isPrevPermSheet_(sheetName)) ensurePrevPermColumns_(sheet);
+
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+    // ⏱ permission banne ka waqt + 24 ghante ki expiry
+        // ⏱ permission banne ka waqt + 24 ghante ki expiry
+    if (isPrevPermSheet_(sheetName)) stampPrevPermTimestamps_(rowData);
 
     // Get REC_ID from the current user
     let recId = '';
@@ -218,6 +299,16 @@ function addSheetRow(sheetName, rowData, currentUsername) {
     sheet.appendRow(newRow);
     SpreadsheetApp.flush();
     
+    // ⏱ timestamp columns ka display format
+        // ⏱ timestamp columns ka display format
+    if (isPrevPermSheet_(sheetName)) {
+      const lastRow = sheet.getLastRow();
+      ['Granted_At', 'Expires_At'].forEach(function (h) {
+        const idx = headers.indexOf(h);
+        if (idx > -1) sheet.getRange(lastRow, idx + 1).setNumberFormat('dd-MMM-yyyy hh:mm AM/PM');
+      });
+    }
+    
     // Handle time format for Users sheet
     if (sheetName === 'Users') {
       const startTimeIndex = headers.indexOf('StartTime');
@@ -235,7 +326,7 @@ function addSheetRow(sheetName, rowData, currentUsername) {
     return { 
       success: true, 
       message: 'Record added successfully', 
-      data: { ...rowData, _rowNumber: sheet.getLastRow() } 
+      data: sanitizeRowForClient_({ ...rowData, _rowNumber: sheet.getLastRow() })
     };
   } catch (e) {
     Logger.log('Error in addSheetRow: ' + e.message);
@@ -325,6 +416,9 @@ function updateSheetRow(sheetName, rowIndex, rowData, currentUsername) {
       }
     }
     
+    // 🆕 naye columns na hon to auto add
+        if (isPrevPermSheet_(sheetName)) ensurePrevPermColumns_(sheet);
+
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     if (!headers || headers.length === 0) {
       throw new Error('No headers found in the sheet');
@@ -581,6 +675,10 @@ return {
     }
     
     // ✅ OTHER SHEETS (Users, User_Permissions, etc.)
+
+    // ⏱ edit hone par 24-hour window dobara start hoga
+       if (isPrevPermSheet_(sheetName)) stampPrevPermTimestamps_(rowData);
+
     const newRow = headers.map(function(header) {
       const value = rowData[header];
         if (sheetName.toLowerCase() === 'user_permissions' && !['Username', 'REC_ID'].includes(header)) {
@@ -626,7 +724,7 @@ return {
     return {
       success: true,
       message: 'Record updated successfully',
-      data: { ...rowData, _rowNumber: rowIndex }
+      data: sanitizeRowForClient_({ ...rowData, _rowNumber: rowIndex })
     };
     
   } catch (e) {
