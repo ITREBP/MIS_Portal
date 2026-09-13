@@ -4853,7 +4853,8 @@ const formatDateToDDMMMYYYY = (dateStr) => {
                 item.Std_ID?.toString().toLowerCase().includes(searchQuery.toLowerCase()) ||
                 item.Student_Name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 item.Barcode_ID?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                item.Gender?.toLowerCase().includes(searchQuery.toLowerCase())
+                item.Gender?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                item.Unique_ID?.toString().toLowerCase().includes(searchQuery.toLowerCase())
               );
             }
             return Object.values(item).some(val =>
