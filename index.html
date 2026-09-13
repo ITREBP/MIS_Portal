@@ -8,6 +8,8 @@
   </body>
 </html>
 <!DOCTYPE html>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -4110,83 +4112,129 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
     setSuccessMessage('CSV downloaded!');
   };
 
-  // ---------------- PNG Download ----------------
+    // ---------------- PNG Download (with ZIP for multiple classes/sections) ----------------
   const downloadPNG = async () => {
     if (reportData.length === 0) { setError('No data to download'); return; }
     setIsLoading(true);
 
-    const reportDiv = document.createElement('div');
-    reportDiv.setAttribute('data-theme', 'light');
-    reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;background:white;padding:30px;font-family:sans-serif;color:#1a2c3e;';
-    const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-
-    let html = `
-      <div style="margin-bottom:20px;text-align:center;">
-        <h1 style="color:#1a2c3e;margin-bottom:8px;">Monthly Bar Report</h1>
-        <div style="font-size:13px;color:#666;">
-          Class ${selectedClass} - ${selectedSection} | Month: ${selectedMonth} | Generated on ${currentDate}
-        </div>
-        <hr style="border:2px solid #1a73e8;margin-top:10px;">
-      </div>
-      <table style="width:100%;border-collapse:collapse;font-size:10px;">
-        <thead>
-          <tr style="background:#1a73e8;color:white;">
-            <th style="padding:5px;border:1px solid #ddd;">Std ID</th>
-            <th style="padding:5px;border:1px solid #ddd;">Name</th>
-            <th style="padding:5px;border:1px solid #ddd;">Class</th>
-            <th style="padding:5px;border:1px solid #ddd;">Sec</th>
-            ${Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => `<th style="padding:3px;border:1px solid #ddd;">${d}</th>`).join('')}
-            <th style="padding:5px;border:1px solid #ddd;">Present</th>
-            <th style="padding:5px;border:1px solid #ddd;">Absent</th>
-            <th style="padding:5px;border:1px solid #ddd;">Leave</th>
-            <th style="padding:5px;border:1px solid #ddd;">Total Days</th>
-            <th style="padding:5px;border:1px solid #ddd;">Total %</th>
-            <th style="padding:5px;border:1px solid #ddd;">Total Hours</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-
-    reportData.forEach((row, idx) => {
-      const bg = idx % 2 === 0 ? '#ffffff' : '#f8f9fa';
-      html += `<tr style="background:${bg};">`;
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Std_ID}</td>`;
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Student_Name}</td>`;
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Class}</td>`;
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Section}</td>`;
-      for (let d = 1; d <= daysInMonth; d++) {
-        const sym = row.days[d] || '-';
-        let cellColor = '#f5f5f5', textColor = '#999';
-        if (sym === 'P') { cellColor = '#e8f5e9'; textColor = '#2e7d32'; }
-        else if (sym === 'A') { cellColor = '#ffebee'; textColor = '#c62828'; }
-        else if (sym === 'L') { cellColor = '#fff3e0'; textColor = '#ef6c00'; }
-        html += `<td style="padding:3px;border:1px solid #ddd;text-align:center;background:${cellColor};color:${textColor};font-weight:700;">${sym}</td>`;
-      }
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalPresent}</td>`;
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalAbsent}</td>`;
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalLeave}</td>`;
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalDays}</td>`;
-      const pctColor = row.percentage >= 75 ? '#2e7d32' : row.percentage >= 50 ? '#ef6c00' : '#c62828';
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${pctColor};">${row.percentage}%</td>`;
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalHours}</td>`;
-      html += '</tr>';
-    });
-
-    html += '</tbody></table>';
-    reportDiv.innerHTML = html;
-    document.body.appendChild(reportDiv);
-    await new Promise(r => setTimeout(r, 100));
-
     try {
-      const canvas = await html2canvas(reportDiv, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
-      document.body.removeChild(reportDiv);
-      const link = document.createElement('a');
-      link.download = `monthly_bar_report_${selectedClass}_${selectedSection}_${selectedMonth}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      setSuccessMessage('PNG downloaded!');
+      // 1. Group reportData by Class + Section
+      const groups = {}; // { 'IBT-A': [rows], 'NUR-B': [rows], ... }
+      reportData.forEach(row => {
+        const key = `${row.Class || 'Unknown'}-${row.Section || ''}`.trim();
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(row);
+      });
+
+      const groupKeys = Object.keys(groups);
+      const isSingle = groupKeys.length === 1;
+
+      // Helper: render a set of rows to a canvas, given a title
+      const renderGroupToCanvas = async (rows, title) => {
+        const reportDiv = document.createElement('div');
+        reportDiv.setAttribute('data-theme', 'light');
+        reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;background:white;padding:30px;font-family:sans-serif;color:#1a2c3e;';
+        const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        let html = `
+          <div style="margin-bottom:20px;text-align:center;">
+            <h1 style="color:#1a2c3e;margin-bottom:8px;">Monthly Bar Report</h1>
+            <div style="font-size:13px;color:#666;">
+              ${title} | Month: ${selectedMonth} | Generated on ${currentDate}
+            </div>
+            <hr style="border:2px solid #1a73e8;margin-top:10px;">
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;">
+            <thead>
+              <tr style="background:#1a73e8;color:white;">
+                <th style="padding:5px;border:1px solid #ddd;">Std ID</th>
+                <th style="padding:5px;border:1px solid #ddd;">Name</th>
+                <th style="padding:5px;border:1px solid #ddd;">Class</th>
+                <th style="padding:5px;border:1px solid #ddd;">Sec</th>
+                ${Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => `<th style="padding:3px;border:1px solid #ddd;">${d}</th>`).join('')}
+                <th style="padding:5px;border:1px solid #ddd;">Present</th>
+                <th style="padding:5px;border:1px solid #ddd;">Absent</th>
+                <th style="padding:5px;border:1px solid #ddd;">Leave</th>
+                <th style="padding:5px;border:1px solid #ddd;">Total Days</th>
+                <th style="padding:5px;border:1px solid #ddd;">Total %</th>
+                <th style="padding:5px;border:1px solid #ddd;">Total Hours</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        rows.forEach((row, idx) => {
+          const bg = idx % 2 === 0 ? '#ffffff' : '#f8f9fa';
+          html += `<tr style="background:${bg};">`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Std_ID}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Student_Name}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Class}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Section}</td>`;
+          for (let d = 1; d <= daysInMonth; d++) {
+            const sym = row.days[d] || '-';
+            let cellColor = '#f5f5f5', textColor = '#999';
+            if (sym === 'P') { cellColor = '#e8f5e9'; textColor = '#2e7d32'; }
+            else if (sym === 'A') { cellColor = '#ffebee'; textColor = '#c62828'; }
+            else if (sym === 'L') { cellColor = '#fff3e0'; textColor = '#ef6c00'; }
+            html += `<td style="padding:3px;border:1px solid #ddd;text-align:center;background:${cellColor};color:${textColor};font-weight:700;">${sym}</td>`;
+          }
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalPresent}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalAbsent}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalLeave}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalDays}</td>`;
+          const pctColor = row.percentage >= 75 ? '#2e7d32' : row.percentage >= 50 ? '#ef6c00' : '#c62828';
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${pctColor};">${row.percentage}%</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalHours}</td>`;
+          html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        reportDiv.innerHTML = html;
+        document.body.appendChild(reportDiv);
+        await new Promise(r => setTimeout(r, 100));
+
+        const canvas = await html2canvas(reportDiv, {
+          scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false
+        });
+        document.body.removeChild(reportDiv);
+        return canvas;
+      };
+
+      // 2. If only one group, do the normal single PNG download
+      if (isSingle) {
+        const title = `Class ${groupKeys[0].split('-')[0]} - ${groupKeys[0].split('-')[1] || ''}`;
+        const canvas = await renderGroupToCanvas(groups[groupKeys[0]], title);
+        const link = document.createElement('a');
+        link.download = `monthly_bar_report_${groupKeys[0]}_${selectedMonth}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        setSuccessMessage('PNG downloaded!');
+        setIsLoading(false);
+        return;
+      }
+
+      // 3. Multiple groups — build a ZIP
+      const zip = new JSZip();
+      const folderName = `MonthlyBarReport_${selectedMonth.replace('-', '_')}`;
+      const folder = zip.folder(folderName);
+
+      for (const key of groupKeys) {
+        const rows = groups[key];
+        const [cls, sec] = key.split('-');
+        const title = `Class ${cls} - ${sec || ''}`;
+        const canvas = await renderGroupToCanvas(rows, title);
+        const dataUrl = canvas.toDataURL('image/png');
+        // Strip the "data:image/png;base64," prefix
+        const base64 = dataUrl.split(',')[1];
+        // Safe filename
+        const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '_');
+        folder.file(`MonthlyBarReport_${safeKey}_${selectedMonth}.png`, base64, { base64: true });
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      saveAs(blob, `${folderName}.zip`);
+      setSuccessMessage(`Downloaded ${groupKeys.length} PNG files in ZIP!`);
     } catch (err) {
-      document.body.removeChild(reportDiv);
       setError('Failed to generate PNG: ' + err.message);
     }
     setIsLoading(false);
