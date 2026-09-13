@@ -4059,11 +4059,6 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
       }
       row.totalHours = Math.round(row.totalHours * 100) / 100;
 
-        // ✅ NEW: Average daily hours = total hours ÷ total days marked
-      row.avgHours = row.totalDays > 0
-        ? Math.round((row.totalHours / row.totalDays) * 100) / 100
-        : 0;
-
       row.percentage = row.totalDays > 0 ? Math.round((row.totalPresent / row.totalDays) * 100) : 0;
       return row;
     });
@@ -4096,7 +4091,7 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
     reportData.forEach(row => {
       const line = [row.Std_ID, row.Student_Name, row.Class, row.Section];
       for (let d = 1; d <= daysInMonth; d++) line.push(row.days[d] || '-');
-      line.push(row.totalPresent, row.totalAbsent, row.totalLeave, row.totalDays, `${row.percentage}%`, row.avgHours, row.totalHours);
+      line.push(row.totalPresent, row.totalAbsent, row.totalLeave, row.totalDays, `${row.percentage}%`, row.totalHours);
       csv += line.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
     });
 
@@ -4143,7 +4138,6 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
             <th style="padding:5px;border:1px solid #ddd;">Leave</th>
             <th style="padding:5px;border:1px solid #ddd;">Total Days</th>
             <th style="padding:5px;border:1px solid #ddd;">Total %</th>
-            <th style="padding:5px;border:1px solid #ddd;">Daily Hours</th>
             <th style="padding:5px;border:1px solid #ddd;">Total Hours</th>
           </tr>
         </thead>
@@ -4171,7 +4165,6 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalDays}</td>`;
       const pctColor = row.percentage >= 75 ? '#2e7d32' : row.percentage >= 50 ? '#ef6c00' : '#c62828';
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${pctColor};">${row.percentage}%</td>`;
-      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.avgHours}</td>`;
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalHours}</td>`;
       html += '</tr>';
     });
@@ -4312,7 +4305,6 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-orange-100 dark:bg-orange-900 font-bold">Leave</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total Days</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total %</th>
-                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-indigo-100 dark:bg-indigo-900 font-bold">Daily Hours</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-purple-100 dark:bg-purple-900 font-bold">Total Hours</th>
               </tr>
             </thead>
@@ -4340,7 +4332,6 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
                     ${row.percentage >= 75 ? 'text-green-600' : row.percentage >= 50 ? 'text-orange-600' : 'text-red-600'}`}>
                     {row.percentage}%
                   </td>
-                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30">{row.avgHours}</td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-purple-600 bg-purple-50 dark:bg-purple-900/30">{row.totalHours}</td>
                 </tr>
               ))}
