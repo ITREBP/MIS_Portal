@@ -3973,15 +3973,47 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
       return dt.getFullYear() === year && (dt.getMonth() + 1) === month;
     });
 
-    // 3. Filter Daily_Hours_Setup for the month (for hours calculation)
-    //    ⚠️ Adjust h.Std_ID, h.Date, h.Hours below to match your actual sheet column names
-    const monthlyHours = (data.daily_hours || []).filter(h => {
-      const sid = norm(h.Std_ID || h.Student_ID || h.SIRN || h.Student_SIRN);
-      if (!studentIdSet.has(sid)) return false;
-      const dt = parseAnyDate(h.Date || h.Session_Date || h.Day || h.Date_of_Session);
-      if (!dt) return false;
-      return dt.getFullYear() === year && (dt.getMonth() + 1) === month;
+    // 3. Read numeric hours from Daily_Hours_Setup.
+    //    Assumes the Day columns (Day 1..Day 31) contain NUMBERS.
+    //    If they contain letters (P/A/-), they're skipped (0 hours for that day).
+    const hoursByStudent = {}; // { '4492': { 1: 6, 2: 6, 3: 0, ... } }
+
+    (data.daily_hours || []).forEach(row => {
+      const sid = norm(row.Std_ID || row.Student_ID || row.SIRN || row.Student_SIRN);
+      if (!sid || !studentIdSet.has(sid)) return;
+      if (!hoursByStudent[sid]) hoursByStudent[sid] = {};
+
+      Object.keys(row).forEach(key => {
+        // Match "Day N" / "DayN" / "D N" / "Day_N" (any case, any spacing)
+        const cleanKey = String(key).replace(/\s+/g, '').replace(/_/g, '').toLowerCase();
+        const m = cleanKey.match(/^(?:day|d)(\d{1,2})$/);
+        if (!m) return;
+
+        const dayNum = parseInt(m[1], 10);
+        if (dayNum < 1 || dayNum > 31) return;
+
+        const rawVal = row[key];
+        if (rawVal === null || rawVal === undefined) return;
+
+        const rawStr = String(rawVal).trim();
+        if (rawStr === '' || rawStr === '-' || rawStr === '—') return;
+
+        // Only accept pure numbers as hours
+        if (/^-?\d+(\.\d+)?$/.test(rawStr)) {
+          const num = parseFloat(rawStr);
+          if (num > 0) hoursByStudent[sid][dayNum] = num;
+          return;
+        }
+
+        // Fallback: treat 'P' as a fixed number of hours
+        const HOURS_PER_PRESENT = 1; // ← change this to 6 if each P = 6 hours
+        if (rawStr.toUpperCase() === 'P') {
+          hoursByStudent[sid][dayNum] = HOURS_PER_PRESENT;
+        }
+      });
     });
+
+    console.log('hoursByStudent (numeric only):', hoursByStudent);
 
     if (monthlyAttendance.length === 0) {
       setError(`No attendance records found for ${students.length} student(s) in ${selectedMonth}.`);
@@ -4019,22 +4051,25 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
         row.days[day] = symbol;
       });
 
-      // ✅ Sum hours from Daily_Hours_Setup for this student
-      //    ⚠️ Adjust the column name(s) below to match your actual sheet
-      const studentHours = monthlyHours.filter(h =>
-        norm(h.Std_ID || h.Student_ID || h.SIRN || h.Student_SIRN) === norm(student.Std_ID)
-      );
-      studentHours.forEach(h => {
-        const rawVal = h.Hours ?? h.Total_Hours ?? h.Daily_Hours ?? h.Hours_Worked
-                    ?? h.Duration ?? h.Allocated_Hours ?? h.Hours_Allocated ?? 0;
-        const hoursVal = parseFloat(rawVal);
-        if (!isNaN(hoursVal)) row.totalHours += hoursVal;
-      });
+      // ✅ Sum hours from Daily_Hours_Setup — only days belonging to the selected month
+      const sid = norm(student.Std_ID);
+      const dayHours = hoursByStudent[sid] || {};
+      for (let d = 1; d <= daysInMonth; d++) {
+        if (dayHours[d]) row.totalHours += dayHours[d];
+      }
       row.totalHours = Math.round(row.totalHours * 100) / 100;
-      
+
+        // ✅ NEW: Average daily hours = total hours ÷ total days marked
+      row.avgHours = row.totalDays > 0
+        ? Math.round((row.totalHours / row.totalDays) * 100) / 100
+        : 0;
+
       row.percentage = row.totalDays > 0 ? Math.round((row.totalPresent / row.totalDays) * 100) : 0;
       return row;
     });
+
+    console.log('hoursByStudent:', hoursByStudent);
+    console.log('Sample row keys:', data.daily_hours?.[0] ? Object.keys(data.daily_hours[0]) : 'no rows');
 
     setReportData(matrixData);
     setIsLoading(false);
@@ -4055,13 +4090,13 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
 
     const headers = ['Std ID', 'Name', 'Class', 'Section'];
     for (let d = 1; d <= daysInMonth; d++) headers.push(`Day ${d}`);
-    headers.push('Present Total', 'Absent', 'Leave', 'Total Days', 'Total %', 'Total Hours');
+    headers.push('Present Total', 'Absent', 'Leave', 'Total Days', 'Total %', 'Daily Hours', 'Total Hours');
 
     let csv = headers.join(',') + '\n';
     reportData.forEach(row => {
       const line = [row.Std_ID, row.Student_Name, row.Class, row.Section];
       for (let d = 1; d <= daysInMonth; d++) line.push(row.days[d] || '-');
-      line.push(row.totalPresent, row.totalAbsent, row.totalLeave, row.totalDays, `${row.percentage}%`, row.totalHours);
+      line.push(row.totalPresent, row.totalAbsent, row.totalLeave, row.totalDays, `${row.percentage}%`, row.avgHours, row.totalHours);
       csv += line.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
     });
 
@@ -4108,6 +4143,7 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
             <th style="padding:5px;border:1px solid #ddd;">Leave</th>
             <th style="padding:5px;border:1px solid #ddd;">Total Days</th>
             <th style="padding:5px;border:1px solid #ddd;">Total %</th>
+            <th style="padding:5px;border:1px solid #ddd;">Daily Hours</th>
             <th style="padding:5px;border:1px solid #ddd;">Total Hours</th>
           </tr>
         </thead>
@@ -4135,6 +4171,7 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalDays}</td>`;
       const pctColor = row.percentage >= 75 ? '#2e7d32' : row.percentage >= 50 ? '#ef6c00' : '#c62828';
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${pctColor};">${row.percentage}%</td>`;
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.avgHours}</td>`;
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalHours}</td>`;
       html += '</tr>';
     });
@@ -4275,6 +4312,7 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-orange-100 dark:bg-orange-900 font-bold">Leave</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total Days</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total %</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-indigo-100 dark:bg-indigo-900 font-bold">Daily Hours</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-purple-100 dark:bg-purple-900 font-bold">Total Hours</th>
               </tr>
             </thead>
@@ -4302,6 +4340,7 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
                     ${row.percentage >= 75 ? 'text-green-600' : row.percentage >= 50 ? 'text-orange-600' : 'text-red-600'}`}>
                     {row.percentage}%
                   </td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30">{row.avgHours}</td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-purple-600 bg-purple-50 dark:bg-purple-900/30">{row.totalHours}</td>
                 </tr>
               ))}
