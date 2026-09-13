@@ -3901,7 +3901,6 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
   const [reportData, setReportData] = useState([]);
   const [daysInMonth, setDaysInMonth] = useState(30);
 
-  // Parse date helper (handles dd-MMM-yyyy and ISO)
   const parseAnyDate = (d) => {
     if (!d) return null;
     if (typeof d === 'string' && /^\d{2}-[A-Za-z]{3}-\d{4}$/.test(d)) {
@@ -3913,13 +3912,6 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
     return isNaN(dt) ? null : dt;
   };
 
-  const toYMD = (d) => {
-    const dt = parseAnyDate(d);
-    if (!dt) return '';
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-  };
-
-  // Calculate days in month when month changes
   useEffect(() => {
     if (selectedMonth) {
       const [year, month] = selectedMonth.split('-').map(Number);
@@ -3936,63 +3928,85 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
     }
 
     setIsLoading(true);
+    setError('');
     const [year, month] = selectedMonth.split('-').map(Number);
 
-    // 1. Get students for the selected class/section
+    // Helper for safe string comparison
+    const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
+
+    // 1. Get students for the selected class/section (normalized matching)
     const students = data.student_data.filter(
-      s => s.Student_Class === selectedClass && s.Student_Section === selectedSection
+      s => norm(s.Student_Class) === norm(selectedClass) &&
+           norm(s.Student_Section) === norm(selectedSection)
     );
 
     if (students.length === 0) {
-      setError('No students found for this class and section.');
+      setError('No students found for this Class and Section. Check spelling/trailing spaces in Student_Data.');
+      setReportData([]);
       setIsLoading(false);
       return;
     }
 
-    // 2. Build the matrix for each student
+    // 2. Build a Set of student IDs for fast lookup
+    const studentIdSet = new Set(students.map(s => norm(s.Std_ID)));
+
+    // 3. Filter attendance records for this month + these students
+    const monthlyAttendance = data.student_attendance.filter(a => {
+      if (!studentIdSet.has(norm(a.Std_ID))) return false;
+      const dt = parseAnyDate(a.Date);
+      if (!dt) return false;
+      return dt.getFullYear() === year && (dt.getMonth() + 1) === month;
+    });
+
+    // Debug info if nothing matched
+    if (monthlyAttendance.length === 0) {
+      // Count how many records exist at all for these students
+      const totalForStudents = data.student_attendance.filter(a => studentIdSet.has(norm(a.Std_ID))).length;
+      setError(
+        `No attendance records found for ${students.length} student(s) in ${selectedMonth}. ` +
+        `(There are ${totalForStudents} total attendance records for these students across all months — check the date format in the sheet.)`
+      );
+      setReportData([]);
+      setIsLoading(false);
+      return;
+    }
+
+    // 4. Build matrix
     const matrixData = students.map(student => {
       const row = {
         Std_ID: student.Std_ID,
         Student_Name: student.Student_Name,
         Class: student.Student_Class,
         Section: student.Student_Section,
-        days: {}, // Will hold status per day (e.g., 'P', 'A', 'L')
+        days: {},
         totalPresent: 0,
+        totalAbsent: 0,
+        totalLeave: 0,
         totalDays: 0,
       };
 
-      // Filter attendance records for this student in the selected month
-      const studentAttendance = data.student_attendance.filter(a => {
-        if (String(a.Std_ID) !== String(student.Std_ID)) return false;
-        const dt = parseAnyDate(a.Date);
-        return dt && dt.getFullYear() === year && (dt.getMonth() + 1) === month;
-      });
+      const studentRecords = monthlyAttendance.filter(a => norm(a.Std_ID) === norm(student.Std_ID));
 
-      // Populate the days map
-      studentAttendance.forEach(record => {
+      studentRecords.forEach(record => {
         const dt = parseAnyDate(record.Date);
-        if (dt) {
-          const day = dt.getDate();
-          const status = (record.Status || '').toLowerCase();
-          let symbol = '-';
-          if (status === 'present') { symbol = 'P'; row.totalPresent++; row.totalDays++; }
-          else if (status === 'absent') { symbol = 'A'; row.totalDays++; }
-          else if (status === 'leave') { symbol = 'L'; row.totalDays++; }
-          else { symbol = '?'; } // Other statuses
-          
-          row.days[day] = symbol;
-        }
+        if (!dt) return;
+        const day = dt.getDate();
+        const status = (record.Status || '').toLowerCase().trim();
+        let symbol = '-';
+        if (status === 'present') { symbol = 'P'; row.totalPresent++; row.totalDays++; }
+        else if (status === 'absent') { symbol = 'A'; row.totalAbsent++; row.totalDays++; }
+        else if (status === 'leave')  { symbol = 'L'; row.totalLeave++;  row.totalDays++; }
+        else { symbol = '?'; row.totalDays++; }
+        row.days[day] = symbol;
       });
 
-      // Calculate percentage
       row.percentage = row.totalDays > 0 ? Math.round((row.totalPresent / row.totalDays) * 100) : 0;
-
       return row;
     });
 
     setReportData(matrixData);
     setIsLoading(false);
-    setSuccessMessage(`Report generated for ${matrixData.length} students.`);
+    setSuccessMessage(`Report generated for ${matrixData.length} students (${monthlyAttendance.length} attendance records).`);
   };
 
   const clearForm = () => {
@@ -4000,9 +4014,115 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
     setSelectedSection('');
     setSelectedMonth('');
     setReportData([]);
+    setError('');
   };
 
-  // Filter data based on search query
+  // ---------------- CSV Download ----------------
+  const downloadCSV = () => {
+    if (reportData.length === 0) { setError('No data to download'); return; }
+
+    const headers = ['Std ID', 'Name', 'Class', 'Section'];
+    for (let d = 1; d <= daysInMonth; d++) headers.push(`Day ${d}`);
+    headers.push('Present Total', 'Absent', 'Leave', 'Total %');
+
+    let csv = headers.join(',') + '\n';
+    reportData.forEach(row => {
+      const line = [row.Std_ID, row.Student_Name, row.Class, row.Section];
+      for (let d = 1; d <= daysInMonth; d++) line.push(row.days[d] || '-');
+      line.push(row.totalPresent, row.totalAbsent, row.totalLeave, `${row.percentage}%`);
+      csv += line.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `monthly_bar_report_${selectedClass}_${selectedSection}_${selectedMonth}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    setSuccessMessage('CSV downloaded!');
+  };
+
+  // ---------------- PNG Download ----------------
+  const downloadPNG = async () => {
+    if (reportData.length === 0) { setError('No data to download'); return; }
+    setIsLoading(true);
+
+    const reportDiv = document.createElement('div');
+    reportDiv.setAttribute('data-theme', 'light');
+    reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;background:white;padding:30px;font-family:sans-serif;color:#1a2c3e;';
+    const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    let html = `
+      <div style="margin-bottom:20px;text-align:center;">
+        <h1 style="color:#1a2c3e;margin-bottom:8px;">Monthly Bar Report</h1>
+        <div style="font-size:13px;color:#666;">
+          Class ${selectedClass} - ${selectedSection} | Month: ${selectedMonth} | Generated on ${currentDate}
+        </div>
+        <hr style="border:2px solid #1a73e8;margin-top:10px;">
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:10px;">
+        <thead>
+          <tr style="background:#1a73e8;color:white;">
+            <th style="padding:5px;border:1px solid #ddd;">Std ID</th>
+            <th style="padding:5px;border:1px solid #ddd;">Name</th>
+            <th style="padding:5px;border:1px solid #ddd;">Class</th>
+            <th style="padding:5px;border:1px solid #ddd;">Sec</th>
+            ${Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => `<th style="padding:3px;border:1px solid #ddd;">${d}</th>`).join('')}
+            <th style="padding:5px;border:1px solid #ddd;">Present</th>
+            <th style="padding:5px;border:1px solid #ddd;">Absent</th>
+            <th style="padding:5px;border:1px solid #ddd;">Leave</th>
+            <th style="padding:5px;border:1px solid #ddd;">Total %</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    reportData.forEach((row, idx) => {
+      const bg = idx % 2 === 0 ? '#ffffff' : '#f8f9fa';
+      html += `<tr style="background:${bg};">`;
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Std_ID}</td>`;
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Student_Name}</td>`;
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Class}</td>`;
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Section}</td>`;
+      for (let d = 1; d <= daysInMonth; d++) {
+        const sym = row.days[d] || '-';
+        let cellColor = '#f5f5f5', textColor = '#999';
+        if (sym === 'P') { cellColor = '#e8f5e9'; textColor = '#2e7d32'; }
+        else if (sym === 'A') { cellColor = '#ffebee'; textColor = '#c62828'; }
+        else if (sym === 'L') { cellColor = '#fff3e0'; textColor = '#ef6c00'; }
+        html += `<td style="padding:3px;border:1px solid #ddd;text-align:center;background:${cellColor};color:${textColor};font-weight:700;">${sym}</td>`;
+      }
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalPresent}</td>`;
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalAbsent}</td>`;
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalLeave}</td>`;
+      const pctColor = row.percentage >= 75 ? '#2e7d32' : row.percentage >= 50 ? '#ef6c00' : '#c62828';
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${pctColor};">${row.percentage}%</td>`;
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    reportDiv.innerHTML = html;
+    document.body.appendChild(reportDiv);
+    await new Promise(r => setTimeout(r, 100));
+
+    try {
+      const canvas = await html2canvas(reportDiv, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      document.body.removeChild(reportDiv);
+      const link = document.createElement('a');
+      link.download = `monthly_bar_report_${selectedClass}_${selectedSection}_${selectedMonth}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      setSuccessMessage('PNG downloaded!');
+    } catch (err) {
+      document.body.removeChild(reportDiv);
+      setError('Failed to generate PNG: ' + err.message);
+    }
+    setIsLoading(false);
+  };
+
   const filteredData = searchQuery
     ? reportData.filter(item =>
         Object.values(item).some(val =>
@@ -4011,7 +4131,6 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
       )
     : reportData;
 
-  // Generate month options (last 12 months)
   const monthOptions = [];
   const today = new Date();
   for (let i = 0; i < 12; i++) {
@@ -4076,6 +4195,22 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
             <button type="submit" disabled={isLoading} className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
               {isLoading ? <><i className="uil uil-spinner text-xl loading-spinner"></i> Generating...</> : 'Generate Report'}
             </button>
+            <button
+              type="button"
+              onClick={downloadCSV}
+              disabled={reportData.length === 0 || isLoading}
+              className={`btn-secondary ${reportData.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <i className="uil uil-file-csv"></i> CSV
+            </button>
+            <button
+              type="button"
+              onClick={downloadPNG}
+              disabled={reportData.length === 0 || isLoading}
+              className={`btn-secondary ${reportData.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <i className="uil uil-image-v"></i> PNG
+            </button>
             <button type="button" onClick={clearForm} className="btn-outline">Clear</button>
           </div>
         </form>
@@ -4094,13 +4229,14 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Name</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Class</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Section</th>
-                {/* Dynamic Day Columns */}
                 {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
                   <th key={day} className="border border-gray-300 dark:border-gray-600 p-1 text-center bg-gray-100 dark:bg-gray-700 text-xs w-8">
                     {day}
                   </th>
                 ))}
-                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Present Total</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Present</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-red-100 dark:bg-red-900 font-bold">Absent</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-orange-100 dark:bg-orange-900 font-bold">Leave</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total %</th>
               </tr>
             </thead>
@@ -4111,7 +4247,6 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
                   <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Student_Name}</td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Class}</td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Section}</td>
-                  {/* Day Cells */}
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
                     <td key={day} className={`border border-gray-300 dark:border-gray-600 p-1 text-center text-xs font-bold 
                       ${row.days[day] === 'P' ? 'text-green-600 bg-green-50 dark:bg-green-900/30' : 
@@ -4121,7 +4256,9 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
                       {row.days[day] || '-'}
                     </td>
                   ))}
-                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30">{row.totalPresent}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-green-600 bg-green-50 dark:bg-green-900/30">{row.totalPresent}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-red-600 bg-red-50 dark:bg-red-900/30">{row.totalAbsent}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-orange-600 bg-orange-50 dark:bg-orange-900/30">{row.totalLeave}</td>
                   <td className={`border border-gray-300 dark:border-gray-600 p-2 text-center font-bold 
                     ${row.percentage >= 75 ? 'text-green-600' : row.percentage >= 50 ? 'text-orange-600' : 'text-red-600'}`}>
                     {row.percentage}%
