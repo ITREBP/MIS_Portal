@@ -710,6 +710,7 @@
         teacher_assignments: [],
         student_data: [],
         student_attendance: [],
+        daily_hours: [],
       });
       const [activeTab, setActiveTab] = useState(null);
       const [activeReport, setActiveReport] = useState(null);
@@ -870,7 +871,7 @@ const refreshData = (recIdOverride = null) => {
         .getStudentData(currentRecId);
     }),
     
-    new Promise((resolve) => {
+        new Promise((resolve) => {
       google.script.run
         .withSuccessHandler(result => {
           setData(prev => ({ ...prev, student_attendance: result }));
@@ -881,6 +882,22 @@ const refreshData = (recIdOverride = null) => {
           resolve();
         })
         .getSheetData('Student_Attendance', currentRecId);
+    }),
+    
+        // ✅ Load Daily_Hours_Setup data
+        new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          console.log('Daily_Hours_Setup loaded:', result.length, 'rows');
+          setData(prev => ({ ...prev, daily_hours: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          console.error('Failed to load Daily_Hours_Setup:', err);
+          setData(prev => ({ ...prev, daily_hours: [] }));
+          resolve();
+        })
+        .getSheetData('Daily_Hours_Setup', currentRecId);
     })
     
   ]).finally(() => {
@@ -3897,7 +3914,7 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
     function MonthlyBarReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery }) {
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState(''); // Format: YYYY-MM
+  const [selectedMonth, setSelectedMonth] = useState('');
   const [reportData, setReportData] = useState([]);
   const [daysInMonth, setDaysInMonth] = useState(30);
 
@@ -3931,26 +3948,24 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
     setError('');
     const [year, month] = selectedMonth.split('-').map(Number);
 
-    // Helper for safe string comparison
     const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
 
-    // 1. Get students for the selected class/section (normalized matching)
+    // 1. Get students
     const students = data.student_data.filter(
       s => norm(s.Student_Class) === norm(selectedClass) &&
            norm(s.Student_Section) === norm(selectedSection)
     );
 
     if (students.length === 0) {
-      setError('No students found for this Class and Section. Check spelling/trailing spaces in Student_Data.');
+      setError('No students found for this Class and Section.');
       setReportData([]);
       setIsLoading(false);
       return;
     }
 
-    // 2. Build a Set of student IDs for fast lookup
     const studentIdSet = new Set(students.map(s => norm(s.Std_ID)));
 
-    // 3. Filter attendance records for this month + these students
+    // 2. Filter attendance for the month
     const monthlyAttendance = data.student_attendance.filter(a => {
       if (!studentIdSet.has(norm(a.Std_ID))) return false;
       const dt = parseAnyDate(a.Date);
@@ -3958,14 +3973,18 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
       return dt.getFullYear() === year && (dt.getMonth() + 1) === month;
     });
 
-    // Debug info if nothing matched
+    // 3. Filter Daily_Hours_Setup for the month (for hours calculation)
+    //    ⚠️ Adjust h.Std_ID, h.Date, h.Hours below to match your actual sheet column names
+    const monthlyHours = (data.daily_hours || []).filter(h => {
+      const sid = norm(h.Std_ID || h.Student_ID || h.SIRN || h.Student_SIRN);
+      if (!studentIdSet.has(sid)) return false;
+      const dt = parseAnyDate(h.Date || h.Session_Date || h.Day || h.Date_of_Session);
+      if (!dt) return false;
+      return dt.getFullYear() === year && (dt.getMonth() + 1) === month;
+    });
+
     if (monthlyAttendance.length === 0) {
-      // Count how many records exist at all for these students
-      const totalForStudents = data.student_attendance.filter(a => studentIdSet.has(norm(a.Std_ID))).length;
-      setError(
-        `No attendance records found for ${students.length} student(s) in ${selectedMonth}. ` +
-        `(There are ${totalForStudents} total attendance records for these students across all months — check the date format in the sheet.)`
-      );
+      setError(`No attendance records found for ${students.length} student(s) in ${selectedMonth}.`);
       setReportData([]);
       setIsLoading(false);
       return;
@@ -3983,10 +4002,10 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
         totalAbsent: 0,
         totalLeave: 0,
         totalDays: 0,
+        totalHours: 0,     // ✅ NEW: Total Hours
       };
 
       const studentRecords = monthlyAttendance.filter(a => norm(a.Std_ID) === norm(student.Std_ID));
-
       studentRecords.forEach(record => {
         const dt = parseAnyDate(record.Date);
         if (!dt) return;
@@ -4000,6 +4019,19 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
         row.days[day] = symbol;
       });
 
+      // ✅ Sum hours from Daily_Hours_Setup for this student
+      //    ⚠️ Adjust the column name(s) below to match your actual sheet
+      const studentHours = monthlyHours.filter(h =>
+        norm(h.Std_ID || h.Student_ID || h.SIRN || h.Student_SIRN) === norm(student.Std_ID)
+      );
+      studentHours.forEach(h => {
+        const rawVal = h.Hours ?? h.Total_Hours ?? h.Daily_Hours ?? h.Hours_Worked
+                    ?? h.Duration ?? h.Allocated_Hours ?? h.Hours_Allocated ?? 0;
+        const hoursVal = parseFloat(rawVal);
+        if (!isNaN(hoursVal)) row.totalHours += hoursVal;
+      });
+      row.totalHours = Math.round(row.totalHours * 100) / 100;
+      
       row.percentage = row.totalDays > 0 ? Math.round((row.totalPresent / row.totalDays) * 100) : 0;
       return row;
     });
@@ -4023,13 +4055,13 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
 
     const headers = ['Std ID', 'Name', 'Class', 'Section'];
     for (let d = 1; d <= daysInMonth; d++) headers.push(`Day ${d}`);
-    headers.push('Present Total', 'Absent', 'Leave', 'Total %');
+    headers.push('Present Total', 'Absent', 'Leave', 'Total Days', 'Total %', 'Total Hours');
 
     let csv = headers.join(',') + '\n';
     reportData.forEach(row => {
       const line = [row.Std_ID, row.Student_Name, row.Class, row.Section];
       for (let d = 1; d <= daysInMonth; d++) line.push(row.days[d] || '-');
-      line.push(row.totalPresent, row.totalAbsent, row.totalLeave, `${row.percentage}%`);
+      line.push(row.totalPresent, row.totalAbsent, row.totalLeave, row.totalDays, `${row.percentage}%`, row.totalHours);
       csv += line.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
     });
 
@@ -4074,7 +4106,9 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
             <th style="padding:5px;border:1px solid #ddd;">Present</th>
             <th style="padding:5px;border:1px solid #ddd;">Absent</th>
             <th style="padding:5px;border:1px solid #ddd;">Leave</th>
+            <th style="padding:5px;border:1px solid #ddd;">Total Days</th>
             <th style="padding:5px;border:1px solid #ddd;">Total %</th>
+            <th style="padding:5px;border:1px solid #ddd;">Total Hours</th>
           </tr>
         </thead>
         <tbody>
@@ -4098,8 +4132,10 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalPresent}</td>`;
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalAbsent}</td>`;
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalLeave}</td>`;
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalDays}</td>`;
       const pctColor = row.percentage >= 75 ? '#2e7d32' : row.percentage >= 50 ? '#ef6c00' : '#c62828';
       html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${pctColor};">${row.percentage}%</td>`;
+      html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalHours}</td>`;
       html += '</tr>';
     });
 
@@ -4234,10 +4270,12 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
                     {day}
                   </th>
                 ))}
-                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Present</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-green-100 dark:bg-green-900 font-bold">Present</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-red-100 dark:bg-red-900 font-bold">Absent</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-orange-100 dark:bg-orange-900 font-bold">Leave</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total Days</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total %</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-purple-100 dark:bg-purple-900 font-bold">Total Hours</th>
               </tr>
             </thead>
             <tbody>
@@ -4259,10 +4297,12 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
                   <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-green-600 bg-green-50 dark:bg-green-900/30">{row.totalPresent}</td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-red-600 bg-red-50 dark:bg-red-900/30">{row.totalAbsent}</td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-orange-600 bg-orange-50 dark:bg-orange-900/30">{row.totalLeave}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30">{row.totalDays}</td>
                   <td className={`border border-gray-300 dark:border-gray-600 p-2 text-center font-bold 
                     ${row.percentage >= 75 ? 'text-green-600' : row.percentage >= 50 ? 'text-orange-600' : 'text-red-600'}`}>
                     {row.percentage}%
                   </td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-purple-600 bg-purple-50 dark:bg-purple-900/30">{row.totalHours}</td>
                 </tr>
               ))}
             </tbody>
