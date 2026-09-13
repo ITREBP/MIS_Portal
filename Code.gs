@@ -652,25 +652,12 @@ function updateSheetRow(sheetName, rowIndex, rowData, currentUsername) {
 return {
   success: true,
   message: 'Student updated successfully: ' + (rowData.Student_Name || rowValues[2] || 'Unknown') + ' (SIRN: ' + (rowData.Std_ID || rowValues[0] || 'Unknown') + ')',
-  data: {
-    Std_ID: updatedRow[0],
-    Barcode_ID: updatedRow[1],
-    Student_Name: updatedRow[2],
-    Student_Class: updatedRow[3],
-    Student_Section: updatedRow[4],
-    Status: updatedRow[5],
-    Gender: updatedRow[6],
-    Date_of_Joining: updatedRow[7],
-    Inactive_Date: updatedRow[8],
-    Creation_Date: updatedRow[9],
-    Created_By: updatedRow[10],
-    Last_Modified_Date: updatedRow[11],
-    Last_Modified_By: updatedRow[12],
-    REC_ID: updatedRow[13] || '',
-    QR_Printed: updatedRow[14] || '',
-    Unique_ID: updatedRow[15] || '',
-    _rowNumber: rowIndex
-  }
+    data: (() => {
+    const d = {};
+    headers.forEach((h, i) => { d[h] = updatedRow[i] !== undefined && updatedRow[i] !== null ? updatedRow[i] : ''; });
+    d._rowNumber = rowIndex;
+    return d;
+  })()
 };
     }
     
