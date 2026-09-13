@@ -3950,14 +3950,17 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
 
     const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
 
-    // 1. Get students
-    const students = data.student_data.filter(
-      s => norm(s.Student_Class) === norm(selectedClass) &&
-           norm(s.Student_Section) === norm(selectedSection)
-    );
+    // 1. Get students (supports "All Classes" / "All Sections")
+    const students = data.student_data.filter(s => {
+      const classMatch =
+        selectedClass === '__ALL__' || norm(s.Student_Class) === norm(selectedClass);
+      const sectionMatch =
+        selectedSection === '__ALL__' || norm(s.Student_Section) === norm(selectedSection);
+      return classMatch && sectionMatch;
+    });
 
-    if (students.length === 0) {
-      setError('No students found for this Class and Section.');
+      if (students.length === 0) {
+      setError('No students found for the selected Class/Section.');
       setReportData([]);
       setIsLoading(false);
       return;
@@ -4218,29 +4221,38 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
           <div className="form-row">
             <div className="form-field">
               <select
-                className="form-input"
-                id="mbrClass"
-                value={selectedClass}
-                onChange={e => { setSelectedClass(e.target.value); setSelectedSection(''); }}
-                required
-              >
-                <option value="" disabled>Select Class</option>
-                {classes.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+                  className="form-input"
+                       id="mbrClass"
+                        value={selectedClass}
+                          onChange={e => {
+                    setSelectedClass(e.target.value);
+                    // Auto-select "__ALL__" for section when "All Classes" is picked
+                     setSelectedSection(e.target.value === '__ALL__' ? '__ALL__' : '');
+                     }}
+                  required
+                  >
+               <option value="" disabled>Select Class</option>
+              <option value="__ALL__">All Classes</option>
+             {classes.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
               <label htmlFor="mbrClass">Class</label>
             </div>
             <div className="form-field">
               <select
-                className="form-input"
-                id="mbrSection"
-                value={selectedSection}
-                onChange={e => setSelectedSection(e.target.value)}
-                required
-                disabled={!selectedClass}
-              >
-                <option value="" disabled>Select Section</option>
-                {(classSectionMap[selectedClass] || []).map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+                 className="form-input"
+                    id="mbrSection"
+                      value={selectedSection}
+                    onChange={e => setSelectedSection(e.target.value)}
+                          required
+                           disabled={!selectedClass}
+                    >
+                    <option value="" disabled>Select Section</option>
+                   {selectedClass === '__ALL__' ? (
+                 <option value="__ALL__">All Sections</option>
+                  ) : (
+                  (classSectionMap[selectedClass] || []).map(s => <option key={s} value={s}>{s}</option>)
+                  )}
+                  </select>
               <label htmlFor="mbrSection">Section</label>
             </div>
             <div className="form-field">
