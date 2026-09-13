@@ -1275,7 +1275,7 @@ const refreshData = (recIdOverride = null) => {
                               onClick={e => { e.preventDefault(); setActiveReport(report); setActiveTab(null); }}
                               className={`sub-nav-item ${activeReport === report ? 'active' : ''}`}
                             >
-                                                            {report.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                {report === 'monthly_bar_report' ? 'Monthly Report' : report.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                             </a>
                           )
                         ))}
@@ -1315,13 +1315,15 @@ const refreshData = (recIdOverride = null) => {
                       <i className="uil uil-bars text-xl"></i>
                     </button>
                     <h1 className="text-xl font-bold">
-                      {activeReport 
-                          ? activeReport.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) 
-                        : activeTab 
-                          ? activeTab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
-                          : 'Dashboard'
-                      }
-                    </h1>
+                       {activeReport 
+                      ? (activeReport === 'monthly_bar_report' 
+                     ? 'Monthly Report' 
+                      : activeReport.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))
+                      : activeTab 
+                     ? activeTab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
+                     : 'Dashboard'
+                     }
+                  </h1>
                   </div>
                   <div className="flex items-center gap-2">
                     {(activeTab || activeReport) && (
@@ -2294,11 +2296,10 @@ if (formData.AllowedDays) {
       }
 
       return (
-        <div className="card p-6">
-          <div className="flex items-center mb-4">
-            <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
-            <h2 className="text-xl font-semibold">Attendance Report</h2>
-          </div>
+        <div className="flex items-center mb-4">
+              <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
+              <h2 className="text-xl font-semibold">Monthly Report</h2>
+             </div>
           <div className="form-container mb-6">
             <h3 className="text-lg font-semibold mb-4">Generate Attendance Report</h3>
             <div className="form-row">
