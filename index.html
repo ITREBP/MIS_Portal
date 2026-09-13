@@ -1248,7 +1248,7 @@ const refreshData = (recIdOverride = null) => {
                     </a>
                     {expandedSections.reports && isSidebarOpen && (
                       <div className="sub-nav">
-                                                {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'batch_hours_log', 'attendance_correction_log'].map(report => (
+                                                {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'batch_hours_log', 'attendance_correction_log'].map(report => (
                           userPermissions[username]?.allowedTabs.includes(report) && (report !== 'student_attendance' || userPermissions[username]?.canQueryAttendance) && (
                             <a
                               key={report}
@@ -1393,6 +1393,18 @@ const refreshData = (recIdOverride = null) => {
       setIsLoading={setIsLoading}
       setError={setError}
       setSuccessMessage={setSuccessMessage}
+    />
+  ) : activeReport === 'monthly_bar_report' ? (   // <--- ADD THIS BLOCK
+  <MonthlyBarReport
+    data={data}
+    isLoading={isLoading}
+    setIsLoading={setIsLoading}
+    setError={setError}
+    setSuccessMessage={setSuccessMessage}
+    userPermissions={userPermissions[username]}
+    classes={classes}
+    classSectionMap={classSectionMap}
+    searchQuery={searchQuery}
     />
   ) : activeReport === 'batch_hours_log' ? (
     <BatchHoursLog
@@ -1608,7 +1620,7 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
   { name: 'StartTime', type: 'text', required: true, placeholder: 'Default start time (HH:MM)' },
   { name: 'EndTime', type: 'text', required: true, placeholder: 'Default end time (HH:MM)' },
   { name: 'allowedTabs', type: 'select-multiple', 
-        options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
+  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
     required: true, 
     placeholder: 'Select allowed tabs' 
   },
@@ -3882,6 +3894,248 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
       );
     }
 
+    function MonthlyBarReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery }) {
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedSection, setSelectedSection] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(''); // Format: YYYY-MM
+  const [reportData, setReportData] = useState([]);
+  const [daysInMonth, setDaysInMonth] = useState(30);
+
+  // Parse date helper (handles dd-MMM-yyyy and ISO)
+  const parseAnyDate = (d) => {
+    if (!d) return null;
+    if (typeof d === 'string' && /^\d{2}-[A-Za-z]{3}-\d{4}$/.test(d)) {
+      const [day, monStr, year] = d.split('-');
+      const monthMap = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+      return new Date(parseInt(year), monthMap[monStr], parseInt(day));
+    }
+    const dt = new Date(d);
+    return isNaN(dt) ? null : dt;
+  };
+
+  const toYMD = (d) => {
+    const dt = parseAnyDate(d);
+    if (!dt) return '';
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  };
+
+  // Calculate days in month when month changes
+  useEffect(() => {
+    if (selectedMonth) {
+      const [year, month] = selectedMonth.split('-').map(Number);
+      const days = new Date(year, month, 0).getDate();
+      setDaysInMonth(days);
+    }
+  }, [selectedMonth]);
+
+  const generateReport = (e) => {
+    e.preventDefault();
+    if (!selectedClass || !selectedSection || !selectedMonth) {
+      setError('Please select Class, Section, and Month.');
+      return;
+    }
+
+    setIsLoading(true);
+    const [year, month] = selectedMonth.split('-').map(Number);
+
+    // 1. Get students for the selected class/section
+    const students = data.student_data.filter(
+      s => s.Student_Class === selectedClass && s.Student_Section === selectedSection
+    );
+
+    if (students.length === 0) {
+      setError('No students found for this class and section.');
+      setIsLoading(false);
+      return;
+    }
+
+    // 2. Build the matrix for each student
+    const matrixData = students.map(student => {
+      const row = {
+        Std_ID: student.Std_ID,
+        Student_Name: student.Student_Name,
+        Class: student.Student_Class,
+        Section: student.Student_Section,
+        days: {}, // Will hold status per day (e.g., 'P', 'A', 'L')
+        totalPresent: 0,
+        totalDays: 0,
+      };
+
+      // Filter attendance records for this student in the selected month
+      const studentAttendance = data.student_attendance.filter(a => {
+        if (String(a.Std_ID) !== String(student.Std_ID)) return false;
+        const dt = parseAnyDate(a.Date);
+        return dt && dt.getFullYear() === year && (dt.getMonth() + 1) === month;
+      });
+
+      // Populate the days map
+      studentAttendance.forEach(record => {
+        const dt = parseAnyDate(record.Date);
+        if (dt) {
+          const day = dt.getDate();
+          const status = (record.Status || '').toLowerCase();
+          let symbol = '-';
+          if (status === 'present') { symbol = 'P'; row.totalPresent++; row.totalDays++; }
+          else if (status === 'absent') { symbol = 'A'; row.totalDays++; }
+          else if (status === 'leave') { symbol = 'L'; row.totalDays++; }
+          else { symbol = '?'; } // Other statuses
+          
+          row.days[day] = symbol;
+        }
+      });
+
+      // Calculate percentage
+      row.percentage = row.totalDays > 0 ? Math.round((row.totalPresent / row.totalDays) * 100) : 0;
+
+      return row;
+    });
+
+    setReportData(matrixData);
+    setIsLoading(false);
+    setSuccessMessage(`Report generated for ${matrixData.length} students.`);
+  };
+
+  const clearForm = () => {
+    setSelectedClass('');
+    setSelectedSection('');
+    setSelectedMonth('');
+    setReportData([]);
+  };
+
+  // Filter data based on search query
+  const filteredData = searchQuery
+    ? reportData.filter(item =>
+        Object.values(item).some(val =>
+          val?.toString().toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      )
+    : reportData;
+
+  // Generate month options (last 12 months)
+  const monthOptions = [];
+  const today = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    monthOptions.push({ value: val, label });
+  }
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center mb-4">
+        <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
+        <h2 className="text-xl font-semibold">Monthly Bar Report</h2>
+      </div>
+
+      <div className="form-container mb-6">
+        <form onSubmit={generateReport}>
+          <div className="form-row">
+            <div className="form-field">
+              <select
+                className="form-input"
+                id="mbrClass"
+                value={selectedClass}
+                onChange={e => { setSelectedClass(e.target.value); setSelectedSection(''); }}
+                required
+              >
+                <option value="" disabled>Select Class</option>
+                {classes.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <label htmlFor="mbrClass">Class</label>
+            </div>
+            <div className="form-field">
+              <select
+                className="form-input"
+                id="mbrSection"
+                value={selectedSection}
+                onChange={e => setSelectedSection(e.target.value)}
+                required
+                disabled={!selectedClass}
+              >
+                <option value="" disabled>Select Section</option>
+                {(classSectionMap[selectedClass] || []).map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <label htmlFor="mbrSection">Section</label>
+            </div>
+            <div className="form-field">
+              <select
+                className="form-input"
+                id="mbrMonth"
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                required
+              >
+                <option value="" disabled>Select Month</option>
+                {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <label htmlFor="mbrMonth">Month</label>
+            </div>
+          </div>
+          <div className="form-actions">
+            <button type="submit" disabled={isLoading} className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
+              {isLoading ? <><i className="uil uil-spinner text-xl loading-spinner"></i> Generating...</> : 'Generate Report'}
+            </button>
+            <button type="button" onClick={clearForm} className="btn-outline">Clear</button>
+          </div>
+        </form>
+      </div>
+
+      {isLoading ? (
+        <p className="text-gray-500">Loading data...</p>
+      ) : filteredData.length === 0 ? (
+        <p className="text-gray-500">No data available for the selected filters.</p>
+      ) : (
+        <div className="table-container max-h-[600px] overflow-auto">
+          <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600">
+            <thead className="sticky-header">
+              <tr>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Std ID</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Name</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Class</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Section</th>
+                {/* Dynamic Day Columns */}
+                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
+                  <th key={day} className="border border-gray-300 dark:border-gray-600 p-1 text-center bg-gray-100 dark:bg-gray-700 text-xs w-8">
+                    {day}
+                  </th>
+                ))}
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Present Total</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredData.map((row, idx) => (
+                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Std_ID}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Student_Name}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Class}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Section}</td>
+                  {/* Day Cells */}
+                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
+                    <td key={day} className={`border border-gray-300 dark:border-gray-600 p-1 text-center text-xs font-bold 
+                      ${row.days[day] === 'P' ? 'text-green-600 bg-green-50 dark:bg-green-900/30' : 
+                        row.days[day] === 'A' ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 
+                        row.days[day] === 'L' ? 'text-orange-600 bg-orange-50 dark:bg-orange-900/30' : 
+                        'text-gray-400'}`}>
+                      {row.days[day] || '-'}
+                    </td>
+                  ))}
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30">{row.totalPresent}</td>
+                  <td className={`border border-gray-300 dark:border-gray-600 p-2 text-center font-bold 
+                    ${row.percentage >= 75 ? 'text-green-600' : row.percentage >= 50 ? 'text-orange-600' : 'text-red-600'}`}>
+                    {row.percentage}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
     function AttendanceReportsPage({ data, isLoading, setIsLoading, setError, setSuccessMessage }) {
   const [dailyDate, setDailyDate] = useState('');
   const [dailyClass, setDailyClass] = useState('');
@@ -4736,8 +4990,14 @@ const formatDateToDDMMMYYYY = (dateStr) => {
   }
 };
 
+      // ✅ admin / superadmin type ke users dropdown mein na dikhein
+      const nonAdminUsers = (users || []).filter(u => {
+        const t = String(u.UserType || '').trim().toLowerCase();
+        return t !== 'admin' && t !== 'superadmin';
+      });
+
       const assignedPermissionUsers = new Set((data.user_permissions || []).map(p => p.Username));
-      const availablePermissionUsers = users
+      const availablePermissionUsers = nonAdminUsers
         .map(u => u.Username)
         .filter(u => u === formData.Username || !assignedPermissionUsers.has(u));
 
@@ -4786,7 +5046,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         previous_date_permissions: {
           fields: [
             { section: 'Date Permissions', fields: [
-              { name: 'Username', type: 'select', options: users.map(u => u.Username), required: true, placeholder: 'Select username' },
+              { name: 'Username', type: 'select', options: nonAdminUsers.map(u => u.Username), required: true, placeholder: 'Select username' },
               { name: 'Allowed_Date', type: 'date', required: true, placeholder: 'Select date' },
               { name: 'Day', type: 'text', disabled: true, placeholder: 'Day' },
               { name: 'Password', type: 'text', required: true, placeholder: 'Enter password' },
