@@ -650,6 +650,18 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
+    // Multi-category hours: Category cell "Quran (1) + Math (2)" is shown as "Quran, Math" and Hours as "1, 2 (total 3)".
+    // Data-driven: rows with a plain category / numeric hours are returned untouched.
+    const MC_CAT_FIELD = { Category: 'Category', Hours: 'Category', Old_Category: 'Old_Category', Old_Hours: 'Old_Category', New_Category: 'New_Category', New_Hours: 'New_Category' };
+    function mcCell(row, field) {
+      const cf = MC_CAT_FIELD[field], s = cf ? String(row[cf] || '') : '';
+      if (s.indexOf(' + ') === -1) return row[field];
+      const items = [];
+      for (const part of s.split(' + ')) { const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/); if (!m) return row[field]; items.push({ name: m[1], hours: Number(m[2]) }); }
+      if (/Category$/.test(field)) return items.map(i => i.name).join(', ');
+      return items.map(i => i.hours).join(', ') + ' (total ' + Number(items.reduce((a, i) => a + i.hours, 0).toFixed(2)) + ')';
+    }
+
     function WelcomePage({ teacherName, onContinue }) {
       return (
         <div className="p-6 flex items-center justify-center min-h-screen">
@@ -2216,7 +2228,7 @@ if (formData.AllowedDays) {
           if (type === 'CSV') {
             let csv = headers.join(',') + '\n';
             dataToDownload.forEach(item => {
-              const row = headers.map(h => `"${(item[h] || '').toString().replace(/"/g, '""')}"`);
+              const row = headers.map(h => `"${(mcCell(item, h) || '').toString().replace(/"/g, '""')}"`);
               csv += row.join(',') + '\n';
             });
             const blob = new Blob([csv], { type: 'text/csv' });
@@ -2233,7 +2245,7 @@ if (formData.AllowedDays) {
             const doc = new jsPDF({ orientation: 'landscape' });
             doc.autoTable({
               head: [headers],
-              body: dataToDownload.map(item => headers.map(h => item[h] || '')),
+              body: dataToDownload.map(item => headers.map(h => mcCell(item, h) || '')),
               styles: { fontSize: 6, cellPadding: 1 },
               headStyles: { fontSize: 6 },
             });
@@ -2458,7 +2470,7 @@ if (formData.AllowedDays) {
       <tr key={index}>
                                             {ATTENDANCE_COLUMNS.map(field => (
                         <td key={field} className="whitespace-nowrap">
-                          {item[field] || ''}
+                          {mcCell(item, field) || ''}
                         </td>
                       ))}
                     </tr>
@@ -4304,7 +4316,7 @@ function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, u
     if (filteredData.length === 0) { setError('No data to download'); return; }
     let csv = columns.map(c => columnLabels[c]).join(',') + '\n';
     filteredData.forEach(row => {
-      csv += columns.map(c => `"${(c === 'Date' ? formatLogDate(row[c]) : (row[c] ?? '')).toString().replace(/"/g, '""')}"`).join(',') + '\n';
+      csv += columns.map(c => `"${(c === 'Date' ? formatLogDate(row[c]) : (mcCell(row, c) ?? '')).toString().replace(/"/g, '""')}"`).join(',') + '\n';
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
@@ -4340,7 +4352,7 @@ function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, u
     filteredData.forEach((row, idx) => {
       html += `<tr style="background:${idx % 2 === 0 ? '#ffffff' : '#f8f9fa'};">`;
       columns.forEach(c => {
-        const val = c === 'Date' ? formatLogDate(row[c]) : (row[c] ?? '');
+        const val = c === 'Date' ? formatLogDate(row[c]) : (mcCell(row, c) ?? '');
         html += `<td style="padding:6px 8px;border:1px solid #ddd;">${val}</td>`;
       });
       html += '</tr>';
@@ -4431,10 +4443,10 @@ function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, u
                 <tr key={index}>
                   <td className="whitespace-nowrap">{formatLogDate(row.Date)}</td>
                   <td className="whitespace-nowrap">{row.Class_Section || ''}</td>
-                  <td className="whitespace-nowrap">{row.Old_Hours || '—'}</td>
-                  <td className="whitespace-nowrap">{row.New_Hours || ''}</td>
-                  <td className="whitespace-nowrap">{row.Old_Category || '—'}</td>
-                  <td className="whitespace-nowrap">{row.New_Category || ''}</td>
+                  <td className="whitespace-nowrap">{mcCell(row, 'Old_Hours') || '—'}</td>
+                  <td className="whitespace-nowrap">{mcCell(row, 'New_Hours') || ''}</td>
+                  <td className="whitespace-nowrap">{mcCell(row, 'Old_Category') || '—'}</td>
+                  <td className="whitespace-nowrap">{mcCell(row, 'New_Category') || ''}</td>
                   <td className="whitespace-nowrap">{row.UserID || ''}</td>
                   <td className="whitespace-nowrap">{row.REC_ID || ''}</td>
                   <td className="whitespace-nowrap">{row.Timestamp || ''}</td>
@@ -4769,6 +4781,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
               { name: 'canSetupHours', type: 'checkbox', placeholder: 'Can setup hours' },
               { name: 'Can_Update_Batch_Hours', type: 'checkbox', placeholder: 'Can update batch hours' },
               { name: 'canEditStudentHours', type: 'checkbox', placeholder: 'Can edit student hours' },
+              { name: 'canMultiCategory', type: 'checkbox', placeholder: 'Can set multiple categories per day' },
               { name: 'canCreateEpisodic', type: 'checkbox', placeholder: 'Can create episodic events' },
               { name: 'canMarkEpisodic', type: 'checkbox', placeholder: 'Can mark episodic attendance' },
             ]},
