@@ -1277,8 +1277,12 @@ const refreshData = (recIdOverride = null) => {
           onClick={e => { e.preventDefault(); setActiveReport(report); setActiveTab(null); }}
           className={`sub-nav-item ${activeReport === report ? 'active' : ''}`}
         >
-          {report === 'monthly_bar_report'
-            ? 'Monthly Report'
+          {report === 'student_attendance'
+            ? 'Student Attendance Raw Report' // 👈 CHANGE THIS to whatever you want the 1st one to be
+            : report === 'student_reports'
+            ? 'Student Class Wise Report' // 👈 CHANGE THIS to whatever you want the 2nd one to be
+            : report === 'monthly_bar_report'
+            ? 'Monthly Day Wise Report'
             : report.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
         </a>
       );
@@ -1320,9 +1324,13 @@ const refreshData = (recIdOverride = null) => {
                       <i className="uil uil-bars text-xl"></i>
                     </button>
                     <h1 className="text-xl font-bold">
-                       {activeReport 
-                      ? (activeReport === 'monthly_bar_report' 
-                     ? 'Monthly Report' 
+                                           {activeReport 
+                      ? (activeReport === 'student_attendance'
+                     ? 'Student Attendance Raw Report' // 👈 Make sure this matches the sidebar!
+                     : activeReport === 'student_reports'
+                     ? 'Student Class Wise Report' // 👈 Make sure this matches the sidebar!
+                     : activeReport === 'monthly_bar_report' 
+                     ? 'Monthly Day Wise Report' 
                       : activeReport.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))
                       : activeTab 
                      ? activeTab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
@@ -2169,11 +2177,30 @@ if (formData.AllowedDays) {
         studentSection: '',
         startDate: '',
         endDate: '',
-        statusFilter: 'Present',
+        statusFilter: 'All',
         format: 'CSV'
       });
       const [attendanceData, setAttendanceData] = useState([]);
       const [formErrors, setFormErrors] = useState({});
+
+      // 🆕 Lookup: Std_ID → { Student_Class, Student_Section } from Student_Data.
+      // Used to show the student's CURRENT class/section next to each
+      // attendance row (which may have been recorded under a different class).
+       const currentClassSectionByStudent = React.useMemo(() => {
+        const map = {};
+        (data.student_data || []).forEach(s => {
+          const id = s && s.Std_ID ? s.Std_ID.toString().trim() : '';
+          if (id) {
+            map[id] = {
+              Student_Class: s.Student_Class || '',
+              Student_Section: s.Student_Section || '',
+              Status: s.Status || ''
+            };
+          }
+        });
+        return map;
+      }, [data.student_data]);
+
 
       const uniqueClasses = [...new Set(data.student_attendance.map(item => item.Student_Class).filter(Boolean))];
       const sectionMap = {};
@@ -2227,7 +2254,7 @@ if (formData.AllowedDays) {
         setIsLoading(false);
       };
 
-      const handleDownload = async (e, type) => {
+          const handleDownload = async (e, type) => {
         e.preventDefault();
         if (!userPermissions?.canDownload) {
           setError('You do not have permission to download attendance reports');
@@ -2236,24 +2263,53 @@ if (formData.AllowedDays) {
         if (!validateForm()) return;
         setIsLoading(true);
         try {
-          let dataToDownload = attendanceData;
-          if (dataToDownload.length === 0) {
-            const result = await callWithRetry('getStudentAttendance', { ...formData, username });
-            dataToDownload = result;
-            if (formData.studentClass) {
-              dataToDownload = dataToDownload.filter(item => item.Student_Class === formData.studentClass);
-            }
-            if (formData.studentSection) {
-              dataToDownload = dataToDownload.filter(item => item.Student_Section === formData.studentSection);
-            }
-            if (formData.statusFilter !== 'All') {
-              dataToDownload = dataToDownload.filter(item => item.Status === formData.statusFilter);
-            }
+          // 🔄 Always fetch the freshest attendance + student data right before
+          // building the file, so Current_Class / Section / Status are never stale.
+          const freshAttendance = await callWithRetry('getStudentAttendance', { ...formData, username });
+          let dataToDownload = freshAttendance;
+
+          // Apply the same client-side filters used by the on-screen search
+          if (formData.studentClass) {
+            dataToDownload = dataToDownload.filter(item => item.Student_Class === formData.studentClass);
           }
-          const headers = ATTENDANCE_COLUMNS;
+          if (formData.studentSection) {
+            dataToDownload = dataToDownload.filter(item => item.Student_Section === formData.studentSection);
+          }
+          if (formData.statusFilter !== 'All') {
+            dataToDownload = dataToDownload.filter(item => item.Status === formData.statusFilter);
+          }
+
+          // 🔄 Re-fetch Student_Data so Current_* reflects today's enrolment state
+          const freshStudents = await callWithRetry('getStudentData', userPermissions?.REC_ID || '');
+
+          const freshCurrentMap = {};
+          (freshStudents || []).forEach(s => {
+            const id = s && s.Std_ID ? s.Std_ID.toString().trim() : '';
+            if (id) {
+              freshCurrentMap[id] = {
+                Student_Class: s.Student_Class || '',
+                Student_Section: s.Student_Section || '',
+                Status: s.Status || ''
+              };
+            }
+          });
+
+          const currentHeaders = [...ATTENDANCE_COLUMNS, 'Current_Class', 'Current_Section', 'Current_Status'];
+          const dataWithCurrent = dataToDownload.map(item => {
+            const sid = item.Std_ID ? item.Std_ID.toString().trim() : '';
+            const curr = freshCurrentMap[sid] || {};
+            return {
+              ...item,
+              Current_Class: curr.Student_Class || '',
+              Current_Section: curr.Student_Section || '',
+              Current_Status: curr.Status || ''
+            };
+          });
+
+          const headers = currentHeaders;
           if (type === 'CSV') {
             let csv = headers.join(',') + '\n';
-            dataToDownload.forEach(item => {
+            dataWithCurrent.forEach(item => {
               const row = headers.map(h => `"${(item[h] || '').toString().replace(/"/g, '""')}"`);
               csv += row.join(',') + '\n';
             });
@@ -2269,9 +2325,9 @@ if (formData.AllowedDays) {
           } else { // PDF
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF({ orientation: 'landscape' });
-            doc.autoTable({
+                        doc.autoTable({
               head: [headers],
-              body: dataToDownload.map(item => headers.map(h => item[h] || '')),
+              body: dataWithCurrent.map(item => headers.map(h => item[h] || '')),
               styles: { fontSize: 6, cellPadding: 1 },
               headStyles: { fontSize: 6 },
             });
@@ -2304,7 +2360,8 @@ if (formData.AllowedDays) {
         <div className="card p-6">
           <div className="flex items-center mb-4">
             <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
-            <h2 className="text-xl font-semibold">Monthly Report</h2>
+                    <h2 className="text-xl font-semibold">Student Attendance Raw Report</h2>
+
           </div>
           <div className="form-container mb-6">
             <h3 className="text-lg font-semibold mb-4">Generate Attendance Report</h3>
@@ -2458,7 +2515,7 @@ if (formData.AllowedDays) {
                     studentSection: '',
                     startDate: '',
                     endDate: '',
-                    statusFilter: 'Present',
+                    statusFilter: 'All',
                     format: 'CSV'
                   });
                   setAttendanceData([]);
@@ -2481,26 +2538,48 @@ if (formData.AllowedDays) {
             <div className="table-container max-h-[600px]">
               <table className="min-w-full">
                 <thead className="sticky-header">
-                                    <tr>
+                                                                       <tr>
                     {ATTENDANCE_COLUMNS.map(field => (
                       <th key={field} className="whitespace-nowrap">
                         {field.replace(/_/g, ' ')}
                       </th>
                     ))}
+                    <th className="whitespace-nowrap">Current Class</th>
+                    <th className="whitespace-nowrap">Current Section</th>
+                    <th className="whitespace-nowrap">Current Status</th>
                   </tr>
                 </thead>
                 <tbody>
-  {filteredData
-    .filter(item => item.Username !== 'superadmin')
-    .map((item, index) => (
-      <tr key={index}>
-                                            {ATTENDANCE_COLUMNS.map(field => (
-                        <td key={field} className="whitespace-nowrap">
-                          {item[field] || ''}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
+                                      {filteredData
+                    .filter(item => item.Username !== 'superadmin')
+                    .map((item, index) => {
+                      const sid = item.Std_ID ? item.Std_ID.toString().trim() : '';
+                      const curr = currentClassSectionByStudent[sid] || {};
+                      const statusClass =
+                        curr.Status === 'Active'
+                          ? 'text-green-600 bg-green-50 dark:bg-green-900/30'
+                          : curr.Status === 'Inactive'
+                            ? 'text-red-600 bg-red-50 dark:bg-red-900/30'
+                            : 'text-gray-400';
+                      return (
+                        <tr key={index}>
+                          {ATTENDANCE_COLUMNS.map(field => (
+                            <td key={field} className="whitespace-nowrap">
+                              {item[field] || ''}
+                            </td>
+                          ))}
+                          <td className="whitespace-nowrap font-semibold text-blue-600">
+                            {curr.Student_Class || '—'}
+                          </td>
+                          <td className="whitespace-nowrap font-semibold text-blue-600">
+                            {curr.Student_Section || '—'}
+                          </td>
+                          <td className={`whitespace-nowrap font-semibold px-2 py-1 rounded ${statusClass}`}>
+                            {curr.Status || '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </tbody>
               </table>
             </div>
@@ -2763,13 +2842,13 @@ if (formData.AllowedDays) {
     ];
 
    function StudentReports({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery, refreshData }) {
-  const [formData, setFormData] = useState({
+   const [formData, setFormData] = useState({
     studentClass: '',
     studentSection: '',
     status: '',
     studentId: '',
     month: '',
-    year: new Date().getFullYear()
+    year: ''
   });
   const [reportData, setReportData] = useState([]);
   const [formErrors, setFormErrors] = useState({});
@@ -2992,35 +3071,147 @@ if (formData.AllowedDays) {
     if (!skipLoading) setIsLoading(false);
   };
 
-  const downloadReport = () => {
-    if (reportData.length === 0) {
-      setError('No data to download');
-      return;
-    }
-    
-        const headers = STUDENT_COLUMNS;
-    let csv = headers.join(',') + '\n';
-    
-    reportData.forEach(student => {
-      const row = headers.map(header => {
-        const value = student[header] || '';
-        // Escape quotes and wrap in quotes for CSV
-        return `"${value.toString().replace(/"/g, '""')}"`;
-      });
-      csv += row.join(',') + '\n';
+const downloadReport = () => {
+  // Build the same filtered dataset that "Generate Report" produces,
+  // directly from the current filter form values.
+  if (!data.student_data || data.student_data.length === 0) {
+    setError('No student data to download');
+    return;
+  }
+
+  let filtered = [...data.student_data];
+
+  if (formData.studentClass && formData.studentClass.trim() !== '') {
+    filtered = filtered.filter(student =>
+      student.Student_Class && student.Student_Class.toString() === formData.studentClass.toString()
+    );
+  }
+
+  if (formData.studentSection && formData.studentSection.trim() !== '') {
+    filtered = filtered.filter(student =>
+      student.Student_Section && student.Student_Section.toString() === formData.studentSection.toString()
+    );
+  }
+
+  if (formData.status && formData.status.trim() !== '') {
+    filtered = filtered.filter(student =>
+      student.Status && student.Status.toString() === formData.status.toString()
+    );
+  }
+
+  if (formData.studentId && formData.studentId.trim() !== '') {
+    filtered = filtered.filter(student =>
+      student.Std_ID && student.Std_ID.toString().includes(formData.studentId.toString())
+    );
+  }
+
+  // Year filter (only runs when a specific year is selected — "All Years" = '' skips it)
+  if (formData.year && formData.year.toString().trim() !== '') {
+    filtered = filtered.filter(student => {
+      const selectedYear = parseInt(formData.year);
+
+      if (formData.status === 'Inactive') {
+        if (!student.Inactive_Date) return false;
+        try {
+          const dateParts = student.Inactive_Date.toString().split('-');
+          if (dateParts.length === 3) return parseInt(dateParts[2]) === selectedYear;
+          return false;
+        } catch (e) { return false; }
+      } else if (formData.status === 'Active') {
+        if (!student.Creation_Date) return false;
+        try {
+          const dateParts = student.Creation_Date.toString().split('-');
+          if (dateParts.length === 3) return parseInt(dateParts[2]) === selectedYear;
+          return false;
+        } catch (e) { return false; }
+      } else {
+        let matchesYear = false;
+        if (student.Creation_Date) {
+          try {
+            const dateParts = student.Creation_Date.toString().split('-');
+            if (dateParts.length === 3 && parseInt(dateParts[2]) === selectedYear) matchesYear = true;
+          } catch (e) {}
+        }
+        if (!matchesYear && student.Inactive_Date) {
+          try {
+            const dateParts = student.Inactive_Date.toString().split('-');
+            if (dateParts.length === 3 && parseInt(dateParts[2]) === selectedYear) matchesYear = true;
+          } catch (e) {}
+        }
+        return matchesYear;
+      }
     });
-    
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `student_report_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-    setSuccessMessage('Report downloaded successfully');
-  };
+  }
+
+  // Month filter (same logic as generateReport)
+  if (formData.month && formData.month.trim() !== '') {
+    filtered = filtered.filter(student => {
+      const selectedMonth = parseInt(formData.month);
+      const monthMap = {
+        'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+        'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+      };
+
+      if (formData.status === 'Inactive') {
+        if (!student.Inactive_Date) return false;
+        try {
+          const dateParts = student.Inactive_Date.toString().split('-');
+          if (dateParts.length === 3) return monthMap[dateParts[1]] === selectedMonth;
+          return false;
+        } catch (e) { return false; }
+      } else if (formData.status === 'Active') {
+        if (!student.Creation_Date) return false;
+        try {
+          const dateParts = student.Creation_Date.toString().split('-');
+          if (dateParts.length === 3) return monthMap[dateParts[1]] === selectedMonth;
+          return false;
+        } catch (e) { return false; }
+      } else {
+        let matchesMonth = false;
+        if (student.Creation_Date) {
+          try {
+            const dateParts = student.Creation_Date.toString().split('-');
+            if (dateParts.length === 3 && monthMap[dateParts[1]] === selectedMonth) matchesMonth = true;
+          } catch (e) {}
+        }
+        if (!matchesMonth && student.Inactive_Date) {
+          try {
+            const dateParts = student.Inactive_Date.toString().split('-');
+            if (dateParts.length === 3 && monthMap[dateParts[1]] === selectedMonth) matchesMonth = true;
+          } catch (e) {}
+        }
+        return matchesMonth;
+      }
+    });
+  }
+
+  if (filtered.length === 0) {
+    setError('No data to download');
+    return;
+  }
+
+  const headers = STUDENT_COLUMNS;
+  let csv = headers.join(',') + '\n';
+
+  filtered.forEach(student => {
+    const row = headers.map(header => {
+      const value = student[header] || '';
+      return `"${value.toString().replace(/"/g, '""')}"`;
+    });
+    csv += row.join(',') + '\n';
+  });
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `student_class_wise_report_${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+  setSuccessMessage(`Report downloaded successfully (${filtered.length} students)`);
+};
 
   const clearForm = () => {
     setFormData({
@@ -3029,7 +3220,7 @@ if (formData.AllowedDays) {
       status: '',
       studentId: '',
       month: '',
-      year: new Date().getFullYear()
+      year: ''
     });
     setReportData([]);
     setFormErrors({});
@@ -3067,7 +3258,7 @@ if (formData.AllowedDays) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
           <i className="uil uil-file-graph text-2xl text-blue-500 mr-2"></i>
-          <h2 className="text-xl font-semibold">Student Reports</h2>
+          <h2 className="text-xl font-semibold">Student Class Wise Report</h2>
         </div>
         <button
           onClick={handleRefresh}
@@ -3081,7 +3272,8 @@ if (formData.AllowedDays) {
       </div>
       
       <div className="form-container mb-6">
-        <h3 className="text-lg font-semibold mb-4">Generate Student Report</h3>
+              <h3 className="text-lg font-semibold mb-4">Generate Student Class Wise Report</h3>
+
         <div className="form-row">
           <div className="form-field">
             <select
@@ -3195,12 +3387,12 @@ if (formData.AllowedDays) {
           </button>
           
           <button
-            onClick={downloadReport}
-            disabled={reportData.length === 0 || isLoading}
-            className={`btn-secondary ${(reportData.length === 0 || isLoading) ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            Download CSV
-          </button>
+  onClick={downloadReport}
+  disabled={isLoading}
+  className={`btn-secondary ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+>
+  Download CSV
+</button>
           
           <button
             onClick={clearForm}
@@ -4092,7 +4284,7 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `monthly_bar_report_${selectedClass}_${selectedSection}_${selectedMonth}.csv`;
+    a.download = `monthly_day_wise_report_${selectedClass}_${selectedSection}_${selectedMonth}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -4126,7 +4318,7 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
 
         let html = `
           <div style="margin-bottom:20px;text-align:center;">
-            <h1 style="color:#1a2c3e;margin-bottom:8px;">Monthly Bar Report</h1>
+            <h1 style="color:#1a2c3e;margin-bottom:8px;">Monthly Day Wise Report</h1>
             <div style="font-size:13px;color:#666;">
               ${title} | Month: ${selectedMonth} | Generated on ${currentDate}
             </div>
@@ -4193,7 +4385,7 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
         const title = `Class ${groupKeys[0].split('-')[0]} - ${groupKeys[0].split('-')[1] || ''}`;
         const canvas = await renderGroupToCanvas(groups[groupKeys[0]], title);
         const link = document.createElement('a');
-        link.download = `monthly_bar_report_${groupKeys[0]}_${selectedMonth}.png`;
+        link.download = `monthly_day_wise_report_${groupKeys[0]}_${selectedMonth}.png`;
         link.href = canvas.toDataURL('image/png');
         link.click();
         setSuccessMessage('PNG downloaded!');
@@ -4249,7 +4441,7 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
     <div className="card p-6">
       <div className="flex items-center mb-4">
         <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
-        <h2 className="text-xl font-semibold">Monthly Bar Report</h2>
+              <h2 className="text-xl font-semibold">Monthly Day Wise Report</h2>
       </div>
 
       <div className="form-container mb-6">
