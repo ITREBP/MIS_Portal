@@ -8,6 +8,8 @@
   </body>
 </html>
 <!DOCTYPE html>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -710,6 +712,7 @@
         teacher_assignments: [],
         student_data: [],
         student_attendance: [],
+        daily_hours: [],
       });
       const [activeTab, setActiveTab] = useState(null);
       const [activeReport, setActiveReport] = useState(null);
@@ -762,7 +765,7 @@ const refreshData = (recIdOverride = null) => {
           const permissions = {};
           result.forEach(user => {
             permissions[user.Username] = {
-              allowedTabs: user.allowedTabs ? user.allowedTabs.split(',') : [],
+                            allowedTabs: user.allowedTabs ? user.allowedTabs.split(',').map(t => t.trim()) : [],
               student_delete: user.student_delete === 'Yes',
               canQueryAttendance: user.canQueryAttendance === 'Yes',
               canDownload: user.canDownload === 'Yes',
@@ -870,7 +873,7 @@ const refreshData = (recIdOverride = null) => {
         .getStudentData(currentRecId);
     }),
     
-    new Promise((resolve) => {
+        new Promise((resolve) => {
       google.script.run
         .withSuccessHandler(result => {
           setData(prev => ({ ...prev, student_attendance: result }));
@@ -881,7 +884,9 @@ const refreshData = (recIdOverride = null) => {
           resolve();
         })
         .getSheetData('Student_Attendance', currentRecId);
-    })
+    }),
+    
+       
     
   ]).finally(() => {
     setIsLoading(false);
@@ -910,7 +915,7 @@ const refreshData = (recIdOverride = null) => {
         // Store permissions
         const userPerms = {
           [result.user.Username]: {
-            allowedTabs: result.user.allowedTabs ? result.user.allowedTabs.split(',') : [],
+            allowedTabs: result.user.allowedTabs ? result.user.allowedTabs.split(',').map(t => t.trim()) : [],
             student_delete: result.user.student_delete === 'Yes',
             canQueryAttendance: result.user.canQueryAttendance === 'Yes',
             canDownload: result.user.canDownload === 'Yes',
@@ -928,6 +933,9 @@ const refreshData = (recIdOverride = null) => {
         setShowWelcome(true);
         setError('');
         
+  // Add this line to reset the sidebar on every login:
+        setExpandedSections({ reports: false }); 
+
         // ✅ REC_ID pass karo refreshData mein
         refreshData(userRecId);  // ← CHANGE: REC_ID pass karo
         
@@ -1039,6 +1047,10 @@ const refreshData = (recIdOverride = null) => {
           setActiveTab(null);
           setActiveReport(null);
           setIsLoading(false);
+   // Add this line to reset the sidebar on logout:
+          setExpandedSections({ reports: false }); 
+          
+
         }, 500);
       };
 
@@ -1246,22 +1258,33 @@ const refreshData = (recIdOverride = null) => {
                         </div>
                       )}
                     </a>
-                    {expandedSections.reports && isSidebarOpen && (
-                      <div className="sub-nav">
-                                                {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'batch_hours_log', 'attendance_correction_log'].map(report => (
-                          userPermissions[username]?.allowedTabs.includes(report) && (report !== 'student_attendance' || userPermissions[username]?.canQueryAttendance) && (
-                            <a
-                              key={report}
-                              href="#"
-                              onClick={e => { e.preventDefault(); setActiveReport(report); setActiveTab(null); }}
-                              className={`sub-nav-item ${activeReport === report ? 'active' : ''}`}
-                            >
-                                                            {report.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                            </a>
-                          )
-                        ))}
-                      </div>
-                    )}
+                   {expandedSections.reports && isSidebarOpen && (
+  <div className="sub-nav">
+    {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'batch_hours_log', 'attendance_correction_log'].map(report => {
+      const allowed = userPermissions[username]?.allowedTabs || [];
+      
+      // 🔒 THE FIX: Force clean the strings (lowercase, trim spaces) to guarantee a match
+      const canSee = allowed.some(tab => String(tab).trim().toLowerCase() === report.toLowerCase());
+      
+      const passesExtra = report !== 'student_attendance' || userPermissions[username]?.canQueryAttendance;
+      
+      if (!canSee || !passesExtra) return null;
+      
+      return (
+        <a
+          key={report}
+          href="#"
+          onClick={e => { e.preventDefault(); setActiveReport(report); setActiveTab(null); }}
+          className={`sub-nav-item ${activeReport === report ? 'active' : ''}`}
+        >
+          {report === 'monthly_bar_report'
+            ? 'Monthly Report'
+            : report.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+        </a>
+      );
+    })}
+  </div>
+)}
                   </li>
                 </ul>
               </div>
@@ -1277,6 +1300,7 @@ const refreshData = (recIdOverride = null) => {
       setShowWelcome(false);
       const allowedTabs = userPermissions[username]?.allowedTabs || [];
       setActiveTab(allowedTabs.length > 0 ? allowedTabs[0] : null);
+      refreshData(userPermissions[username]?.REC_ID || '');   // ← ADD THIS L
     }}
   />
 ) : !permissionsLoaded ? (
@@ -1296,13 +1320,15 @@ const refreshData = (recIdOverride = null) => {
                       <i className="uil uil-bars text-xl"></i>
                     </button>
                     <h1 className="text-xl font-bold">
-                      {activeReport 
-                          ? activeReport.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) 
-                        : activeTab 
-                          ? activeTab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
-                          : 'Dashboard'
-                      }
-                    </h1>
+                       {activeReport 
+                      ? (activeReport === 'monthly_bar_report' 
+                     ? 'Monthly Report' 
+                      : activeReport.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))
+                      : activeTab 
+                     ? activeTab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
+                     : 'Dashboard'
+                     }
+                  </h1>
                   </div>
                   <div className="flex items-center gap-2">
                     {(activeTab || activeReport) && (
@@ -1393,6 +1419,18 @@ const refreshData = (recIdOverride = null) => {
       setIsLoading={setIsLoading}
       setError={setError}
       setSuccessMessage={setSuccessMessage}
+    />
+  ) : activeReport === 'monthly_bar_report' ? (   // <--- ADD THIS BLOCK
+  <MonthlyBarReport
+    data={data}
+    isLoading={isLoading}
+    setIsLoading={setIsLoading}
+    setError={setError}
+    setSuccessMessage={setSuccessMessage}
+    userPermissions={userPermissions[username]}
+    classes={classes}
+    classSectionMap={classSectionMap}
+    searchQuery={searchQuery}
     />
   ) : activeReport === 'batch_hours_log' ? (
     <BatchHoursLog
@@ -1608,7 +1646,7 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
   { name: 'StartTime', type: 'text', required: true, placeholder: 'Default start time (HH:MM)' },
   { name: 'EndTime', type: 'text', required: true, placeholder: 'Default end time (HH:MM)' },
   { name: 'allowedTabs', type: 'select-multiple', 
-        options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
+  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
     required: true, 
     placeholder: 'Select allowed tabs' 
   },
@@ -2262,11 +2300,11 @@ if (formData.AllowedDays) {
         );
       }
 
-      return (
+            return (
         <div className="card p-6">
           <div className="flex items-center mb-4">
             <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
-            <h2 className="text-xl font-semibold">Attendance Report</h2>
+            <h2 className="text-xl font-semibold">Monthly Report</h2>
           </div>
           <div className="form-container mb-6">
             <h3 className="text-lg font-semibold mb-4">Generate Attendance Report</h3>
@@ -2467,9 +2505,10 @@ if (formData.AllowedDays) {
               </table>
             </div>
           )}
-        </div>
+        </div>                              
       );
     }
+
 
     function AttendanceCorrection({ isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, username }) {
       const [formData, setFormData] = useState({
@@ -3881,6 +3920,476 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
         </div>
       );
     }
+
+    function MonthlyBarReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery }) {
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedSection, setSelectedSection] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [reportData, setReportData] = useState([]);
+  const [daysInMonth, setDaysInMonth] = useState(30);
+
+  const parseAnyDate = (d) => {
+    if (!d) return null;
+    if (typeof d === 'string' && /^\d{2}-[A-Za-z]{3}-\d{4}$/.test(d)) {
+      const [day, monStr, year] = d.split('-');
+      const monthMap = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+      return new Date(parseInt(year), monthMap[monStr], parseInt(day));
+    }
+    const dt = new Date(d);
+    return isNaN(dt) ? null : dt;
+  };
+
+  useEffect(() => {
+    if (selectedMonth) {
+      const [year, month] = selectedMonth.split('-').map(Number);
+      const days = new Date(year, month, 0).getDate();
+      setDaysInMonth(days);
+    }
+  }, [selectedMonth]);
+
+  const generateReport = (e) => {
+    e.preventDefault();
+    if (!selectedClass || !selectedSection || !selectedMonth) {
+      setError('Please select Class, Section, and Month.');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    const [year, month] = selectedMonth.split('-').map(Number);
+
+    const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
+
+    // 1. Get students (supports "All Classes" / "All Sections")
+    const students = data.student_data.filter(s => {
+      const classMatch =
+        selectedClass === '__ALL__' || norm(s.Student_Class) === norm(selectedClass);
+      const sectionMatch =
+        selectedSection === '__ALL__' || norm(s.Student_Section) === norm(selectedSection);
+      return classMatch && sectionMatch;
+    });
+
+      if (students.length === 0) {
+      setError('No students found for the selected Class/Section.');
+      setReportData([]);
+      setIsLoading(false);
+      return;
+    }
+
+    const studentIdSet = new Set(students.map(s => norm(s.Std_ID)));
+
+    // 2. Filter attendance for the month
+    const monthlyAttendance = data.student_attendance.filter(a => {
+      if (!studentIdSet.has(norm(a.Std_ID))) return false;
+      const dt = parseAnyDate(a.Date);
+      if (!dt) return false;
+      return dt.getFullYear() === year && (dt.getMonth() + 1) === month;
+    });
+
+
+
+// ============ OPTION A: Sum hours directly from Student_Attendance ============
+// Only Present rows contribute hours.
+// Not Applicable / Absent / Leave rows are skipped — the backend stores a
+// default hours value on Not Applicable episodic rows, but those hours are
+// not "earned" and must not appear in the monthly total.
+const hoursByStudent = {}; // { '4492': 42.5 }
+
+monthlyAttendance.forEach(a => {
+  const sid = norm(a.Std_ID);
+  if (!studentIdSet.has(sid)) return;
+
+  // Only Present earns hours
+  if ((a.Status || '').toLowerCase().trim() !== 'present') return;
+
+  const hrs = Number(a.Hours || 0);
+  if (!isNaN(hrs) && hrs > 0) {
+    hoursByStudent[sid] = (hoursByStudent[sid] || 0) + hrs;
+  }
+});
+
+console.log('hoursByStudent (Present only):', hoursByStudent);
+// ============ END OPTION A ============
+
+
+
+    if (monthlyAttendance.length === 0) {
+      setError(`No attendance records found for ${students.length} student(s) in ${selectedMonth}.`);
+      setReportData([]);
+      setIsLoading(false);
+      return;
+    }
+
+    // 4. Build matrix
+    const matrixData = students.map(student => {
+      const row = {
+        Std_ID: student.Std_ID,
+        Student_Name: student.Student_Name,
+        Class: student.Student_Class,
+        Section: student.Student_Section,
+        days: {},
+        totalPresent: 0,
+        totalAbsent: 0,
+        totalLeave: 0,
+        totalDays: 0,
+        totalHours: 0,     // ✅ NEW: Total Hours
+      };
+
+      const studentRecords = monthlyAttendance.filter(a => norm(a.Std_ID) === norm(student.Std_ID));
+      studentRecords.forEach(record => {
+        const dt = parseAnyDate(record.Date);
+        if (!dt) return;
+        const day = dt.getDate();
+        const status = (record.Status || '').toLowerCase().trim();
+        let symbol = '-';
+        if (status === 'present') { symbol = 'P'; row.totalPresent++; row.totalDays++; }
+        else if (status === 'absent') { symbol = 'A'; row.totalAbsent++; row.totalDays++; }
+        else if (status === 'leave')  { symbol = 'L'; row.totalLeave++;  row.totalDays++; }
+        else { symbol = '?'; row.totalDays++; }
+        row.days[day] = symbol;
+      });
+
+      // ✅ Option A: total hours come straight from the per-student sum
+const sid = norm(student.Std_ID);
+row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
+
+      row.percentage = row.totalDays > 0 ? Math.round((row.totalPresent / row.totalDays) * 100) : 0;
+      return row;
+    });
+
+
+
+    setReportData(matrixData);
+    setIsLoading(false);
+    setSuccessMessage(`Report generated for ${matrixData.length} students (${monthlyAttendance.length} attendance records).`);
+  };
+
+  const clearForm = () => {
+    setSelectedClass('');
+    setSelectedSection('');
+    setSelectedMonth('');
+    setReportData([]);
+    setError('');
+  };
+
+  // ---------------- CSV Download ----------------
+  const downloadCSV = () => {
+    if (reportData.length === 0) { setError('No data to download'); return; }
+
+    const headers = ['Std ID', 'Name', 'Class', 'Section'];
+    for (let d = 1; d <= daysInMonth; d++) headers.push(`Day ${d}`);
+    headers.push('Present Total', 'Absent', 'Leave', 'Total Days', 'Total %', 'Daily Hours', 'Total Hours');
+
+    let csv = headers.join(',') + '\n';
+    reportData.forEach(row => {
+      const line = [row.Std_ID, row.Student_Name, row.Class, row.Section];
+      for (let d = 1; d <= daysInMonth; d++) line.push(row.days[d] || '-');
+      line.push(row.totalPresent, row.totalAbsent, row.totalLeave, row.totalDays, `${row.percentage}%`, row.totalHours);
+      csv += line.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `monthly_bar_report_${selectedClass}_${selectedSection}_${selectedMonth}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    setSuccessMessage('CSV downloaded!');
+  };
+
+    // ---------------- PNG Download (with ZIP for multiple classes/sections) ----------------
+  const downloadPNG = async () => {
+    if (reportData.length === 0) { setError('No data to download'); return; }
+    setIsLoading(true);
+
+    try {
+      // 1. Group reportData by Class + Section
+      const groups = {}; // { 'IBT-A': [rows], 'NUR-B': [rows], ... }
+      reportData.forEach(row => {
+        const key = `${row.Class || 'Unknown'}-${row.Section || ''}`.trim();
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(row);
+      });
+
+      const groupKeys = Object.keys(groups);
+      const isSingle = groupKeys.length === 1;
+
+      // Helper: render a set of rows to a canvas, given a title
+      const renderGroupToCanvas = async (rows, title) => {
+        const reportDiv = document.createElement('div');
+        reportDiv.setAttribute('data-theme', 'light');
+        reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;background:white;padding:30px;font-family:sans-serif;color:#1a2c3e;';
+        const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        let html = `
+          <div style="margin-bottom:20px;text-align:center;">
+            <h1 style="color:#1a2c3e;margin-bottom:8px;">Monthly Bar Report</h1>
+            <div style="font-size:13px;color:#666;">
+              ${title} | Month: ${selectedMonth} | Generated on ${currentDate}
+            </div>
+            <hr style="border:2px solid #1a73e8;margin-top:10px;">
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:10px;">
+            <thead>
+              <tr style="background:#1a73e8;color:white;">
+                <th style="padding:5px;border:1px solid #ddd;">Std ID</th>
+                <th style="padding:5px;border:1px solid #ddd;">Name</th>
+                <th style="padding:5px;border:1px solid #ddd;">Class</th>
+                <th style="padding:5px;border:1px solid #ddd;">Sec</th>
+                ${Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => `<th style="padding:3px;border:1px solid #ddd;">${d}</th>`).join('')}
+                <th style="padding:5px;border:1px solid #ddd;">Present</th>
+                <th style="padding:5px;border:1px solid #ddd;">Absent</th>
+                <th style="padding:5px;border:1px solid #ddd;">Leave</th>
+                <th style="padding:5px;border:1px solid #ddd;">Total Days</th>
+                <th style="padding:5px;border:1px solid #ddd;">Total %</th>
+                <th style="padding:5px;border:1px solid #ddd;">Total Hours</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        rows.forEach((row, idx) => {
+          const bg = idx % 2 === 0 ? '#ffffff' : '#f8f9fa';
+          html += `<tr style="background:${bg};">`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Std_ID}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Student_Name}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Class}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Section}</td>`;
+          for (let d = 1; d <= daysInMonth; d++) {
+            const sym = row.days[d] || '-';
+            let cellColor = '#f5f5f5', textColor = '#999';
+            if (sym === 'P') { cellColor = '#e8f5e9'; textColor = '#2e7d32'; }
+            else if (sym === 'A') { cellColor = '#ffebee'; textColor = '#c62828'; }
+            else if (sym === 'L') { cellColor = '#fff3e0'; textColor = '#ef6c00'; }
+            html += `<td style="padding:3px;border:1px solid #ddd;text-align:center;background:${cellColor};color:${textColor};font-weight:700;">${sym}</td>`;
+          }
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalPresent}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalAbsent}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalLeave}</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalDays}</td>`;
+          const pctColor = row.percentage >= 75 ? '#2e7d32' : row.percentage >= 50 ? '#ef6c00' : '#c62828';
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${pctColor};">${row.percentage}%</td>`;
+          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalHours}</td>`;
+          html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+        reportDiv.innerHTML = html;
+        document.body.appendChild(reportDiv);
+        await new Promise(r => setTimeout(r, 100));
+
+        const canvas = await html2canvas(reportDiv, {
+          scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false
+        });
+        document.body.removeChild(reportDiv);
+        return canvas;
+      };
+
+      // 2. If only one group, do the normal single PNG download
+      if (isSingle) {
+        const title = `Class ${groupKeys[0].split('-')[0]} - ${groupKeys[0].split('-')[1] || ''}`;
+        const canvas = await renderGroupToCanvas(groups[groupKeys[0]], title);
+        const link = document.createElement('a');
+        link.download = `monthly_bar_report_${groupKeys[0]}_${selectedMonth}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        setSuccessMessage('PNG downloaded!');
+        setIsLoading(false);
+        return;
+      }
+
+      // 3. Multiple groups — build a ZIP
+      const zip = new JSZip();
+      const folderName = `MonthlyBarReport_${selectedMonth.replace('-', '_')}`;
+      const folder = zip.folder(folderName);
+
+      for (const key of groupKeys) {
+        const rows = groups[key];
+        const [cls, sec] = key.split('-');
+        const title = `Class ${cls} - ${sec || ''}`;
+        const canvas = await renderGroupToCanvas(rows, title);
+        const dataUrl = canvas.toDataURL('image/png');
+        // Strip the "data:image/png;base64," prefix
+        const base64 = dataUrl.split(',')[1];
+        // Safe filename
+        const safeKey = key.replace(/[^A-Za-z0-9_-]/g, '_');
+        folder.file(`MonthlyBarReport_${safeKey}_${selectedMonth}.png`, base64, { base64: true });
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      saveAs(blob, `${folderName}.zip`);
+      setSuccessMessage(`Downloaded ${groupKeys.length} PNG files in ZIP!`);
+    } catch (err) {
+      setError('Failed to generate PNG: ' + err.message);
+    }
+    setIsLoading(false);
+  };
+
+  const filteredData = searchQuery
+    ? reportData.filter(item =>
+        Object.values(item).some(val =>
+          val?.toString().toLowerCase().includes(searchQuery.toLowerCase())
+        )
+      )
+    : reportData;
+
+  const monthOptions = [];
+  const today = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
+    monthOptions.push({ value: val, label });
+  }
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center mb-4">
+        <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
+        <h2 className="text-xl font-semibold">Monthly Bar Report</h2>
+      </div>
+
+      <div className="form-container mb-6">
+        <form onSubmit={generateReport}>
+          <div className="form-row">
+            <div className="form-field">
+              <select
+                  className="form-input"
+                       id="mbrClass"
+                        value={selectedClass}
+                          onChange={e => {
+                    setSelectedClass(e.target.value);
+                    // Auto-select "__ALL__" for section when "All Classes" is picked
+                     setSelectedSection(e.target.value === '__ALL__' ? '__ALL__' : '');
+                     }}
+                  required
+                  >
+               <option value="" disabled>Select Class</option>
+              <option value="__ALL__">All Classes</option>
+             {classes.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+              <label htmlFor="mbrClass">Class</label>
+            </div>
+            <div className="form-field">
+              <select
+                 className="form-input"
+                    id="mbrSection"
+                      value={selectedSection}
+                    onChange={e => setSelectedSection(e.target.value)}
+                          required
+                           disabled={!selectedClass}
+                    >
+                    <option value="" disabled>Select Section</option>
+                   {selectedClass === '__ALL__' ? (
+                 <option value="__ALL__">All Sections</option>
+                  ) : (
+                  (classSectionMap[selectedClass] || []).map(s => <option key={s} value={s}>{s}</option>)
+                  )}
+                  </select>
+              <label htmlFor="mbrSection">Section</label>
+            </div>
+            <div className="form-field">
+              <select
+                className="form-input"
+                id="mbrMonth"
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                required
+              >
+                <option value="" disabled>Select Month</option>
+                {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <label htmlFor="mbrMonth">Month</label>
+            </div>
+          </div>
+          <div className="form-actions">
+            <button type="submit" disabled={isLoading} className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
+              {isLoading ? <><i className="uil uil-spinner text-xl loading-spinner"></i> Generating...</> : 'Generate Report'}
+            </button>
+            <button
+              type="button"
+              onClick={downloadCSV}
+              disabled={reportData.length === 0 || isLoading}
+              className={`btn-secondary ${reportData.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <i className="uil uil-file-csv"></i> CSV
+            </button>
+            <button
+              type="button"
+              onClick={downloadPNG}
+              disabled={reportData.length === 0 || isLoading}
+              className={`btn-secondary ${reportData.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <i className="uil uil-image-v"></i> PNG
+            </button>
+            <button type="button" onClick={clearForm} className="btn-outline">Clear</button>
+          </div>
+        </form>
+      </div>
+
+      {isLoading ? (
+        <p className="text-gray-500">Loading data...</p>
+      ) : filteredData.length === 0 ? (
+        <p className="text-gray-500">No data available for the selected filters.</p>
+      ) : (
+        <div className="table-container max-h-[600px] overflow-auto">
+          <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600">
+            <thead className="sticky-header">
+              <tr>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Std ID</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Name</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Class</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Section</th>
+                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
+                  <th key={day} className="border border-gray-300 dark:border-gray-600 p-1 text-center bg-gray-100 dark:bg-gray-700 text-xs w-8">
+                    {day}
+                  </th>
+                ))}
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-green-100 dark:bg-green-900 font-bold">Present</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-red-100 dark:bg-red-900 font-bold">Absent</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-orange-100 dark:bg-orange-900 font-bold">Leave</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total Days</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total %</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-purple-100 dark:bg-purple-900 font-bold">Total Hours</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredData.map((row, idx) => (
+                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Std_ID}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Student_Name}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Class}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Section}</td>
+                  {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
+                    <td key={day} className={`border border-gray-300 dark:border-gray-600 p-1 text-center text-xs font-bold 
+                      ${row.days[day] === 'P' ? 'text-green-600 bg-green-50 dark:bg-green-900/30' : 
+                        row.days[day] === 'A' ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 
+                        row.days[day] === 'L' ? 'text-orange-600 bg-orange-50 dark:bg-orange-900/30' : 
+                        'text-gray-400'}`}>
+                      {row.days[day] || '-'}
+                    </td>
+                  ))}
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-green-600 bg-green-50 dark:bg-green-900/30">{row.totalPresent}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-red-600 bg-red-50 dark:bg-red-900/30">{row.totalAbsent}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-orange-600 bg-orange-50 dark:bg-orange-900/30">{row.totalLeave}</td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30">{row.totalDays}</td>
+                  <td className={`border border-gray-300 dark:border-gray-600 p-2 text-center font-bold 
+                    ${row.percentage >= 75 ? 'text-green-600' : row.percentage >= 50 ? 'text-orange-600' : 'text-red-600'}`}>
+                    {row.percentage}%
+                  </td>
+                  <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-purple-600 bg-purple-50 dark:bg-purple-900/30">{row.totalHours}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
     function AttendanceReportsPage({ data, isLoading, setIsLoading, setError, setSuccessMessage }) {
   const [dailyDate, setDailyDate] = useState('');
