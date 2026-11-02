@@ -4119,6 +4119,8 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
   const [selectedMonth, setSelectedMonth] = useState('');
   const [reportData, setReportData] = useState([]);
   const [daysInMonth, setDaysInMonth] = useState(30);
+  const [includeInactive, setIncludeInactive] = useState(false);   // ← NEW
+
 
   const parseAnyDate = (d) => {
     if (!d) return null;
@@ -4150,23 +4152,70 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
     setError('');
     const [year, month] = selectedMonth.split('-').map(Number);
 
-    const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
+const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
 
-    // 1. Get students (supports "All Classes" / "All Sections")
-    const students = data.student_data.filter(s => {
-      const classMatch =
-        selectedClass === '__ALL__' || norm(s.Student_Class) === norm(selectedClass);
-      const sectionMatch =
-        selectedSection === '__ALL__' || norm(s.Student_Section) === norm(selectedSection);
-      return classMatch && sectionMatch;
-    });
+// Month boundaries for month-relative eligibility
+const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
+const monthEnd   = new Date(year, month, 0, 23, 59, 59, 999); // last day of month
 
-      if (students.length === 0) {
-      setError('No students found for the selected Class/Section.');
-      setReportData([]);
-      setIsLoading(false);
-      return;
+// 1. Get students (supports "All Classes" / "All Sections")
+//    + month-relative eligibility (Date_of_Joining / Inactive_Date)
+//    + per-month Active / Inactive status label
+const students = data.student_data
+  .filter(s => {
+    const classMatch =
+      selectedClass === '__ALL__' || norm(s.Student_Class) === norm(selectedClass);
+    const sectionMatch =
+      selectedSection === '__ALL__' || norm(s.Student_Section) === norm(selectedSection);
+    return classMatch && sectionMatch;
+  })
+    .map(s => {
+    const doj = parseAnyDate(s.Date_of_Joining);
+
+    // Fallback: if Status = 'Inactive' but Inactive_Date is blank,
+    // treat them as inactive from *today* onward.
+    const isInactiveToday = norm(s.Status).toLowerCase() === 'inactive';
+    let inactive = parseAnyDate(s.Inactive_Date);
+    if (!inactive && isInactiveToday) {
+      inactive = new Date();
     }
+
+    const joinedByMonthEnd   = !doj      || doj      <= monthEnd;
+    const notLeftBeforeMonth = !inactive || inactive >= monthStart;
+    const wasActiveInMonth   = joinedByMonthEnd && notLeftBeforeMonth;
+
+    return {
+      ...s,
+      _wasActiveInMonth: wasActiveInMonth,
+      _MonthStatus: wasActiveInMonth ? 'Active' : 'Inactive'
+    };
+  })
+  // Drop students not enrolled this month unless the user asked for the full roster
+  .filter(s => includeInactive || s._wasActiveInMonth);
+
+if (students.length === 0) {
+  setError(
+    includeInactive
+      ? 'No students found for the selected Class/Section.'
+      : 'No eligible students found for the selected Class/Section in ' + selectedMonth + '.'
+  );
+  setReportData([]);
+  setIsLoading(false);
+  return;
+}
+
+    // Data-quality warning: Inactive students with no Inactive_Date
+    const brokenInactive = data.student_data.filter(s => {
+      const classMatch = selectedClass === '__ALL__' || norm(s.Student_Class) === norm(selectedClass);
+      const sectionMatch = selectedSection === '__ALL__' || norm(s.Student_Section) === norm(selectedSection);
+      return classMatch && sectionMatch
+        && norm(s.Status).toLowerCase() === 'inactive'
+        && !norm(s.Inactive_Date);
+    });
+     const warnSuffix = brokenInactive.length > 0
+      ? ` ⚠ ${brokenInactive.length} inactive student(s) have no Inactive_Date — treated as inactive from today. Please correct their records.`
+      : '';
+
 
     const studentIdSet = new Set(students.map(s => norm(s.Std_ID)));
 
@@ -4200,45 +4249,59 @@ monthlyAttendance.forEach(a => {
   }
 });
 
-console.log('hoursByStudent (Present only):', hoursByStudent);
+
 // ============ END OPTION A ============
 
 
 
-    if (monthlyAttendance.length === 0) {
-      setError(`No attendance records found for ${students.length} student(s) in ${selectedMonth}.`);
-      setReportData([]);
-      setIsLoading(false);
-      return;
-    }
+
 
     // 4. Build matrix
-    const matrixData = students.map(student => {
-      const row = {
-        Std_ID: student.Std_ID,
-        Student_Name: student.Student_Name,
-        Class: student.Student_Class,
-        Section: student.Student_Section,
-        days: {},
-        totalPresent: 0,
-        totalAbsent: 0,
-        totalLeave: 0,
-        totalDays: 0,
-        totalHours: 0,     // ✅ NEW: Total Hours
-      };
+  const matrixData = students.map(student => {
+  const row = {
+    Std_ID: student.Std_ID,
+    Student_Name: student.Student_Name,
+    Class: student.Student_Class,
+    Section: student.Student_Section,
+    MonthStatus: student._MonthStatus,            // 'Active' | 'Inactive'
+    _wasActiveInMonth: student._wasActiveInMonth, // drives row styling
+    days: {},
+    totalPresent: 0,
+    totalAbsent: 0,
+    totalLeave: 0,
+    totalDays: 0,
+    totalHours: 0,
+  };
 
-      const studentRecords = monthlyAttendance.filter(a => norm(a.Std_ID) === norm(student.Std_ID));
+
+       const studentRecords = monthlyAttendance.filter(a => norm(a.Std_ID) === norm(student.Std_ID));
+
+      // Group records per calendar day so multiple markings on the same day
+      // can be rendered as P2, A2, L2, ·2, etc.
+      const perDay = {}; // { 26: { present: 2, absent: 0, leave: 0, other: 0 } }
+
       studentRecords.forEach(record => {
         const dt = parseAnyDate(record.Date);
         if (!dt) return;
         const day = dt.getDate();
         const status = (record.Status || '').toLowerCase().trim();
-        let symbol = '-';
-        if (status === 'present') { symbol = 'P'; row.totalPresent++; row.totalDays++; }
-        else if (status === 'absent') { symbol = 'A'; row.totalAbsent++; row.totalDays++; }
-        else if (status === 'leave')  { symbol = 'L'; row.totalLeave++;  row.totalDays++; }
-        else { symbol = '?'; row.totalDays++; }
-        row.days[day] = symbol;
+
+        if (!perDay[day]) perDay[day] = { present: 0, absent: 0, leave: 0, other: 0 };
+
+        if (status === 'present')      { perDay[day].present++; row.totalPresent++; row.totalDays++; }
+        else if (status === 'absent')  { perDay[day].absent++;  row.totalAbsent++;  row.totalDays++; }
+        else if (status === 'leave')   { perDay[day].leave++;   row.totalLeave++;   row.totalDays++; }
+        else                           { perDay[day].other++; }
+      });
+
+      // Build the display symbol for each day: 'P', 'P2', 'A', 'A2', 'L3', '·2', etc.
+      Object.keys(perDay).forEach(day => {
+        const c = perDay[day];
+        if (c.present > 0)      row.days[day] = 'P' + (c.present > 1 ? c.present : '');
+        else if (c.absent > 0)  row.days[day] = 'A' + (c.absent  > 1 ? c.absent  : '');
+        else if (c.leave > 0)   row.days[day] = 'L' + (c.leave   > 1 ? c.leave   : '');
+        else if (c.other > 0)   row.days[day] = '·' + (c.other   > 1 ? c.other   : '');
+        else                    row.days[day] = '-';
       });
 
       // ✅ Option A: total hours come straight from the per-student sum
@@ -4251,18 +4314,24 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
 
 
 
-    setReportData(matrixData);
+         setReportData(matrixData);
     setIsLoading(false);
-    setSuccessMessage(`Report generated for ${matrixData.length} students (${monthlyAttendance.length} attendance records).`);
+    setSuccessMessage(
+      (monthlyAttendance.length === 0
+        ? `No attendance records found for ${selectedMonth}. Showing ${matrixData.length} students with blank day cells.`
+        : `Report generated for ${matrixData.length} students (${monthlyAttendance.length} attendance records).`)
+      + warnSuffix
+    );
   };
 
-  const clearForm = () => {
-    setSelectedClass('');
-    setSelectedSection('');
-    setSelectedMonth('');
-    setReportData([]);
-    setError('');
-  };
+const clearForm = () => {
+  setSelectedClass('');
+  setSelectedSection('');
+  setSelectedMonth('');
+  setReportData([]);
+  setError('');
+  setIncludeInactive(false);   // ← NEW
+};
 
   // ---------------- CSV Download ----------------
   const downloadCSV = () => {
@@ -4270,15 +4339,18 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
 
     const headers = ['Std ID', 'Name', 'Class', 'Section'];
     for (let d = 1; d <= daysInMonth; d++) headers.push(`Day ${d}`);
-    headers.push('Present Total', 'Absent', 'Leave', 'Total Days', 'Total %', 'Daily Hours', 'Total Hours');
+ headers.push('Present Total', 'Absent', 'Leave', 'Total Days', 'Total %', 'Total Hours', 'Status');
 
-    let csv = headers.join(',') + '\n';
-    reportData.forEach(row => {
-      const line = [row.Std_ID, row.Student_Name, row.Class, row.Section];
-      for (let d = 1; d <= daysInMonth; d++) line.push(row.days[d] || '-');
-      line.push(row.totalPresent, row.totalAbsent, row.totalLeave, row.totalDays, `${row.percentage}%`, row.totalHours);
-      csv += line.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
-    });
+let csv = headers.join(',') + '\n';
+reportData.forEach(row => {
+  const line = [row.Std_ID, row.Student_Name, row.Class, row.Section];
+  for (let d = 1; d <= daysInMonth; d++) line.push(row.days[d] || '-');
+  line.push(
+    row.totalPresent, row.totalAbsent, row.totalLeave, row.totalDays,
+    `${row.percentage}%`, row.totalHours, row.MonthStatus
+  );
+  csv += line.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',') + '\n';
+});
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
@@ -4338,6 +4410,7 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
                 <th style="padding:5px;border:1px solid #ddd;">Total Days</th>
                 <th style="padding:5px;border:1px solid #ddd;">Total %</th>
                 <th style="padding:5px;border:1px solid #ddd;">Total Hours</th>
+                <th style="padding:5px;border:1px solid #ddd;">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -4352,10 +4425,12 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
           html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Section}</td>`;
           for (let d = 1; d <= daysInMonth; d++) {
             const sym = row.days[d] || '-';
+            const symUpper = String(sym).charAt(0);
             let cellColor = '#f5f5f5', textColor = '#999';
-            if (sym === 'P') { cellColor = '#e8f5e9'; textColor = '#2e7d32'; }
-            else if (sym === 'A') { cellColor = '#ffebee'; textColor = '#c62828'; }
-            else if (sym === 'L') { cellColor = '#fff3e0'; textColor = '#ef6c00'; }
+            if (symUpper === 'P') { cellColor = '#e8f5e9'; textColor = '#2e7d32'; }
+            else if (symUpper === 'A') { cellColor = '#ffebee'; textColor = '#c62828'; }
+            else if (symUpper === 'L') { cellColor = '#fff3e0'; textColor = '#ef6c00'; }
+            else if (symUpper === '·') { cellColor = '#eeeeee'; textColor = '#616161'; }
             html += `<td style="padding:3px;border:1px solid #ddd;text-align:center;background:${cellColor};color:${textColor};font-weight:700;">${sym}</td>`;
           }
           html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalPresent}</td>`;
@@ -4365,10 +4440,22 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
           const pctColor = row.percentage >= 75 ? '#2e7d32' : row.percentage >= 50 ? '#ef6c00' : '#c62828';
           html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${pctColor};">${row.percentage}%</td>`;
           html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalHours}</td>`;
+          const statusColor = row._wasActiveInMonth ? '#2e7d32' : '#999';
+html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${statusColor};">${row.MonthStatus}</td>`;
           html += '</tr>';
         });
 
         html += '</tbody></table>';
+
+        // 🆕 Caveat footer
+        html += `
+          <div style="margin-top:18px;padding-top:10px;border-top:1px solid #ddd;font-size:11px;color:#555;line-height:1.6;">
+            <div>This is a system generated report.</div>
+            <div>REC reserves the right to rectify the attendance records.</div>
+            <div>Any leading number against Present (P) leads to additional attendance in a day.</div>
+          </div>
+        `;
+
         reportDiv.innerHTML = html;
         document.body.appendChild(reportDiv);
         await new Promise(r => setTimeout(r, 100));
@@ -4381,8 +4468,12 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
       };
 
       // 2. If only one group, do the normal single PNG download
-      if (isSingle) {
-        const title = `Class ${groupKeys[0].split('-')[0]} - ${groupKeys[0].split('-')[1] || ''}`;
+         if (isSingle) {
+        const k = groupKeys[0];
+        const i = k.lastIndexOf('-');
+        const cls = i >= 0 ? k.slice(0, i) : k;
+        const sec = i >= 0 ? k.slice(i + 1) : '';
+        const title = `Class ${cls} - ${sec}`;
         const canvas = await renderGroupToCanvas(groups[groupKeys[0]], title);
         const link = document.createElement('a');
         link.download = `monthly_day_wise_report_${groupKeys[0]}_${selectedMonth}.png`;
@@ -4398,10 +4489,12 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
       const folderName = `MonthlyBarReport_${selectedMonth.replace('-', '_')}`;
       const folder = zip.folder(folderName);
 
-      for (const key of groupKeys) {
+           for (const key of groupKeys) {
         const rows = groups[key];
-        const [cls, sec] = key.split('-');
-        const title = `Class ${cls} - ${sec || ''}`;
+        const i = key.lastIndexOf('-');
+        const cls = i >= 0 ? key.slice(0, i) : key;
+        const sec = i >= 0 ? key.slice(i + 1) : '';
+        const title = `Class ${cls} - ${sec}`;
         const canvas = await renderGroupToCanvas(rows, title);
         const dataUrl = canvas.toDataURL('image/png');
         // Strip the "data:image/png;base64," prefix
@@ -4466,37 +4559,45 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
               <label htmlFor="mbrClass">Class</label>
             </div>
             <div className="form-field">
-              <select
-                 className="form-input"
-                    id="mbrSection"
-                      value={selectedSection}
-                    onChange={e => setSelectedSection(e.target.value)}
-                          required
-                           disabled={!selectedClass}
-                    >
-                    <option value="" disabled>Select Section</option>
-                   {selectedClass === '__ALL__' ? (
-                 <option value="__ALL__">All Sections</option>
-                  ) : (
-                  (classSectionMap[selectedClass] || []).map(s => <option key={s} value={s}>{s}</option>)
-                  )}
-                  </select>
+<select
+  className="form-input"
+  id="mbrSection"
+  value={selectedSection}
+  onChange={e => setSelectedSection(e.target.value)}
+  required
+  disabled={!selectedClass}
+>
+  <option value="" disabled>Select Section</option>
+  <option value="__ALL__">All Sections</option>
+  {selectedClass !== '__ALL__' && (
+    (classSectionMap[selectedClass] || []).map(s => <option key={s} value={s}>{s}</option>)
+  )}
+</select>
               <label htmlFor="mbrSection">Section</label>
             </div>
             <div className="form-field">
-              <select
-                className="form-input"
-                id="mbrMonth"
-                value={selectedMonth}
-                onChange={e => setSelectedMonth(e.target.value)}
-                required
-              >
-                <option value="" disabled>Select Month</option>
-                {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-              </select>
-              <label htmlFor="mbrMonth">Month</label>
-            </div>
-          </div>
+  <select
+    className="form-input"
+    id="mbrMonth"
+    value={selectedMonth}
+    onChange={e => setSelectedMonth(e.target.value)}
+    required
+  >
+    <option value="" disabled>Select Month</option>
+    {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+  </select>
+  <label htmlFor="mbrMonth">Month</label>
+</div>
+<div className="form-field checkbox" style={{ alignSelf: 'end', marginBottom: '1.5rem', paddingBottom: '0.75rem' }}>
+  <input
+    type="checkbox"
+    id="mbrIncludeInactive"
+    checked={includeInactive}
+    onChange={e => setIncludeInactive(e.target.checked)}
+  />
+  <label htmlFor="mbrIncludeInactive">Include inactive students</label>
+</div>
+</div>
           <div className="form-actions">
             <button type="submit" disabled={isLoading} className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
               {isLoading ? <><i className="uil uil-spinner text-xl loading-spinner"></i> Generating...</> : 'Generate Report'}
@@ -4527,7 +4628,16 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
       ) : filteredData.length === 0 ? (
         <p className="text-gray-500">No data available for the selected filters.</p>
       ) : (
-        <div className="table-container max-h-[600px] overflow-auto">
+         <div className="table-container max-h-[600px] overflow-auto">
+          <div className="p-2 text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600">
+            <strong>Legend:</strong>&nbsp;
+            <span className="text-green-600 font-bold">P</span> = Present&nbsp;·&nbsp;
+            <span className="text-red-600 font-bold">A</span> = Absent&nbsp;·&nbsp;
+            <span className="text-orange-600 font-bold">L</span> = Leave&nbsp;·&nbsp;
+            <span className="text-gray-600 font-bold">·</span> = Other status (not counted)&nbsp;·&nbsp;
+            <span className="text-gray-400 font-bold">-</span> = No record&nbsp;·&nbsp;
+            <span className="text-green-600 font-bold">P2</span> = 2 presents in a day
+          </div>
           <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600">
             <thead className="sticky-header">
               <tr>
@@ -4546,20 +4656,22 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total Days</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900 font-bold">Total %</th>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-purple-100 dark:bg-purple-900 font-bold">Total Hours</th>
+                <th className="border border-gray-300 dark:border-gray-600 p-2 text-center bg-gray-200 dark:bg-gray-700 font-bold">Status</th>
               </tr>
             </thead>
             <tbody>
               {filteredData.map((row, idx) => (
-                <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                <tr key={idx} className={`hover:bg-gray-50 dark:hover:bg-gray-800 ${!row._wasActiveInMonth ? 'opacity-60' : ''}`}>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Std_ID}</td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Student_Name}</td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Class}</td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Section}</td>
                   {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => (
                     <td key={day} className={`border border-gray-300 dark:border-gray-600 p-1 text-center text-xs font-bold 
-                      ${row.days[day] === 'P' ? 'text-green-600 bg-green-50 dark:bg-green-900/30' : 
-                        row.days[day] === 'A' ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 
-                        row.days[day] === 'L' ? 'text-orange-600 bg-orange-50 dark:bg-orange-900/30' : 
+                      ${String(row.days[day] || '').startsWith('P') ? 'text-green-600 bg-green-50 dark:bg-green-900/30' : 
+                        String(row.days[day] || '').startsWith('A') ? 'text-red-600 bg-red-50 dark:bg-red-900/30' : 
+                        String(row.days[day] || '').startsWith('L') ? 'text-orange-600 bg-orange-50 dark:bg-orange-900/30' : 
+                        String(row.days[day] || '').startsWith('·') ? 'text-gray-600 bg-gray-100 dark:bg-gray-800' : 
                         'text-gray-400'}`}>
                       {row.days[day] || '-'}
                     </td>
@@ -4573,6 +4685,13 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
                     {row.percentage}%
                   </td>
                   <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold text-purple-600 bg-purple-50 dark:bg-purple-900/30">{row.totalHours}</td>
+                  <td className={`border border-gray-300 dark:border-gray-600 p-2 text-center font-bold ${
+  row._wasActiveInMonth
+    ? 'text-green-600 bg-green-50 dark:bg-green-900/30'
+    : 'text-gray-500 bg-gray-100 dark:bg-gray-800'
+}`}>
+  {row.MonthStatus}
+</td>
                 </tr>
               ))}
             </tbody>
