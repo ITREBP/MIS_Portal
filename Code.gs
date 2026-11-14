@@ -1431,19 +1431,38 @@ function markReserveCodesAsPrinted(barcodeIds) {
 // Get or create the Attendance_Correction_Log sheet with headers
 function getOrCreateCorrectionLogSheet(ss) {
   let sheet = ss.getSheetByName('Attendance_Correction_Log');
+  const requiredHeaders = [
+    'Attendance_ID', 'Std_ID', 'Student_Name', 'Date', 'Class_Section',
+    'Old_Status', 'New_Status', 'Corrected_By', 'REC_ID', 'Timestamp',
+    'Reason', 'Comment', 'Old_Hours', 'New_Hours',
+    'Old_Category', 'New_Category'  // 🆕 Added
+  ];
+  
   if (!sheet) {
+    // Create new sheet with all headers
     sheet = ss.insertSheet('Attendance_Correction_Log');
-    sheet.appendRow(['Attendance_ID', 'Std_ID', 'Student_Name', 'Date', 'Class_Section', 'Old_Status', 'New_Status', 'Corrected_By', 'REC_ID', 'Timestamp']);
+    sheet.appendRow(requiredHeaders);
+  } else {
+    // Sheet exists — check if new columns are missing and append them
+    const existingHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const missingHeaders = requiredHeaders.filter(h => !existingHeaders.includes(h));
+    
+    if (missingHeaders.length > 0) {
+      const startCol = existingHeaders.length + 1;
+      sheet.getRange(1, startCol, 1, missingHeaders.length).setValues([missingHeaders]);
+      // Optional: make the new headers bold to match the rest
+      sheet.getRange(1, startCol, 1, missingHeaders.length).setFontWeight('bold');
+    }
   }
   return sheet;
 }
 
 // Correct a single attendance record's Status, with a full audit trail
-function correctAttendanceRecord(attendanceId, newStatus, username) {
+function correctAttendanceRecord(attendanceId, newStatus, username, reason, comment) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-    // 🔒 Permission check — reads canCorrectAttendance by header name (position-independent)
+    // 🔒 Permission check
     const usersSheet = ss.getSheetByName('Users');
     if (!usersSheet) throw new Error('Users sheet not found');
     const userData = usersSheet.getDataRange().getValues();
@@ -1458,7 +1477,12 @@ function correctAttendanceRecord(attendanceId, newStatus, username) {
       return { success: false, message: 'Invalid status value' };
     }
 
-    // Find the exact row by Attendance_ID (not row number — safer across refreshes)
+    // 🆕 Validate reason
+    if (!reason || String(reason).trim() === '') {
+      return { success: false, message: 'A reason is required for correction' };
+    }
+
+    // Find the exact row by Attendance_ID
     const sheet = ss.getSheetByName('Student_Attendance');
     if (!sheet) throw new Error('Student_Attendance sheet not found');
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -1470,7 +1494,7 @@ function correctAttendanceRecord(attendanceId, newStatus, username) {
     let rowIndex = -1;
     for (let i = 1; i < data.length; i++) {
       if (data[i][idCol] && data[i][idCol].toString() === attendanceId.toString()) {
-        rowIndex = i + 1; // actual sheet row number
+        rowIndex = i + 1;
         break;
       }
     }
@@ -1485,6 +1509,7 @@ function correctAttendanceRecord(attendanceId, newStatus, username) {
       return { success: false, message: 'New status is the same as the current status' };
     }
 
+    // Update the status
     sheet.getRange(rowIndex, statusCol + 1).setValue(newStatus);
     SpreadsheetApp.flush();
 
@@ -1501,6 +1526,7 @@ function correctAttendanceRecord(attendanceId, newStatus, username) {
       ? Utilities.formatDate(rowValues[dateCol], 'GMT+0500', 'yyyy-MMM-dd')
       : (dateCol !== -1 ? rowValues[dateCol] : '');
 
+    // 🆕 Append with Reason and Comment
     logSheet.appendRow([
       attendanceId,
       stdIdCol !== -1 ? rowValues[stdIdCol] : '',
@@ -1511,13 +1537,15 @@ function correctAttendanceRecord(attendanceId, newStatus, username) {
       newStatus,
       username,
       recIdCol !== -1 ? rowValues[recIdCol] : '',
-      timestamp
+      timestamp,
+      reason,                                 // 🆕
+      comment ? String(comment).trim() : ''   // 🆕
     ]);
     SpreadsheetApp.flush();
 
     return {
       success: true,
-      message: `Status corrected: ${oldStatus} → ${newStatus}`,
+      message: `Status corrected: ${oldStatus} → ${newStatus} (Reason: ${reason})`,
       data: { Attendance_ID: attendanceId, Status: newStatus, _rowNumber: rowIndex }
     };
 
@@ -1525,4 +1553,286 @@ function correctAttendanceRecord(attendanceId, newStatus, username) {
     Logger.log('Error in correctAttendanceRecord: ' + e.message);
     return { success: false, message: 'Failed to correct attendance record: ' + e.message };
   }
+}
+
+
+
+/**
+ * Correct ONLY the Hours of a single attendance row.
+ * - Category is NEVER touched (it belongs to the class-section for the day).
+ * - New hours must be > 0, a 0.25 multiple, and <= the day's total class hours.
+ * - Row must be Present.
+ * - Logs Old_Hours / New_Hours (plus reason/comment) to Attendance_Correction_Log.
+ */
+function correctAttendanceHours(attendanceId, newHours, newCategory, username, reason, comment) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    return { success: false, message: 'System busy. Please try again.' };
+  }
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 1. Permission
+    const usersSheet = ss.getSheetByName('Users');
+    if (!usersSheet) throw new Error('Users sheet not found');
+    const userData = usersSheet.getDataRange().getValues();
+    const userHeaders = userData[0];
+    const canCorrectCol = userHeaders.indexOf('canCorrectAttendance');
+    const userRow = userData.find(row => row[0] === username);
+    if (canCorrectCol === -1 || !userRow || userRow[canCorrectCol] !== 'Yes') {
+      return { success: false, message: 'You do not have permission to correct attendance records' };
+    }
+    if (!reason || String(reason).trim() === '') {
+      return { success: false, message: 'A reason is required for correction' };
+    }
+
+    // 2. Locate the attendance row
+    const sheet = ss.getSheetByName('Student_Attendance');
+    if (!sheet) throw new Error('Student_Attendance sheet not found');
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const idCol     = headers.indexOf('Attendance_ID');
+    const statusCol = headers.indexOf('Status');
+    const hoursCol  = headers.indexOf('Hours');
+    const catCol    = headers.indexOf('Category');
+    const dateCol   = headers.indexOf('Date');
+    const classCol  = headers.indexOf('Class_Section');
+    if (idCol === -1 || hoursCol === -1 || statusCol === -1) {
+      throw new Error('Required columns not found in Student_Attendance');
+    }
+
+    const data = sheet.getDataRange().getValues();
+    let rowIndex = -1;
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][idCol] && data[i][idCol].toString() === attendanceId.toString()) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+    if (rowIndex === -1) return { success: false, message: 'Attendance record not found' };
+
+    const rowValues = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+    const currentStatus = rowValues[statusCol];
+    const oldHours      = rowValues[hoursCol];
+    const oldCategory   = catCol !== -1 ? rowValues[catCol] : '';
+    const rowDate       = dateCol   !== -1 ? rowValues[dateCol]   : '';
+    const rowClassSec   = classCol  !== -1 ? rowValues[classCol]  : '';
+
+    // 3. Only Present rows can carry editable hours
+    if (String(currentStatus).toLowerCase().trim() !== 'present') {
+      return {
+        success: false,
+        message: `Hours can only be corrected for Present rows. This row is "${currentStatus}".`
+      };
+    }
+
+    // 4. Fetch the day's total hours from Daily_Hours_Setup
+    const classHoursCheck = checkDailyHours(rowDate, rowClassSec, 'normal');
+    if (!classHoursCheck.exists) {
+      return {
+        success: false,
+        message: 'No class hours configured for this date and section. Cannot validate the correction.'
+      };
+    }
+    const dayTotal = Number(classHoursCheck.hours) || 0;
+    if (dayTotal <= 0) {
+      return { success: false, message: 'Invalid configured hours for this day.' };
+    }
+
+    // 5. Validate the new hours
+    const numHours = Number(newHours);
+    if (isNaN(numHours) || numHours <= 0) {
+      return { success: false, message: 'Hours must be a positive number.' };
+    }
+    if (Math.abs(Math.round(numHours / 0.25) * 0.25 - numHours) > 0.001) {
+      return { success: false, message: 'Hours must be in multiples of 0.25.' };
+    }
+    if (numHours > dayTotal + 0.0001) {
+      return {
+        success: false,
+        message: `Hours cannot exceed the class's configured total for the day (${dayTotal}).`
+      };
+    }
+
+    // 6. Validate Category Names and Split
+    if (catCol !== -1) {
+      const daySetup = checkDailyHours(rowDate, rowClassSec, 'normal');
+      const dayItems = daySetup.exists ? parseCategoryBreakdown_(daySetup.category) : null;
+      const newItems = parseCategoryBreakdown_(newCategory);
+
+      if (dayItems) {
+        // Multi-category day validation
+        if (!newItems) {
+          return { success: false, message: `Category must contain all day categories: ${dayItems.map(d => d.name).join(', ')}.` };
+        }
+        // 6a. New items must use existing day category names
+        for (const n of newItems) {
+          if (!dayItems.some(d => d.name === n.name)) {
+            return { success: false, message: `Category "${n.name}" is not part of this day's setup. Allowed: ${dayItems.map(d => d.name).join(', ')}.` };
+          }
+        }
+        // 6b. Every day category must be present
+        for (const d of dayItems) {
+          if (!newItems.some(n => n.name === d.name)) {
+            return { success: false, message: `Missing category "${d.name}". All day categories must be present.` };
+          }
+        }
+        // 6c. Hours must sum up to total
+        if (Math.abs(sumBreakdown_(newItems) - numHours) > 0.001) {
+          return { success: false, message: `Category hours must add up to the total hours (${numHours}).` };
+        }
+      } else {
+        // Single-category day validation
+        const dayCat = daySetup.exists ? String(daySetup.category || '').trim() : '';
+        if (dayCat && String(newCategory || '').trim() !== dayCat) {
+          return { success: false, message: `Category cannot be changed from "${dayCat}".` };
+        }
+      }
+    }
+
+    if (String(oldHours) === String(numHours) && String(oldCategory) === String(newCategory)) {
+      return { success: false, message: 'No change — values equal the current values.' };
+    }
+
+    // 7. Apply — Update both Hours and Category
+    sheet.getRange(rowIndex, hoursCol + 1).setValue(numHours);
+    if (catCol !== -1) {
+      sheet.getRange(rowIndex, catCol + 1).setValue(newCategory);
+    }
+    SpreadsheetApp.flush();
+
+    // 8. Audit log
+    const nameCol  = headers.indexOf('Student_Name');
+    const stdIdCol = headers.indexOf('Std_ID');
+    const recIdCol = headers.indexOf('REC_ID');
+    const logSheet = getOrCreateCorrectionLogSheet(ss);
+    const timestamp = Utilities.formatDate(new Date(), 'GMT+0500', 'dd-MMM-yyyy HH:mm');
+    const logDate = (rowDate instanceof Date)
+      ? Utilities.formatDate(rowDate, 'GMT+0500', 'yyyy-MMM-dd')
+      : (rowDate || '');
+
+    logSheet.appendRow([
+      attendanceId,
+      stdIdCol !== -1 ? rowValues[stdIdCol] : '',
+      nameCol  !== -1 ? rowValues[nameCol]  : '',
+      logDate,
+      rowClassSec,
+      currentStatus,           // Old_Status
+      currentStatus,           // New_Status (unchanged)
+      username,
+      recIdCol !== -1 ? rowValues[recIdCol] : '',
+      timestamp,
+      reason,
+      comment ? String(comment).trim() : '',
+      oldHours,                // Old_Hours
+      numHours,                // New_Hours
+      oldCategory,             // Old_Category
+      newCategory              // New_Category
+    ]);
+    SpreadsheetApp.flush();
+
+    return {
+      success: true,
+      message: `Hours corrected: ${oldHours || '—'} → ${numHours}`,
+      data: { Attendance_ID: attendanceId, Hours: numHours, Category: newCategory }
+    };
+
+  } catch (e) {
+    Logger.log('Error in correctAttendanceHours: ' + e.message);
+    return { success: false, message: 'Failed to correct hours: ' + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Daily_Hours_Setup helpers (were missing from Admin project)
+// ---------------------------------------------------------------------------
+
+/**
+ * Look up the hours/category setup for a given date + class-section.
+ * type: 'normal' | 'episodic'  (episodic returns Events if present)
+ * Returns { exists, hours, category, events }
+ */
+function checkDailyHours(date, classSection, type) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Daily_Hours_Setup');
+    if (!sheet) return { exists: false, hours: 0, category: '', events: '' };
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return { exists: false, hours: 0, category: '', events: '' };
+
+    const headers = data[0];
+    const dateCol      = headers.indexOf('Date');
+    const classSecCol  = headers.indexOf('Class_Section');
+    const hoursCol     = headers.indexOf('Hours');
+    const categoryCol  = headers.indexOf('Category');
+    const eventsCol    = headers.indexOf('Events');
+    const typeCol      = headers.indexOf('Type');
+
+    if (dateCol === -1 || classSecCol === -1) {
+      return { exists: false, hours: 0, category: '', events: '' };
+    }
+
+    // Normalise incoming date to yyyy-MM-dd for comparison
+    const target = Utilities.formatDate(new Date(date), 'GMT+0500', 'yyyy-MM-dd');
+    const wantedType = String(type || 'normal').toLowerCase();
+
+    for (let i = 1; i < data.length; i++) {
+      const rowDate = data[i][dateCol];
+      if (!rowDate) continue;
+
+      const rowDateStr = (rowDate instanceof Date)
+        ? Utilities.formatDate(rowDate, 'GMT+0500', 'yyyy-MM-dd')
+        : String(rowDate).trim().slice(0, 10);
+
+      if (rowDateStr !== target) continue;
+      if (String(data[i][classSecCol] || '').trim() !== String(classSection || '').trim()) continue;
+
+      // If the sheet has a Type column, respect it (episodic vs normal)
+      if (typeCol !== -1) {
+        const rowType = String(data[i][typeCol] || 'normal').toLowerCase();
+        if (rowType !== wantedType) continue;
+      }
+
+      return {
+        exists: true,
+        hours: hoursCol !== -1 ? Number(data[i][hoursCol] || 0) : 0,
+        category: categoryCol !== -1 ? String(data[i][categoryCol] || '') : '',
+        events: eventsCol !== -1 ? String(data[i][eventsCol] || '') : ''
+      };
+    }
+
+    return { exists: false, hours: 0, category: '', events: '' };
+  } catch (e) {
+    Logger.log('checkDailyHours error: ' + e.message);
+    return { exists: false, hours: 0, category: '', events: '' };
+  }
+}
+
+/**
+ * Parse "Name (hours) + Name (hours) + ..." into [{name, hours}, ...].
+ * Returns null for plain single-category strings (no " + " and no "(h)").
+ */
+function parseCategoryBreakdown_(categoryStr) {
+  const s = String(categoryStr || '').trim();
+  if (!s) return null;
+  if (s.indexOf(' + ') === -1) return null;
+
+  const items = [];
+  for (const part of s.split(' + ')) {
+    const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
+    if (m) items.push({ name: m[1].trim(), hours: Number(m[2]) });
+  }
+  return items.length ? items : null;
+}
+
+/**
+ * Sum hours from an array returned by parseCategoryBreakdown_.
+ */
+function sumBreakdown_(items) {
+  if (!Array.isArray(items)) return 0;
+  return items.reduce((sum, i) => sum + (Number(i.hours) || 0), 0);
 }

@@ -696,6 +696,83 @@
       }
     }
 
+// ---------- Shared helpers for AttendanceReportsPage ----------
+
+// Parse any of: Date object, ISO string, or "dd-MMM-yyyy" string.
+function parseAnyDate(d) {
+  if (!d) return null;
+  if (d instanceof Date) return isNaN(d) ? null : d;
+  if (typeof d === 'string' && /^\d{2}-[A-Za-z]{3}-\d{4}$/.test(d)) {
+    const [day, monStr, year] = d.split('-');
+    const m = { Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11 };
+    return new Date(parseInt(year), m[monStr], parseInt(day));
+  }
+  const dt = new Date(d);
+  return isNaN(dt) ? null : dt;
+}
+
+// Is the student enrolled on `targetDate`? (inclusive of both dates)
+// Convention: Inactive_Date = first day the student is NOT active.
+function isEnrolledOn(targetDate, fromDateStr, inactiveDateStr) {
+  const target = parseAnyDate(targetDate);
+  if (!target) return false;
+  const doj      = parseAnyDate(fromDateStr);
+  const inactive = parseAnyDate(inactiveDateStr);
+  const joinedOK  = !doj      || doj <= target;
+  const notLeftOK = !inactive || inactive > target;
+  return joinedOK && notLeftOK;
+}
+
+// Is the student enrolled at ANY POINT during [monthStart, monthEnd]?
+function isEnrolledInMonth(monthStart, monthEnd, fromDateStr, inactiveDateStr) {
+  const doj      = parseAnyDate(fromDateStr);
+  const inactive = parseAnyDate(inactiveDateStr);
+  const joinedByMonthEnd  = !doj      || doj <= monthEnd;
+  const notLeftBeforeStart = !inactive || inactive >= monthStart;
+  return joinedByMonthEnd && notLeftBeforeStart;
+}
+
+// Standard caveat footer (also used by Monthly Day Wise PNG)
+const REPORT_CAVEAT_HTML = `
+  <div style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;
+              font-size:10.5px;color:#94a3b8;line-height:1.7;text-align:center;">
+    <div>This is a system generated report.</div>
+    <div>REC reserves the right to rectify the attendance records.</div>
+    <div>Any leading number against Present (P) leads to additional attendance in a day.</div>
+  </div>
+`;
+
+
+// ---------- Shared helpers for Edit Hours ----------
+function parseDayCategories(dayCatStr) {
+  const s = String(dayCatStr || '');
+  if (s.indexOf(' + ') === -1) return [{ name: s.trim(), hours: null }];
+  const items = [];
+  for (const part of s.split(' + ')) {
+    const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
+    if (m) items.push({ name: m[1], hours: Number(m[2]) });
+  }
+  return items.length ? items : [{ name: s.trim(), hours: null }];
+}
+
+function parseStudentCategoryMap(catStr) {
+  const s = String(catStr || '');
+  if (s.indexOf(' + ') === -1) return {};
+  const out = {};
+  for (const part of s.split(' + ')) {
+    const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
+    if (m) out[m[1]] = Number(m[2]);
+  }
+  return out;
+}
+
+function formatCategoryString(items) {
+  if (items.length === 1) return items[0].name;
+  return items.map(i => `${i.name} (${Number(i.hours) || 0})`).join(' + ');
+}
+
+
+
     function App() {
       const [isAuthenticated, setIsAuthenticated] = useState(false);
       const [permissionsLoaded, setPermissionsLoaded] = useState(false);
@@ -2226,33 +2303,68 @@ if (formData.AllowedDays) {
         return Object.keys(errors).length === 0;
       };
 
-      const handleSearch = async (e) => {
-        e.preventDefault();
-        if (!userPermissions?.canQueryAttendance) {
-          setError('You do not have permission to query attendance');
-          return;
-        }
-        if (!validateForm()) return;
-        setIsLoading(true);
-        try {
-          const result = await callWithRetry('getStudentAttendance', { ...formData, username });
-          let filteredResult = result;
-          if (formData.studentClass) {
-            filteredResult = filteredResult.filter(item => item.Student_Class === formData.studentClass);
-          }
-          if (formData.studentSection) {
-            filteredResult = filteredResult.filter(item => item.Student_Section === formData.studentSection);
-          }
-          if (formData.statusFilter !== 'All') {
-            filteredResult = filteredResult.filter(item => item.Status === formData.statusFilter);
-          }
-          setAttendanceData(filteredResult);
-          setError('');
-        } catch (err) {
-          setError('Failed to fetch attendance after retries: ' + err.message);
-        }
-        setIsLoading(false);
-      };
+  const parseDayCategories = (dayCatStr) => {
+    const s = String(dayCatStr || '');
+    if (s.indexOf(' + ') === -1) return [{ name: s.trim(), hours: null }];
+    const items = [];
+    for (const part of s.split(' + ')) {
+      const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
+      if (m) items.push({ name: m[1], hours: Number(m[2]) });
+    }
+    return items.length ? items : [{ name: s.trim(), hours: null }];
+  };
+
+  const parseStudentCategoryMap = (catStr) => {
+    const s = String(catStr || '');
+    if (s.indexOf(' + ') === -1) return {}; 
+    const out = {};
+    for (const part of s.split(' + ')) {
+      const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
+      if (m) out[m[1]] = Number(m[2]);
+    }
+    return out;
+  };
+
+  const formatCategoryString = (items) => {
+    if (items.length === 1) return items[0].name;
+    return items.map(i => `${i.name} (${Number(i.hours) || 0})`).join(' + ');
+  };
+
+
+       const handleSearch = async (e) => {
+  e.preventDefault();
+  if (!formData.startDate || !formData.endDate) {
+    setError('Please select both start and end dates');
+    return;
+  }
+  setIsLoading(true);
+  try {
+    const [result, allDailyHours] = await Promise.all([
+      callWithRetry('getStudentAttendance', { ...formData, username }),
+      callWithRetry('getSheetData', 'Daily_Hours_Setup', userPermissions[username]?.REC_ID || '')
+    ]);
+
+    // Build lookup: "Date|Class_Section" -> category
+    const dayCatLookup = {};
+    (allDailyHours || []).forEach(h => {
+      if (!h.Date || !h.Class_Section) return;
+      dayCatLookup[`${h.Date}|${h.Class_Section}`] = h.Category || '';
+    });
+
+    const enriched = result.map(row => ({
+      ...row,
+      _dayCategory: dayCatLookup[`${row.Date}|${row.Class_Section}`] || ''
+    }));
+
+    setResults(enriched);
+    setSearched(true);
+    setError('');
+  } catch (err) {
+    setError('Search failed: ' + err.message);
+  }
+  setIsLoading(false);
+};
+
 
           const handleDownload = async (e, type) => {
         e.preventDefault();
@@ -2599,8 +2711,13 @@ if (formData.AllowedDays) {
       });
       const [results, setResults] = useState([]);
       const [searched, setSearched] = useState(false);
-      const [editingId, setEditingId] = useState(null);
-      const [editStatus, setEditStatus] = useState('');
+const [editingId, setEditingId] = useState(null);
+const [editStatus, setEditStatus] = useState('');
+const [editReason, setEditReason] = useState('');
+const [editComment, setEditComment] = useState('');
+const [editingMode, setEditingMode] = useState(null);   // 'status' | 'hours'
+const [editHours, setEditHours] = useState('');
+const [editCategory, setEditCategory] = useState('');
 
       const perms = userPermissions[username] || {};
 
@@ -2609,57 +2726,134 @@ if (formData.AllowedDays) {
         setFormData(prev => ({ ...prev, [name]: value }));
       };
 
-      const handleSearch = async (e) => {
-        e.preventDefault();
-        if (!formData.startDate || !formData.endDate) {
-          setError('Please select both start and end dates');
-          return;
-        }
-        setIsLoading(true);
-        try {
-          const result = await callWithRetry('getStudentAttendance', { ...formData, username });
-          setResults(result);
-          setSearched(true);
-          setError('');
-        } catch (err) {
-          setError('Search failed: ' + err.message);
-        }
-        setIsLoading(false);
-      };
+     const handleSearch = async (e) => {
+  e.preventDefault();
+  if (!formData.startDate || !formData.endDate) {
+    setError('Please select both start and end dates');
+    return;
+  }
+  setIsLoading(true);
 
-      const startEdit = (row) => {
-        setEditingId(row.Attendance_ID);
-        setEditStatus(row.Status);
-      };
+  try {
+    // Two calls total: the attendance rows + one full read of the Daily_Hours_Setup sheet.
+    // The old version fired one checkDailyHours() RPC per row, which both
+    // (a) doesn't exist in the Admin project and (b) was retried ~20s each.
+    const [result, allDailyHours] = await Promise.all([
+      callWithRetry('getStudentAttendance', { ...formData, username }),
+      callWithRetry('getSheetData', 'Daily_Hours_Setup', userPermissions[username]?.REC_ID || '')
+    ]);
 
-      const cancelEdit = () => {
-        setEditingId(null);
-        setEditStatus('');
-      };
+    // Build the lookup once: "Date|Class_Section" -> Category
+    const dayCatLookup = {};
+    (allDailyHours || []).forEach(h => {
+      if (!h.Date || !h.Class_Section) return;
+      dayCatLookup[`${h.Date}|${h.Class_Section}`] = h.Category || '';
+    });
 
-      const saveEdit = async (row) => {
-        if (editStatus === row.Status) {
-          cancelEdit();
-          return;
-        }
-        setIsLoading(true);
-        try {
-          const result = await callWithRetry('correctAttendanceRecord', row.Attendance_ID, editStatus, username);
-          if (result.success) {
-            setResults(prev => prev.map(r =>
-              r.Attendance_ID === row.Attendance_ID ? { ...r, Status: editStatus } : r
-            ));
-            setSuccessMessage(result.message);
-            setError('');
-            cancelEdit();
-          } else {
-            setError(result.message || 'Correction failed');
-          }
-        } catch (err) {
-          setError('Correction failed: ' + err.message);
-        }
-        setIsLoading(false);
-      };
+    const enriched = (result || []).map(row => ({
+      ...row,
+      _dayCategory: dayCatLookup[`${row.Date}|${row.Class_Section}`] || ''
+    }));
+
+    setResults(enriched);
+    setSearched(true);
+    setError('');
+  } catch (err) {
+    setError('Search failed: ' + err.message);
+  }
+  setIsLoading(false);
+};
+
+  const startEdit = (row, mode) => {
+    console.log('startEdit called:', { mode, id: row.Attendance_ID, hours: row.Hours, category: row.Category });
+    setEditingId(String(row.Attendance_ID || ''));
+    setEditingMode(mode);
+    setEditStatus(row.Status || '');
+    setEditHours(row.Hours !== undefined && row.Hours !== '' && row.Hours !== null ? row.Hours : '');
+    setEditCategory(row.Category || '');
+    setEditReason('');
+    setEditComment('');
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditingMode(null);
+    setEditStatus('');
+    setEditHours('');
+    setEditCategory('');
+    setEditReason('');
+    setEditComment('');
+  };
+
+const saveEdit = async (row) => {
+  if (editStatus === row.Status) { cancelEdit(); return; }
+  if (!editReason || editReason.trim() === '') {
+    setError('Please select a reason for the correction');
+    return;
+  }
+  setIsLoading(true);
+  try {
+    const result = await callWithRetry(
+      'correctAttendanceRecord',
+      row.Attendance_ID,
+      editStatus,
+      username,
+      editReason,
+      editComment
+    );
+    if (result.success) {
+      setResults(prev => prev.map(r =>
+        r.Attendance_ID === row.Attendance_ID ? { ...r, Status: editStatus } : r
+      ));
+      setSuccessMessage(result.message);
+      setError('');
+      cancelEdit();
+    } else {
+      setError(result.message || 'Correction failed');
+    }
+  } catch (err) {
+    setError('Correction failed: ' + err.message);
+  }
+  setIsLoading(false);
+};
+
+ const saveHoursEdit = async (row) => {
+    if (!editReason || editReason.trim() === '') {
+      setError('Please select a reason for the correction');
+      return;
+    }
+    if (!editHours || Number(editHours) <= 0) {
+      setError('Hours must be a positive number');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const result = await callWithRetry(
+        'correctAttendanceHours',
+        row.Attendance_ID,
+        Number(editHours),
+        editCategory,
+        username,
+        editReason,
+        editComment
+      );
+      if (result.success) {
+        setResults(prev => prev.map(r =>
+          r.Attendance_ID === row.Attendance_ID
+            ? { ...r, Hours: Number(editHours), Category: editCategory }
+            : r
+        ));
+        setSuccessMessage(result.message);
+        setError('');
+        cancelEdit();
+      } else {
+        setError(result.message || 'Hours correction failed');
+      }
+    } catch (err) {
+      setError('Hours correction failed: ' + err.message);
+    }
+    setIsLoading(false);
+  };
 
       if (!perms.canQueryAttendance) {
         return (
@@ -2772,7 +2966,7 @@ if (formData.AllowedDays) {
           ) : results.length === 0 ? (
             <p className="text-gray-500">No attendance records found.</p>
           ) : (
-            <div className="table-container max-h-[600px]">
+                        <div className="table-container max-h-[600px]">
               <table className="min-w-full">
                 <thead className="sticky-header">
                   <tr>
@@ -2781,6 +2975,7 @@ if (formData.AllowedDays) {
                     <th>Student Name</th>
                     <th>Class Section</th>
                     <th>Status</th>
+                    <th>Hours</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -2791,38 +2986,161 @@ if (formData.AllowedDays) {
                       <td className="whitespace-nowrap">{row.Std_ID}</td>
                       <td className="whitespace-nowrap">{row.Student_Name}</td>
                       <td className="whitespace-nowrap">{row.Class_Section}</td>
-                      <td className="whitespace-nowrap">
-                        {editingId === row.Attendance_ID ? (
-                          <select
-                            value={editStatus}
-                            onChange={e => setEditStatus(e.target.value)}
-                            className="form-input"
-                            style={{
-                              width: 'auto',
-                              padding: '0.375rem 0.5rem',
-                              background: 'var(--panel-color)',
-                              color: 'var(--text-color)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: 'var(--radius-md)'
-                            }}
-                          >
-                            <option value="Present">Present</option>
-                            <option value="Absent">Absent</option>
-                            <option value="Leave">Leave</option>
-                          </select>
+
+                      {/* STATUS cell — editable only in 'status' mode */}
+                      <td className="whitespace-nowrap align-top" style={{ minWidth: '260px' }}>
+                      {String(editingId) === String(row.Attendance_ID) && editingMode === 'status' ? (
+                          <div className="flex flex-col gap-2 py-1">
+                            <select
+                              value={editStatus}
+                              onChange={e => setEditStatus(e.target.value)}
+                              className="form-input"
+                              style={{ width: '100%', padding: '0.375rem 0.5rem', background: 'var(--panel-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}
+                            >
+                              <option value="Present">Present</option>
+                              <option value="Absent">Absent</option>
+                              <option value="Leave">Leave</option>
+                            </select>
+                            <select
+                              value={editReason}
+                              onChange={e => setEditReason(e.target.value)}
+                              className="form-input"
+                              style={{ width: '100%', padding: '0.375rem 0.5rem', background: 'var(--panel-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', fontSize: '0.8rem' }}
+                              required
+                            >
+                              <option value="" disabled>— Select Reason (required) —</option>
+                              <option value="Parental Correction">Parental Correction</option>
+                              <option value="Wrong Status Marked">Wrong Status Marked</option>
+                              <option value="Wrong Attendance Punched">Wrong Attendance Punched</option>
+                              <option value="Overlooked while marking">Overlooked while marking</option>
+                              <option value="Student Came Late">Student Came Late</option>
+                              <option value="Student Left Early">Student Left Early</option>
+                              <option value="Medical / Sick Leave">Medical / Sick Leave</option>
+                              <option value="Family Emergency">Family Emergency</option>
+                              <option value="Other (see comment)">Other (see comment)</option>
+                            </select>
+                            <input
+                              type="text"
+                              value={editComment}
+                              onChange={e => setEditComment(e.target.value)}
+                              placeholder="Optional note (what happened?)"
+                              className="form-input"
+                              style={{ width: '100%', padding: '0.375rem 0.5rem', background: 'var(--panel-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', fontSize: '0.8rem' }}
+                            />
+                          </div>
                         ) : (
                           row.Status
                         )}
                       </td>
-                      <td className="whitespace-nowrap">
-                        {!perms.canCorrectAttendance ? null : editingId === row.Attendance_ID ? (
-                          <>
-                            <button onClick={() => saveEdit(row)} className="text-green-600 hover:underline mr-3">Save</button>
-                            <button onClick={cancelEdit} className="text-gray-500 hover:underline">Cancel</button>
-                          </>
-                        ) : (
-                          <button onClick={() => startEdit(row)} className="text-blue-500 hover:underline">Edit</button>
-                        )}
+
+                                         {/* HOURS cell — editable only in 'hours' mode */}
+<td className="whitespace-nowrap align-top" style={{ minWidth: '240px' }}>
+  {String(editingId) === String(row.Attendance_ID) && editingMode === 'hours' ? (
+    <div className="flex flex-col gap-2 py-1">
+      <input
+        type="number"
+        min="0.25"
+        step="0.25"
+        value={editHours}
+        onChange={e => setEditHours(e.target.value)}
+        className="form-input"
+        placeholder="Total Hours"
+        style={{ width: '100%', padding: '0.375rem 0.5rem', background: 'var(--panel-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}
+      />
+
+      {/* Category split editor */}
+      <div
+        style={{
+          display: 'flex', flexDirection: 'column', gap: '4px',
+          padding: '6px 8px', background: 'var(--hover-color)',
+          border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)',
+        }}
+      >
+{(parseDayCategories(row._dayCategory || row.Category).filter(c => c && c.name) || []).map(cat => {
+          const currentMap = parseStudentCategoryMap(editCategory || row.Category);
+          const catHours = currentMap[cat.name] !== undefined
+            ? currentMap[cat.name]
+            : (cat.hours !== null ? cat.hours : (Number(editHours) || 0));
+          return (
+            <div key={cat.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
+              <span style={{ flex: 1, color: 'var(--text-color)' }}>{cat.name}</span>
+              <input
+                type="number"
+                min="0"
+                step="0.25"
+                value={catHours}
+                onChange={e => {
+                  const newVal = Number(e.target.value) || 0;
+                  const dayCats = parseDayCategories(row._dayCategory || row.Category);
+                  const next = dayCats.map(c => ({
+                    name: c.name,
+                    hours: c.name === cat.name ? newVal : (currentMap[c.name] !== undefined ? currentMap[c.name] : (c.hours !== null ? c.hours : 0))
+                  }));
+                  setEditCategory(formatCategoryString(next));
+                }}
+                className="form-input"
+                style={{ width: '60px', textAlign: 'center', padding: '2px 4px', fontSize: '0.8rem' }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      <select
+        value={editReason}
+        onChange={e => setEditReason(e.target.value)}
+        className="form-input"
+        style={{ width: '100%', padding: '0.375rem 0.5rem', background: 'var(--panel-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', fontSize: '0.8rem' }}
+        required
+      >
+        <option value="" disabled>— Select Reason (required) —</option>
+        <option value="Wrong Attendance Punched">Wrong Attendance Punched</option>
+        <option value="Hours entered incorrectly">Hours entered incorrectly</option>
+        <option value="Overlooked while marking">Overlooked while marking</option>
+        <option value="Student Came Late">Student Came Late</option>
+        <option value="Student Left Early">Student Left Early</option>
+        <option value="Other (see comment)">Other (see comment)</option>
+      </select>
+      <input
+        type="text"
+        value={editComment}
+        onChange={e => setEditComment(e.target.value)}
+        placeholder="Optional note"
+        className="form-input"
+        style={{ width: '100%', padding: '0.375rem 0.5rem', background: 'var(--panel-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', fontSize: '0.8rem' }}
+      />
+    </div>
+  ) : (
+    <span>
+      {row.Hours !== undefined && row.Hours !== '' && row.Hours !== null ? row.Hours : '—'}
+      {row.Category ? (
+        <span style={{ color: 'var(--text-light)' }}> ({row.Category})</span>
+      ) : null}
+    </span>
+  )}
+</td>
+
+                      {/* ACTIONS cell */}
+                      <td className="whitespace-nowrap align-top">
+                        {!perms.canCorrectAttendance ? null
+ : String(editingId) === String(row.Attendance_ID) ? (
+                            <div className="flex flex-col gap-1 pt-1">
+                              <button
+                                onClick={() => editingMode === 'status' ? saveEdit(row) : saveHoursEdit(row)}
+                                className="text-green-600 hover:underline text-sm font-medium"
+                              >Save</button>
+                              <button onClick={cancelEdit} className="text-gray-500 hover:underline text-sm">Cancel</button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              <button onClick={() => startEdit(row, 'status')} className="text-blue-500 hover:underline">Edit Status</button>
+                              {String(row.Status).toLowerCase() === 'present' && (
+                                <button onClick={() => startEdit(row, 'hours')} className="text-purple-600 hover:underline">
+                                  Edit Hours
+                                </button>
+                              )}
+                            </div>
+                          )}
                       </td>
                     </tr>
                   ))}
@@ -4313,6 +4631,12 @@ row.totalHours = Math.round((hoursByStudent[sid] || 0) * 100) / 100;
     });
 
 
+// Sort alphabetically by student name
+const cleanName = (s) => String(s || '').replace(/[\u00A0\u200B-\u200D\uFEFF]/g, '').trim();
+matrixData.sort((a, b) =>
+  cleanName(a.Student_Name).localeCompare(cleanName(b.Student_Name), undefined, { sensitivity: 'base' })
+);
+
 
          setReportData(matrixData);
     setIsLoading(false);
@@ -4389,72 +4713,149 @@ reportData.forEach(row => {
         const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
         let html = `
-          <div style="margin-bottom:20px;text-align:center;">
-            <h1 style="color:#1a2c3e;margin-bottom:8px;">Monthly Day Wise Report</h1>
-            <div style="font-size:13px;color:#666;">
-              ${title} | Month: ${selectedMonth} | Generated on ${currentDate}
-            </div>
-            <hr style="border:2px solid #1a73e8;margin-top:10px;">
-          </div>
-          <table style="width:100%;border-collapse:collapse;font-size:10px;">
-            <thead>
-              <tr style="background:#1a73e8;color:white;">
-                <th style="padding:5px;border:1px solid #ddd;">Std ID</th>
-                <th style="padding:5px;border:1px solid #ddd;">Name</th>
-                <th style="padding:5px;border:1px solid #ddd;">Class</th>
-                <th style="padding:5px;border:1px solid #ddd;">Sec</th>
-                ${Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => `<th style="padding:3px;border:1px solid #ddd;">${d}</th>`).join('')}
-                <th style="padding:5px;border:1px solid #ddd;">Present</th>
-                <th style="padding:5px;border:1px solid #ddd;">Absent</th>
-                <th style="padding:5px;border:1px solid #ddd;">Leave</th>
-                <th style="padding:5px;border:1px solid #ddd;">Total Days</th>
-                <th style="padding:5px;border:1px solid #ddd;">Total %</th>
-                <th style="padding:5px;border:1px solid #ddd;">Total Hours</th>
-                <th style="padding:5px;border:1px solid #ddd;">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-        `;
+  <div style="margin-bottom:24px;text-align:center;">
+    <div style="display:inline-block;padding:6px 14px;background:#eff6ff;color:#1e40af;
+                font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;
+                border-radius:999px;margin-bottom:10px;">
+      Monthly Day Wise Report
+    </div>
+    <div style="font-size:22px;font-weight:700;color:#111827;margin-bottom:4px;">
+      ${title}
+    </div>
+    <div style="font-size:12px;color:#6b7280;">
+      Month: ${selectedMonth} &nbsp;·&nbsp; Generated on ${currentDate}
+    </div>
+  </div>
 
-        rows.forEach((row, idx) => {
-          const bg = idx % 2 === 0 ? '#ffffff' : '#f8f9fa';
-          html += `<tr style="background:${bg};">`;
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Std_ID}</td>`;
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Student_Name}</td>`;
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Class}</td>`;
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;">${row.Section}</td>`;
-          for (let d = 1; d <= daysInMonth; d++) {
-            const sym = row.days[d] || '-';
-            const symUpper = String(sym).charAt(0);
-            let cellColor = '#f5f5f5', textColor = '#999';
-            if (symUpper === 'P') { cellColor = '#e8f5e9'; textColor = '#2e7d32'; }
-            else if (symUpper === 'A') { cellColor = '#ffebee'; textColor = '#c62828'; }
-            else if (symUpper === 'L') { cellColor = '#fff3e0'; textColor = '#ef6c00'; }
-            else if (symUpper === '·') { cellColor = '#eeeeee'; textColor = '#616161'; }
-            html += `<td style="padding:3px;border:1px solid #ddd;text-align:center;background:${cellColor};color:${textColor};font-weight:700;">${sym}</td>`;
-          }
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalPresent}</td>`;
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalAbsent}</td>`;
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalLeave}</td>`;
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalDays}</td>`;
-          const pctColor = row.percentage >= 75 ? '#2e7d32' : row.percentage >= 50 ? '#ef6c00' : '#c62828';
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${pctColor};">${row.percentage}%</td>`;
-          html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;">${row.totalHours}</td>`;
-          const statusColor = row._wasActiveInMonth ? '#2e7d32' : '#999';
-html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font-weight:700;color:${statusColor};">${row.MonthStatus}</td>`;
-          html += '</tr>';
-        });
+  <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px;color:#1f2937;">
+    <thead>
+      <tr style="background:#f8fafc;color:#374151;">
+        <th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;
+                   letter-spacing:0.02em;border-bottom:2px solid #e5e7eb;
+                   border-top-left-radius:8px;">Std ID</th>
+        <th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;
+                   letter-spacing:0.02em;border-bottom:2px solid #e5e7eb;">Name</th>
+        <th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;
+                   letter-spacing:0.02em;border-bottom:2px solid #e5e7eb;">Class</th>
+        <th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;
+                   letter-spacing:0.02em;border-bottom:2px solid #e5e7eb;">Sec</th>
+        ${Array.from({ length: daysInMonth }, (_, i) => i + 1).map(d => `
+          <th style="padding:10px 4px;text-align:center;font-weight:600;font-size:10px;
+                     color:#6b7280;border-bottom:2px solid #e5e7eb;">${d}</th>
+        `).join('')}
+        <th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;
+                   color:#047857;border-bottom:2px solid #e5e7eb;">Present</th>
+        <th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;
+                   color:#b91c1c;border-bottom:2px solid #e5e7eb;">Absent</th>
+        <th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;
+                   color:#c2410c;border-bottom:2px solid #e5e7eb;">Leave</th>
+        <th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;
+                   color:#1e40af;border-bottom:2px solid #e5e7eb;">Days</th>
+        <th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;
+                   color:#1e40af;border-bottom:2px solid #e5e7eb;">%</th>
+        <th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;
+                   color:#7e22ce;border-bottom:2px solid #e5e7eb;">Hours</th>
+        <th style="padding:10px 8px;text-align:center;font-weight:600;font-size:11px;
+                   border-bottom:2px solid #e5e7eb;border-top-right-radius:8px;">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+`;
 
-        html += '</tbody></table>';
+rows.forEach((row, idx) => {
+  const isLast    = idx === rows.length - 1;
+  const isActive  = row._wasActiveInMonth;
+  const rowBg     = idx % 2 === 0 ? '#ffffff' : '#fafbfc';
+  const rowOpacity = isActive ? '1' : '0.55';
 
-        // 🆕 Caveat footer
-        html += `
-          <div style="margin-top:18px;padding-top:10px;border-top:1px solid #ddd;font-size:11px;color:#555;line-height:1.6;">
-            <div>This is a system generated report.</div>
-            <div>REC reserves the right to rectify the attendance records.</div>
-            <div>Any leading number against Present (P) leads to additional attendance in a day.</div>
-          </div>
-        `;
+  html += `<tr style="background:${rowBg};opacity:${rowOpacity};">`;
+
+  // Std ID — monospaced-ish, right-aligned tabular feel
+  html += `<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;
+                     font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+                     font-size:11px;color:#334155;">${row.Std_ID}</td>`;
+
+  // Name — semibold
+  html += `<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;
+                     font-weight:500;color:#0f172a;">${row.Student_Name}</td>`;
+
+  // Class / Section — muted pill-ish
+  html += `<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#475569;">${row.Class}</td>`;
+  html += `<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;color:#475569;">${row.Section}</td>`;
+
+  // Day cells
+  for (let d = 1; d <= daysInMonth; d++) {
+    const sym = row.days[d] || '-';
+    const head = String(sym).charAt(0);
+    let cellBg = 'transparent', cellColor = '#cbd5e1', fontWeight = 500;
+    if (head === 'P')       { cellBg = '#ecfdf5'; cellColor = '#047857'; fontWeight = 700; }
+    else if (head === 'A')  { cellBg = '#fef2f2'; cellColor = '#b91c1c'; fontWeight = 700; }
+    else if (head === 'L')  { cellBg = '#fff7ed'; cellColor = '#c2410c'; fontWeight = 700; }
+    else if (head === '·')  { cellBg = '#f1f5f9'; cellColor = '#64748b'; fontWeight = 600; }
+    html += `<td style="padding:8px 2px;text-align:center;border-bottom:1px solid #f1f5f9;
+                       background:${cellBg};color:${cellColor};font-weight:${fontWeight};
+                       font-size:10px;">${sym}</td>`;
+  }
+
+  // Summary columns — soft tinted backgrounds matching the on-screen table
+  html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;
+                     background:#ecfdf5;color:#047857;font-weight:700;font-size:11px;">${row.totalPresent}</td>`;
+  html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;
+                     background:#fef2f2;color:#b91c1c;font-weight:700;font-size:11px;">${row.totalAbsent}</td>`;
+  html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;
+                     background:#fff7ed;color:#c2410c;font-weight:700;font-size:11px;">${row.totalLeave}</td>`;
+  html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;
+                     background:#eff6ff;color:#1e40af;font-weight:700;font-size:11px;">${row.totalDays}</td>`;
+
+  // Percentage — colour-coded by threshold
+  const pctColor = row.percentage >= 75 ? '#047857' : row.percentage >= 50 ? '#c2410c' : '#b91c1c';
+  const pctBg    = row.percentage >= 75 ? '#ecfdf5' : row.percentage >= 50 ? '#fff7ed' : '#fef2f2';
+  html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;
+                     background:${pctBg};color:${pctColor};font-weight:700;font-size:11px;">${row.percentage}%</td>`;
+
+  // Hours — purple tint
+  html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;
+                     background:#faf5ff;color:#7e22ce;font-weight:700;font-size:11px;">${row.totalHours}</td>`;
+
+  // Status — badge style
+  const statusColor = isActive ? '#047857' : '#64748b';
+  const statusBg    = isActive ? '#ecfdf5' : '#f1f5f9';
+  html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;">
+             <span style="display:inline-block;padding:3px 10px;border-radius:999px;
+                          background:${statusBg};color:${statusColor};
+                          font-size:10px;font-weight:600;letter-spacing:0.02em;">
+               ${row.MonthStatus}
+             </span>
+           </td>`;
+
+  html += '</tr>';
+});
+
+html += '</tbody></table>';
+
+// 🆕 Legend strip below the table
+html += `
+  <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:16px;
+              padding:10px 14px;background:#f8fafc;border-radius:8px;
+              font-size:11px;color:#64748b;">
+    <span><strong style="color:#047857;">P</strong> = Present</span>
+    <span><strong style="color:#b91c1c;">A</strong> = Absent</span>
+    <span><strong style="color:#c2410c;">L</strong> = Leave</span>
+    <span><strong style="color:#64748b;">·</strong> = Other (not counted)</span>
+    <span><strong style="color:#cbd5e1;">-</strong> = No record</span>
+    <span><strong style="color:#047857;">P2</strong> = 2 presents in a day</span>
+  </div>
+`;
+
+// 🆕 Caveat footer — softened, muted, still legible
+html += `
+  <div style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;
+              font-size:10.5px;color:#94a3b8;line-height:1.7;text-align:center;">
+    <div>This is a system generated report.</div>
+    <div>REC reserves the right to rectify the attendance records.</div>
+    <div>Any leading number against Present (P) leads to additional attendance in a day.</div>
+  </div>
+`;
 
         reportDiv.innerHTML = html;
         document.body.appendChild(reportDiv);
@@ -4803,184 +5204,492 @@ html += `<td style="padding:3px 5px;border:1px solid #ddd;text-align:center;font
   const getPercentColor = (pct) => (pct >= 75 ? '#2e7d32' : pct >= 50 ? '#ef6c00' : '#c62828');
   const getPercentBg = (pct) => (pct >= 75 ? '#e8f5e9' : pct >= 50 ? '#fff3e0' : '#ffebee');
 
-  const renderAsPNG = async (rows, filename, title, isMonthly) => {
-    setIsLoading(true);
-    const reportDiv = document.createElement('div');
-    reportDiv.setAttribute('data-theme', 'light');
-    reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:1100px;background:white;padding:40px;font-family:sans-serif;color:#1a2c3e;';
-    const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    const headers = Object.keys(rows[0]);
-    let html = `
-      <div style="margin-bottom:20px;text-align:center;">
-        <h1 style="color:#1a2c3e;margin-bottom:10px;">${title}</h1>
-        <div style="font-size:13px;color:#666;">Generated on ${currentDate}</div>
-        <hr style="border:2px solid #1a73e8;margin-top:10px;">
+  const renderAsPNG = async (rows, filename, title, subtitle) => {
+  if (!rows || rows.length === 0) {
+    setError('No rows to render.');
+    return;
+  }
+  setIsLoading(true);
+
+  const reportDiv = document.createElement('div');
+  reportDiv.setAttribute('data-theme', 'light');
+  reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;background:white;padding:30px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1f2937;';
+
+  const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+  const headers = Object.keys(rows[0]);
+
+  // Per-header colour for the summary-column category (mirrors on-screen tints)
+const headerColor = (h) => {
+  const k = h.toLowerCase();
+  if (k === 'status')               return '';
+  if (k === 'presents' || k === 'present') return '#047857';
+  if (k === 'absents' || k === 'absent')   return '#b91c1c';
+  if (k === 'leaves'  || k === 'leave')    return '#c2410c';
+  if (k === 'total days' || k === 'days')  return '#1e40af';
+    if (k === 'present hours' || k === 'total hours' || k === 'hours') return '#7e22ce';
+  if (k === 'attendance %' || k === '%')   return '#1e40af';
+  return '#374151';
+};
+
+  let html = `
+    <div style="margin-bottom:24px;text-align:center;">
+      <div style="display:inline-block;padding:6px 14px;background:#eff6ff;color:#1e40af;
+                  font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;
+                  border-radius:999px;margin-bottom:10px;">
+        ${title}
       </div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="background:#1a73e8;color:white;">
-          ${headers.map(h => `<th style="padding:10px;text-align:left;border:1px solid #ddd;">${h}</th>`).join('')}
-        </tr></thead>
-        <tbody>
-    `;
-    rows.forEach((row, idx) => {
-      const isTotal = row['Student Name'] === 'CLASS TOTAL';
-      const bg = isTotal ? '#e3f2fd' : (idx % 2 === 0 ? '#ffffff' : '#f8f9fa');
-      html += `<tr style="background:${bg};">`;
-      headers.forEach(h => {
-        let val = row[h] ?? '';
-        let style = `padding:8px 10px;border:1px solid #ddd;${isTotal ? 'font-weight:700;' : ''}`;
-        if (h === 'Status') style += getStatusStyle(val);
-        if (h === 'Attendance %') {
-          const pct = parseFloat(val) || 0;
-          style += `color:${isTotal ? '#1a2c3e' : getPercentColor(pct)};font-weight:700;background:${isTotal ? 'transparent' : getPercentBg(pct)};`;
-        }
-        html += `<td style="${style}">${val}</td>`;
-      });
-      html += '</tr>';
+      <div style="font-size:22px;font-weight:700;color:#111827;margin-bottom:4px;">
+        ${title}
+      </div>
+      <div style="font-size:12px;color:#6b7280;">
+        ${subtitle || ''} &nbsp;·&nbsp; Generated on ${currentDate}
+      </div>
+    </div>
+
+    <table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px;color:#1f2937;">
+      <thead>
+        <tr style="background:#f8fafc;">
+          ${headers.map((h, i) => `
+            <th style="padding:10px 12px;text-align:${i < 3 ? 'left' : 'center'};
+                       font-weight:600;font-size:11px;letter-spacing:0.02em;
+                       color:${headerColor(h) || '#374151'};
+                       border-bottom:2px solid #e5e7eb;
+                       ${i === 0 ? 'border-top-left-radius:8px;' : ''}
+                       ${i === headers.length - 1 ? 'border-top-right-radius:8px;' : ''}">
+              ${h}
+            </th>
+          `).join('')}
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  rows.forEach((row, idx) => {
+    const isTotal = row['Student Name'] === 'CLASS TOTAL';
+    const isInactive = String(row.Status || '').toLowerCase() === 'inactive';
+    const bg = isTotal ? '#eff6ff' : (idx % 2 === 0 ? '#ffffff' : '#fafbfc');
+    const rowOpacity = (!isTotal && isInactive) ? '0.55' : '1';
+
+    html += `<tr style="background:${bg};opacity:${rowOpacity};">`;
+    headers.forEach((h, i) => {
+      const raw = row[h] == null ? '' : String(row[h]);
+      const isNum = /^-?\d+(\.\d+)?%?$/.test(raw) || /^\d/.test(raw);
+
+      // Status column → badge
+      if (h.toLowerCase() === 'status') {
+        const st = raw.trim();
+        let pillBg = '#f1f5f9', pillColor = '#64748b';
+        if (st === 'Active')      { pillBg = '#ecfdf5'; pillColor = '#047857'; }
+        else if (st === 'Inactive') { pillBg = '#f1f5f9'; pillColor = '#64748b'; }
+        else if (st.startsWith('Present')) { pillBg = '#ecfdf5'; pillColor = '#047857'; }
+        else if (st.startsWith('Absent'))  { pillBg = '#fef2f2'; pillColor = '#b91c1c'; }
+        else if (st.startsWith('Leave'))   { pillBg = '#fff7ed'; pillColor = '#c2410c'; }
+        else if (st === 'Not Marked') { pillBg = '#f1f5f9'; pillColor = '#94a3b8'; }
+        html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;">
+                   <span style="display:inline-block;padding:3px 10px;border-radius:999px;
+                                background:${pillBg};color:${pillColor};
+                                font-size:10px;font-weight:600;letter-spacing:0.02em;">
+                     ${st || '—'}
+                   </span>
+                 </td>`;
+        return;
+      }
+
+      // Attendance % — colour by threshold
+      if (h.toLowerCase() === 'attendance %') {
+        const pct = parseFloat(raw) || 0;
+        const pctColor = isTotal ? '#1e40af' : (pct >= 75 ? '#047857' : pct >= 50 ? '#c2410c' : '#b91c1c');
+        const pctBg = isTotal ? '#eff6ff' : (pct >= 75 ? '#ecfdf5' : pct >= 50 ? '#fff7ed' : '#fef2f2');
+        html += `<td style="padding:8px 8px;text-align:center;border-bottom:1px solid #f1f5f9;
+                           background:${pctBg};color:${pctColor};font-weight:700;font-size:11px;">
+                   ${raw || '0%'}
+                 </td>`;
+        return;
+      }
+
+      // Tinted summary columns
+      const k = h.toLowerCase();
+      let bgCell = 'transparent', fgCell = '#1f2937', weight = 500;
+      if (k === 'presents' || k === 'present') { bgCell = '#ecfdf5'; fgCell = '#047857'; weight = 700; }
+else if (k === 'absents' || k === 'absent') { bgCell = '#fef2f2'; fgCell = '#b91c1c'; weight = 700; }
+else if (k === 'leaves' || k === 'leave')  { bgCell = '#fff7ed'; fgCell = '#c2410c'; weight = 700; }
+else if (k === 'total days' || k === 'days') { bgCell = '#eff6ff'; fgCell = '#1e40af'; weight = 700; }
+else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell = '#faf5ff'; fgCell = '#7e22ce'; weight = 700; }
+
+      // First column: monospaced if numeric (Std ID), semibold if Name
+      let extra = '';
+      if (i === 0 && isNum) {
+        extra = 'font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#334155;font-size:11px;';
+      } else if (i === 0) {
+        extra = 'font-weight:600;color:#0f172a;';
+      } else if (isTotal) {
+        extra = 'font-weight:700;color:#1e40af;';
+      }
+
+      html += `<td style="padding:8px ${i < 3 ? '12px' : '8px'};
+                         text-align:${i < 3 ? 'left' : 'center'};
+                         border-bottom:1px solid #f1f5f9;
+                         background:${bgCell};color:${fgColorOr(fgCell, isTotal)};
+                         font-weight:${isTotal ? 700 : weight};font-size:11px;${extra}">
+                 ${raw || '—'}
+               </td>`;
     });
-    html += '</tbody></table>';
-    reportDiv.innerHTML = html;
-    document.body.appendChild(reportDiv);
-    await new Promise(r => setTimeout(r, 100));
-    try {
-      const canvas = await html2canvas(reportDiv, { scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false });
-      document.body.removeChild(reportDiv);
-      const link = document.createElement('a');
-      link.download = `${filename}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      setSuccessMessage('PNG report downloaded!');
-    } catch (err) {
-      document.body.removeChild(reportDiv);
-      setError('Failed to generate PNG: ' + err.message);
-    }
-    setIsLoading(false);
-  };
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  html += REPORT_CAVEAT_HTML;
+
+  reportDiv.innerHTML = html;
+  document.body.appendChild(reportDiv);
+  await new Promise(r => setTimeout(r, 100));
+
+  try {
+    const canvas = await html2canvas(reportDiv, {
+      scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false
+    });
+    document.body.removeChild(reportDiv);
+    const link = document.createElement('a');
+    link.download = `${filename}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    setSuccessMessage('PNG report downloaded!');
+  } catch (err) {
+    document.body.removeChild(reportDiv);
+    setError('Failed to generate PNG: ' + err.message);
+  }
+  setIsLoading(false);
+};
+
+// Tiny helper so the total-row override doesn't fight the tint colour
+function fgColorOr(defaultFg, isTotal) {
+  return isTotal ? '#1e40af' : defaultFg;
+}
 
   const logDownload = (name, format) => {
     setDownloadHistory(prev => [{ name, format, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }, ...prev].slice(0, 5));
   };
 
   const generateDaily = (e) => {
-    e.preventDefault();
-    if (!dailyDate || !dailyClass || !dailySection) { setError('Please select date, class and section.'); return; }
-    let rows = data.student_attendance
-      .filter(a => a.Student_Class === dailyClass && a.Student_Section === dailySection && toYMD(a.Date) === dailyDate)
-      .map(a => ({ 'Student Name': a.Student_Name, 'Student ID': a.Std_ID, 'Class': a.Student_Class, 'Section': a.Student_Section, 'Date': dailyDate, 'Status': a.Status }));
-    if (rows.length === 0) {
-      rows = data.student_data
-        .filter(s => s.Student_Class === dailyClass && s.Student_Section === dailySection)
-        .map(s => ({ 'Student Name': s.Student_Name, 'Student ID': s.Std_ID, 'Class': s.Student_Class, 'Section': s.Student_Section, 'Date': dailyDate, 'Status': 'Not Marked' }));
-    }
-    if (rows.length === 0) { setError('No attendance data found.'); return; }
-    rows.sort((a, b) => (a['Student Name'] || '').localeCompare(b['Student Name'] || ''));
-    const filename = `attendance_${dailyClass}_${dailySection}_${dailyDate}`;
-    if (dailyFormat === 'csv') {
-      downloadCSVReport(rows, `${filename}.csv`);
-      setSuccessMessage('CSV report downloaded!');
-    } else {
-      renderAsPNG(rows, filename, 'Daily Attendance Report', false);
-    }
-    logDownload(`Attendance - ${dailyClass}-${dailySection} - ${dailyDate}`, dailyFormat.toUpperCase());
+  e.preventDefault();
+  if (!dailyDate || !dailyClass || !dailySection) {
+    setError('Please select date, class and section.');
+    return;
+  }
+
+  // ---- Population: Student_Data, filtered by class/section + day eligibility ----
+  const dailyRoster = (data.student_data || []).filter(s =>
+    String(s.Student_Class || '').trim() === String(dailyClass).trim() &&
+    String(s.Student_Section || '').trim() === String(dailySection).trim() &&
+    isEnrolledOn(dailyDate, s.Date_of_Joining, s.Inactive_Date)
+  );
+
+  if (dailyRoster.length === 0) {
+    setError(`No students enrolled in ${dailyClass}-${dailySection} on ${dailyDate}.`);
+    return;
+  }
+
+  // ---- Attendance lookup: Std_ID → Status for that date only ----
+  // Multiple markings on the same day: count them and render as P2 / A2 / L2
+  const perStudent = {}; // { '2635': { present: 2, absent: 0, leave: 0, other: 0 } }
+  (data.student_attendance || []).forEach(a => {
+    if (String(a.Student_Class || '').trim() !== String(dailyClass).trim()) return;
+    if (String(a.Student_Section || '').trim() !== String(dailySection).trim()) return;
+    if (toYMD(a.Date) !== dailyDate) return;
+
+    const sid = String(a.Std_ID || '').trim();
+    if (!sid) return;
+    if (!perStudent[sid]) perStudent[sid] = { present: 0, absent: 0, leave: 0, other: 0 };
+    const st = String(a.Status || '').toLowerCase().trim();
+    if (st === 'present')      perStudent[sid].present++;
+    else if (st === 'absent')  perStudent[sid].absent++;
+    else if (st === 'leave')   perStudent[sid].leave++;
+    else                       perStudent[sid].other++;
+  });
+
+  const statusFor = (sid) => {
+    const c = perStudent[sid];
+    if (!c) return 'Not Marked';
+    if (c.present > 0) return 'Present' + (c.present > 1 ? ` (${c.present})` : '');
+    if (c.absent  > 0) return 'Absent'  + (c.absent  > 1 ? ` (${c.absent})`  : '');
+    if (c.leave   > 0) return 'Leave'   + (c.leave   > 1 ? ` (${c.leave})`   : '');
+    if (c.other   > 0) return 'Other'   + (c.other   > 1 ? ` (${c.other})`   : '');
+    return 'Not Marked';
   };
+
+  // ---- Build rows: full roster, one row per student ----
+  let rows = dailyRoster.map(s => ({
+    'Student Name': s.Student_Name || '',
+    'Student ID':   s.Std_ID || '',
+    'Class':        s.Student_Class || '',
+    'Section':      s.Student_Section || '',
+    'Date':         dailyDate,
+    'Status':       statusFor(String(s.Std_ID || '').trim()),
+  }));
+
+  const cleanName = (s) => String(s || '').replace(/[\u00A0\u200B-\u200D\uFEFF]/g, '').trim();
+  rows.sort((a, b) => cleanName(a['Student Name']).localeCompare(cleanName(b['Student Name']), undefined, { sensitivity: 'base' }));
+
+  const filename = `attendance_${dailyClass}_${dailySection}_${dailyDate}`;
+
+  if (dailyFormat === 'csv') {
+    downloadCSVReport(rows, `${filename}.csv`);
+    setSuccessMessage(`CSV downloaded — ${rows.length} student(s).`);
+  } else {
+    renderAsPNG(
+      rows,
+      filename,
+      'Daily Attendance Report',
+      `Class ${dailyClass} · Section ${dailySection} · ${dailyDate}`
+    );
+  }
+
+  logDownload(`Attendance - ${dailyClass}-${dailySection} - ${dailyDate}`, dailyFormat.toUpperCase());
+};
 
   const generateMonthly = (e) => {
-    e.preventDefault();
-    if (!monthlyClass || !monthlySection || !monthlyMonth) { setError('Please fill all fields.'); return; }
-    const [year, month] = monthlyMonth.split('-').map(Number);
-    const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
+  e.preventDefault();
+  if (!monthlyClass || !monthlySection || !monthlyMonth) {
+    setError('Please fill all fields.');
+    return;
+  }
 
-    if (reportType === 'single') {
-      if (!monthlyStudentId) { setError('Please select a student.'); return; }
-      const student = data.student_data.find(s => String(s.Std_ID) === String(monthlyStudentId));
-      const summary = computeSummary(monthlyStudentId, month, year);
-      const rows = [{
-        'Student Name': student?.Student_Name || '', 'Student ID': monthlyStudentId, 'Class Section': `${monthlyClass}-${monthlySection}`,
-        'Month': monthName, 'Year': year, 'Presents': summary.presents, 'Absents': summary.absents, 'Leaves': summary.leaves,
-        'Total Days': summary.totalDays, 'Attendance %': `${summary.presentPercentage}%`
-      }];
-      const filename = `${(student?.Student_Name || 'student').replace(/\s+/g, '_')}_${monthlyClass}_${monthlySection}_${monthName}_${year}`;
-      if (monthlyFormat === 'csv') {
-        downloadCSVReport(rows, `student_summary_${filename}.csv`);
-        setSuccessMessage('CSV report downloaded!');
-      } else {
-        renderAsPNG(rows, `student_summary_${filename}`, 'Student Monthly Summary', true);
+  const [year, month] = monthlyMonth.split('-').map(Number);
+  const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
+  const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const monthEnd   = new Date(year, month, 0, 23, 59, 59, 999);
+
+  // ---- Population: Student_Data, filtered by class/section + month eligibility ----
+  const monthlyRoster = (data.student_data || []).filter(s => {
+    if (String(s.Student_Class || '').trim() !== String(monthlyClass).trim()) return false;
+    if (String(s.Student_Section || '').trim() !== String(monthlySection).trim()) return false;
+    return isEnrolledInMonth(monthStart, monthEnd, s.Date_of_Joining, s.Inactive_Date);
+  });
+
+  if (monthlyRoster.length === 0) {
+    setError(`No students enrolled in ${monthlyClass}-${monthlySection} during ${monthName} ${year}.`);
+    return;
+  }
+
+  // ---- Pre-aggregate attendance once (O(n)), not per student (O(n×m)) ----
+  const aggByStdId = {}; // { '2635': { presents, absents, leaves, totalDays, totalHours } }
+  (data.student_attendance || []).forEach(r => {
+    if (String(r.Student_Class || '').trim() !== String(monthlyClass).trim()) return;
+    if (String(r.Student_Section || '').trim() !== String(monthlySection).trim()) return;
+    const dt = parseAnyDate(r.Date);
+    if (!dt || dt.getFullYear() !== year || (dt.getMonth() + 1) !== month) return;
+
+    const sid = String(r.Std_ID || '').trim();
+    if (!sid) return;
+    if (!aggByStdId[sid]) aggByStdId[sid] = { presents: 0, absents: 0, leaves: 0, totalDays: 0, totalHours: 0 };
+
+    const st = String(r.Status || '').toLowerCase().trim();
+    if (st === 'present') {
+      aggByStdId[sid].presents++;
+      aggByStdId[sid].totalDays++;
+      // Only Present earns hours — matches MonthlyBarReport's Option A rule.
+      // Absent/Leave rows skip hours even if Hours is populated.
+      const hrs = Number(r.Hours || 0);
+      if (!isNaN(hrs) && hrs > 0) {
+        aggByStdId[sid].totalHours += hrs;
       }
-      logDownload(`Student Summary - ${student?.Student_Name || monthlyStudentId} - ${monthName} ${year}`, monthlyFormat.toUpperCase());
-    } else {
-      if (monthlyStudents.length === 0) { setError('No students found.'); return; }
-      const rows = monthlyStudents.map(s => {
-        const summary = computeSummary(s.Std_ID, month, year);
-        return {
-          'Student Name': s.Student_Name, 'Student ID': s.Std_ID, 'Class Section': `${monthlyClass}-${monthlySection}`,
-          'Month': monthName, 'Year': year, 'Presents': summary.presents, 'Absents': summary.absents, 'Leaves': summary.leaves,
-          'Total Days': summary.totalDays, 'Attendance %': `${summary.presentPercentage}%`
-        };
-      });
-      const totalPresents = rows.reduce((s, r) => s + r.Presents, 0);
-      const totalAbsents = rows.reduce((s, r) => s + r.Absents, 0);
-      const totalLeaves = rows.reduce((s, r) => s + r.Leaves, 0);
-      const totalDays = rows.reduce((s, r) => s + r['Total Days'], 0);
-      rows.push({
-        'Student Name': 'CLASS TOTAL', 'Student ID': '', 'Class Section': `${monthlyClass}-${monthlySection}`, 'Month': monthName, 'Year': year,
-        'Presents': totalPresents, 'Absents': totalAbsents, 'Leaves': totalLeaves, 'Total Days': totalDays,
-        'Attendance %': totalDays > 0 ? `${Math.round((totalPresents / totalDays) * 10000) / 100}%` : '0%'
-      });
-      const filename = `class_summary_${monthlyClass}_${monthlySection}_${monthName}_${year}`;
-      if (monthlyFormat === 'csv') {
-        downloadCSVReport(rows, `${filename}.csv`);
-        setSuccessMessage('CSV report downloaded!');
-      } else {
-        renderAsPNG(rows, filename, 'Class Monthly Summary', true);
-      }
-      logDownload(`Class Summary - ${monthlyClass}-${monthlySection} - ${monthName} ${year}`, monthlyFormat.toUpperCase());
     }
+    else if (st === 'absent')  { aggByStdId[sid].absents++;  aggByStdId[sid].totalDays++; }
+    else if (st === 'leave')   { aggByStdId[sid].leaves++;   aggByStdId[sid].totalDays++; }
+  });
+
+  // ---- Month-relative status per student (Active / Inactive in that month) ----
+  const monthStatusFor = (s) => {
+    const doj      = parseAnyDate(s.Date_of_Joining);
+    const inactive = parseAnyDate(s.Inactive_Date);
+    const joinedByMonthEnd   = !doj      || doj <= monthEnd;
+    const notLeftBeforeStart = !inactive || inactive >= monthStart;
+    return (joinedByMonthEnd && notLeftBeforeStart) ? 'Active' : 'Inactive';
   };
+
+  // ---- Single-student branch ----
+  if (reportType === 'single') {
+    if (!monthlyStudentId) { setError('Please select a student.'); return; }
+    const student = monthlyRoster.find(s => String(s.Std_ID) === String(monthlyStudentId));
+    if (!student) {
+      setError('That student was not enrolled in this class/section during the selected month.');
+      return;
+    }
+    const agg = aggByStdId[String(student.Std_ID).trim()] || { presents: 0, absents: 0, leaves: 0, totalDays: 0, totalHours: 0 };
+    const pct = agg.totalDays > 0 ? Math.round((agg.presents / agg.totalDays) * 10000) / 100 : 0;
+
+    const rows = [{
+      'Student Name':  student.Student_Name || '',
+      'Student ID':    student.Std_ID || '',
+      'Class Section': `${monthlyClass}-${monthlySection}`,
+      'Month':         monthName,
+      'Year':          year,
+      'Presents':      agg.presents,
+      'Absents':       agg.absents,
+      'Leaves':        agg.leaves,
+      'Total Days':    agg.totalDays,
+      'Present Hours': Math.round((agg.totalHours || 0) * 100) / 100,
+      'Attendance %':  `${pct}%`,
+      'Status':        monthStatusFor(student),
+    }];
+
+    const filename = `${(student.Student_Name || 'student').replace(/\s+/g, '_')}_${monthlyClass}_${monthlySection}_${monthName}_${year}`;
+
+    if (monthlyFormat === 'csv') {
+      downloadCSVReport(rows, `student_summary_${filename}.csv`);
+      setSuccessMessage('CSV report downloaded!');
+    } else {
+      renderAsPNG(
+        rows,
+        `student_summary_${filename}`,
+        'Student Monthly Summary',
+        `${student.Student_Name || student.Std_ID} · ${monthlyClass}-${monthlySection} · ${monthName} ${year}`
+      );
+    }
+    logDownload(`Student Summary - ${student.Student_Name || monthlyStudentId} - ${monthName} ${year}`, monthlyFormat.toUpperCase());
+    return;
+  }
+
+  // ---- All-students-in-class branch ----
+  const rows = monthlyRoster.map(s => {
+    const agg = aggByStdId[String(s.Std_ID).trim()] || { presents: 0, absents: 0, leaves: 0, totalDays: 0, totalHours: 0 };
+    const pct = agg.totalDays > 0 ? Math.round((agg.presents / agg.totalDays) * 10000) / 100 : 0;
+    return {
+      'Student Name':  s.Student_Name || '',
+      'Student ID':    s.Std_ID || '',
+      'Class Section': `${monthlyClass}-${monthlySection}`,
+      'Month':         monthName,
+      'Year':          year,
+      'Presents':      agg.presents,
+      'Absents':       agg.absents,
+      'Leaves':        agg.leaves,
+      'Total Days':    agg.totalDays,
+      'Present Hours': Math.round((agg.totalHours || 0) * 100) / 100,
+      'Attendance %':  `${pct}%`,
+      'Status':        monthStatusFor(s),
+    };
+  });
+
+
+      // Sort alphabetically by student name before adding the total row
+  const cleanName = (s) => String(s || '').replace(/[\u00A0\u200B-\u200D\uFEFF]/g, '').trim();
+  rows.sort((a, b) =>
+    cleanName(a['Student Name']).localeCompare(cleanName(b['Student Name']), undefined, { sensitivity: 'base' })
+  );
+
+
+  // Class-total row
+  const totalPresents = rows.reduce((sum, r) => sum + Number(r.Presents        || 0), 0);
+  const totalAbsents  = rows.reduce((sum, r) => sum + Number(r.Absents         || 0), 0);
+  const totalLeaves   = rows.reduce((sum, r) => sum + Number(r.Leaves          || 0), 0);
+  const totalDays     = rows.reduce((sum, r) => sum + Number(r['Total Days']   || 0), 0);
+  const totalHours    = rows.reduce((sum, r) => sum + Number(r['Present Hours'] || 0), 0);
+  rows.push({
+    'Student Name': 'CLASS TOTAL',
+    'Student ID':   '',
+    'Class Section': `${monthlyClass}-${monthlySection}`,
+    'Month':         monthName,
+    'Year':          year,
+    'Presents':      totalPresents,
+    'Absents':       totalAbsents,
+    'Leaves':        totalLeaves,
+    'Total Days':    totalDays,
+    'Present Hours': Math.round(totalHours * 100) / 100,
+    'Attendance %':  totalDays > 0 ? `${Math.round((totalPresents / totalDays) * 10000) / 100}%` : '0%',
+    'Status':        '',
+  });
+
+  const filename = `class_summary_${monthlyClass}_${monthlySection}_${monthName}_${year}`;
+
+  if (monthlyFormat === 'csv') {
+    downloadCSVReport(rows, `${filename}.csv`);
+    setSuccessMessage('CSV report downloaded!');
+  } else {
+    renderAsPNG(
+      rows,
+      filename,
+      'Class Monthly Summary',
+      `Class ${monthlyClass} · Section ${monthlySection} · ${monthName} ${year}`
+    );
+  }
+  logDownload(`Class Summary - ${monthlyClass}-${monthlySection} - ${monthName} ${year}`, monthlyFormat.toUpperCase());
+};
+
+ 
 
   return (
     <div className="card p-6">
       <div className="flex items-center mb-4">
-        <i className="uil uil-file-download text-2xl text-blue-500 mr-2"></i>
+        <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
         <h2 className="text-xl font-semibold">Attendance Reports</h2>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Daily Attendance Report */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ---------- Daily Attendance Report ---------- */}
         <div className="form-container">
           <h3 className="text-lg font-semibold mb-4">Daily Attendance Report</h3>
           <form onSubmit={generateDaily}>
             <div className="form-field">
-              <input type="date" className="form-input" id="dailyDate" value={dailyDate} onChange={e => setDailyDate(e.target.value)} required />
+              <input
+                type="date"
+                className="form-input"
+                id="dailyDate"
+                value={dailyDate}
+                onChange={e => setDailyDate(e.target.value)}
+                required
+              />
               <label htmlFor="dailyDate">Date</label>
             </div>
             <div className="form-field">
-              <select className="form-input" id="dailyClass" value={dailyClass} onChange={e => { setDailyClass(e.target.value); setDailySection(''); }} required>
+              <select
+                className="form-input"
+                id="dailyClass"
+                value={dailyClass}
+                onChange={e => { setDailyClass(e.target.value); setDailySection(''); }}
+                required
+              >
                 <option value="" disabled>Select Class</option>
                 {classesList.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <label htmlFor="dailyClass">Class</label>
             </div>
             <div className="form-field">
-              <select className="form-input" id="dailySection" value={dailySection} onChange={e => setDailySection(e.target.value)} required disabled={!dailyClass}>
+              <select
+                className="form-input"
+                id="dailySection"
+                value={dailySection}
+                onChange={e => setDailySection(e.target.value)}
+                required
+                disabled={!dailyClass}
+              >
                 <option value="" disabled>Select Section</option>
                 {(sectionsByClass[dailyClass] || []).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
               <label htmlFor="dailySection">Section</label>
             </div>
             <div className="form-field">
-              <select className="form-input" id="dailyFormat" value={dailyFormat} onChange={e => setDailyFormat(e.target.value)}>
+              <select
+                className="form-input"
+                id="dailyFormat"
+                value={dailyFormat}
+                onChange={e => setDailyFormat(e.target.value)}
+              >
                 <option value="png">PNG (High Quality)</option>
                 <option value="csv">CSV</option>
               </select>
               <label htmlFor="dailyFormat">Format</label>
             </div>
-            <button type="submit" disabled={isLoading} className={`btn-primary w-full ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
-              <i className="uil uil-download"></i> Download Report
+            <button
+              type="submit"
+              disabled={isLoading}
+              className={`btn-primary w-full ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+            >
+              <i className="uil uil-download"></i> Download Daily Report
             </button>
           </form>
         </div>
 
-        {/* Monthly Summary Report */}
+        {/* ---------- Monthly Summary Report ---------- */}
         <div className="form-container">
           <h3 className="text-lg font-semibold mb-4">Monthly Summary Report</h3>
           <form onSubmit={generateMonthly}>
@@ -5331,11 +6040,15 @@ function AttendanceCorrectionLog({ isLoading, setIsLoading, setError, setSuccess
     setCorrectedByFilter('');
   };
 
-  const columns = ['Date', 'Std_ID', 'Student_Name', 'Class_Section', 'Old_Status', 'New_Status', 'Corrected_By', 'REC_ID', 'Timestamp'];
-  const columnLabels = {
-    Date: 'Date', Std_ID: 'Std ID', Student_Name: 'Student Name', Class_Section: 'Class Section',
-    Old_Status: 'Old Status', New_Status: 'New Status', Corrected_By: 'Corrected By', REC_ID: 'REC', Timestamp: 'Timestamp'
-  };
+const columns = ['Date', 'Std_ID', 'Student_Name', 'Class_Section', 'Old_Status', 'New_Status', 'Old_Hours', 'New_Hours', 'Old_Category', 'New_Category', 'Reason', 'Comment', 'Corrected_By', 'REC_ID', 'Timestamp'];
+const columnLabels = {
+  Date: 'Date', Std_ID: 'Std ID', Student_Name: 'Student Name', Class_Section: 'Class Section',
+  Old_Status: 'Old Status', New_Status: 'New Status',
+  Old_Hours: 'Old Hours', New_Hours: 'New Hours',
+  Old_Category: 'Old Category', New_Category: 'New Category',
+  Reason: 'Reason', Comment: 'Comment',
+  Corrected_By: 'Corrected By', REC_ID: 'REC', Timestamp: 'Timestamp'
+};
 
   const downloadCSV = () => {
     if (filteredData.length === 0) { setError('No data to download'); return; }
@@ -5470,15 +6183,21 @@ function AttendanceCorrectionLog({ isLoading, setIsLoading, setError, setSuccess
             <tbody>
               {filteredData.map((row, index) => (
                 <tr key={index}>
-                  <td className="whitespace-nowrap">{formatLogDate(row.Date)}</td>
-                  <td className="whitespace-nowrap">{row.Std_ID || ''}</td>
-                  <td className="whitespace-nowrap">{row.Student_Name || ''}</td>
-                  <td className="whitespace-nowrap">{row.Class_Section || ''}</td>
-                  <td className="whitespace-nowrap">{row.Old_Status || ''}</td>
-                  <td className="whitespace-nowrap">{row.New_Status || ''}</td>
-                  <td className="whitespace-nowrap">{row.Corrected_By || ''}</td>
-                  <td className="whitespace-nowrap">{row.REC_ID || ''}</td>
-                  <td className="whitespace-nowrap">{row.Timestamp || ''}</td>
+                <td className="whitespace-nowrap">{formatLogDate(row.Date)}</td>
+<td className="whitespace-nowrap">{row.Std_ID || ''}</td>
+<td className="whitespace-nowrap">{row.Student_Name || ''}</td>
+<td className="whitespace-nowrap">{row.Class_Section || ''}</td>
+<td className="whitespace-nowrap">{row.Old_Status || ''}</td>
+<td className="whitespace-nowrap">{row.New_Status || ''}</td>
+<td className="whitespace-nowrap">{row.Old_Hours || '—'}</td>
+<td className="whitespace-nowrap">{row.New_Hours || '—'}</td>
+<td className="whitespace-nowrap">{row.Old_Category || '—'}</td>   {/* 🆕 */}
+<td className="whitespace-nowrap">{row.New_Category || '—'}</td>   {/* 🆕 */}
+<td className="whitespace-nowrap">{row.Reason || '—'}</td>
+<td className="whitespace-nowrap">{row.Comment || '—'}</td>
+<td className="whitespace-nowrap">{row.Corrected_By || ''}</td>
+<td className="whitespace-nowrap">{row.REC_ID || ''}</td>
+<td className="whitespace-nowrap">{row.Timestamp || ''}</td>
                 </tr>
               ))}
             </tbody>
