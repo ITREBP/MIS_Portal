@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
 <base target="_top">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Student Admin Dashboard</title>
+  <title>Student MIS Admin Dashboard</title>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
@@ -686,7 +686,7 @@ function mcCell(row, field) {
               <i className="uil uil-check-circle text-3xl text-blue-600 dark:text-blue-400"></i>
             </div>
             <h1 className="text-2xl font-bold mb-2">Welcome, {teacherName}!</h1>
-            <p className="text-gray-600 dark:text-gray-400 mb-6">You have successfully logged into the Admin Dashboard.</p>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">You have successfully logged into the MIS Admin Dashboard.</p>
             <button
               onClick={onContinue}
               className="btn-primary w-full"
@@ -743,6 +743,115 @@ function dayKey(d) {
   const dt = parseAnyDate(d);
   if (!dt) return String(d || '');
   return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+// ---------- Shared helpers for Terms / Class_Terms (v4) ----------
+// Same rules as the GS helpers: Terms holds names only, dates live in Class_Terms.
+// A bare token ('I') covers every section of that class; 'III-B' covers only III-B.
+// First matching ACTIVE row wins; reports filter by date range, never by Term_ID stamp.
+// When no term is picked, these helpers are not used and reports behave exactly as before.
+function termExpandClassCell_(cell) {
+  let str = String(cell || '').trim();
+  if (!str) return [];
+  if (str.charAt(0) === '{' && str.charAt(str.length - 1) === '}') str = str.slice(1, -1);
+  return str.split(',').map(t => t.trim()).filter(Boolean);
+}
+function termBaseClassOf_(cs) {
+  const str = String(cs || '').trim();
+  const i = str.indexOf('-');
+  return (i === -1 ? str : str.slice(0, i)).trim();
+}
+function termTokenMatches_(tok, cs) {
+  const t = String(tok || '').trim();
+  const c = String(cs || '').trim();
+  if (!t || !c) return false;
+  if (t.indexOf('-') === -1) return termBaseClassOf_(c).toLowerCase() === t.toLowerCase();
+  return t.toLowerCase() === c.toLowerCase();
+}
+function termCellMatches_(cell, cs) {
+  return termExpandClassCell_(cell).some(tok => termTokenMatches_(tok, cs));
+}
+function termIsActive_(v) {
+  return String(v == null ? '' : v).trim().toLowerCase() === 'true';
+}
+function termParseDate_(v) {
+  const d = parseAnyDate(v);
+  if (!d) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function termDateKey_(d) {
+  if (!d) return '';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+// First ACTIVE Class_Terms row for this class-section (+ optional termId). {start, end, termId} ('yyyy-MM-dd') or null.
+function termRangeForClass_(classTerms, classSection, termId) {
+  const wantTerm = String(termId || '').trim().toLowerCase();
+  const rows = classTerms || [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!termIsActive_(r.Is_Active)) continue;
+    if (wantTerm && String(r.Term_ID || '').trim().toLowerCase() !== wantTerm) continue;
+    if (!termCellMatches_(String(r.Class_Section || ''), classSection)) continue;
+    const s = termParseDate_(r.Start_Date);
+    const e = termParseDate_(r.End_Date);
+    if (!s || !e) continue;
+    return { start: termDateKey_(s), end: termDateKey_(e), termId: String(r.Term_ID || '').trim() };
+  }
+  return null;
+}
+// Union span (earliest start, latest end) of ACTIVE rows of one term covering one bare class.
+function termSpanForClass_(classTerms, className, termId) {
+  const wantTerm = String(termId || '').trim().toLowerCase();
+  const wantClass = String(className || '').trim().toLowerCase();
+  let sMin = null, eMax = null;
+  (classTerms || []).forEach(r => {
+    if (!termIsActive_(r.Is_Active)) return;
+    if (wantTerm && String(r.Term_ID || '').trim().toLowerCase() !== wantTerm) return;
+    const covers = termExpandClassCell_(r.Class_Section).some(tok => termBaseClassOf_(tok).toLowerCase() === wantClass);
+    if (!covers) return;
+    const s = termParseDate_(r.Start_Date);
+    const e = termParseDate_(r.End_Date);
+    if (!s || !e) return;
+    if (!sMin || s < sMin) sMin = s;
+    if (!eMax || e > eMax) eMax = e;
+  });
+  return (sMin && eMax) ? { start: termDateKey_(sMin), end: termDateKey_(eMax) } : null;
+}
+// Union span of ALL ACTIVE rows of one term (any class), or null.
+function termSpan_(classTerms, termId) {
+  const wantTerm = String(termId || '').trim().toLowerCase();
+  let sMin = null, eMax = null;
+  (classTerms || []).forEach(r => {
+    if (!termIsActive_(r.Is_Active)) return;
+    if (wantTerm && String(r.Term_ID || '').trim().toLowerCase() !== wantTerm) return;
+    const s = termParseDate_(r.Start_Date);
+    const e = termParseDate_(r.End_Date);
+    if (!s || !e) return;
+    if (!sMin || s < sMin) sMin = s;
+    if (!eMax || e > eMax) eMax = e;
+  });
+  return (sMin && eMax) ? { start: termDateKey_(sMin), end: termDateKey_(eMax) } : null;
+}
+// Base classes covered by ACTIVE rows of one term, in first-seen order.
+function termClasses_(classTerms, termId) {
+  const wantTerm = String(termId || '').trim().toLowerCase();
+  const out = [];
+  (classTerms || []).forEach(r => {
+    if (!termIsActive_(r.Is_Active)) return;
+    if (wantTerm && String(r.Term_ID || '').trim().toLowerCase() !== wantTerm) return;
+    termExpandClassCell_(r.Class_Section).forEach(tok => {
+      const b = termBaseClassOf_(tok);
+      if (b && out.indexOf(b) === -1) out.push(b);
+    });
+  });
+  return out;
+}
+// Term picker options: active terms first, then inactive. Values are Term_IDs.
+function termPickerOptions_(terms) {
+  const rows = (terms || []).filter(t => t && String(t.Term_ID || '').trim());
+  const act = rows.filter(t => termIsActive_(t.Is_Active));
+  const inact = rows.filter(t => !termIsActive_(t.Is_Active));
+  return act.concat(inact);
 }
 
 
@@ -818,6 +927,7 @@ function formatCategoryString(items) {
       const [permissionsLoaded, setPermissionsLoaded] = useState(false);
       const [showWelcome, setShowWelcome] = useState(false);
       const [teacherName, setTeacherName] = useState('');
+      const [recInfo, setRecInfo] = useState({ REC_Name: '', LB_Name: '' });
       const [username, setUsername] = useState('');
       const [password, setPassword] = useState('');
       const [data, setData] = useState({
@@ -827,6 +937,8 @@ function formatCategoryString(items) {
         class_mappings: [],
         previous_date_permissions: [],
         teacher_assignments: [],
+        terms: [],
+        class_terms: [],
         student_data: [],
         student_attendance: [],
         daily_hours: [],
@@ -981,6 +1093,34 @@ permissions[user.Username] = {
         })
         .getSheetData('Teacher_Assignments', currentRecId);
     }),
+
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, terms: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          // Terms sheet may not exist yet (first run, before the sheets are created).
+          setData(prev => ({ ...prev, terms: [] }));
+          resolve();
+        })
+        .getSheetData('Terms', '');
+    }),
+
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, class_terms: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          // Class_Terms sheet may not exist yet (first run, before the sheets are created).
+          setData(prev => ({ ...prev, class_terms: [] }));
+          resolve();
+        })
+        .getSheetData('Class_Terms', currentRecId);
+    }),
     
     new Promise((resolve) => {
       google.script.run
@@ -1053,6 +1193,7 @@ permissions[user.Username] = {
         
         setUserPermissions(userPerms);
         setTeacherName(result.user.Teacher_Name);
+        setRecInfo({ REC_Name: result.user.REC_Name || '', LB_Name: result.user.LB_Name || '' });
         setCanDeleteStudent(result.user.student_delete === 'Yes');
         setPermissionsLoaded(true);
         setIsAuthenticated(true);
@@ -1266,7 +1407,12 @@ permissions[user.Username] = {
               <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
                 {isSidebarOpen ? 'SA' : 'S'}
               </div>
-              {isSidebarOpen && <span className="ml-3 text-lg font-semibold">Admin Dashboard</span>}
+              {isSidebarOpen && (
+  <div className="ml-3">
+    <span className="text-lg font-semibold block">Admin Dashboard</span>
+    {recInfo.REC_Name && <span className="text-xs text-gray-500 block">{recInfo.REC_Name} — {recInfo.LB_Name}</span>}
+  </div>
+)}
             </div>
             <div className="p-4">
               {/* User Management Section */}
@@ -1294,7 +1440,7 @@ permissions[user.Username] = {
               <div className="nav-section">
                 <div className="nav-section-title">Class Management</div>
                 <ul>
-                  {['class_sections', 'student_data', 'previous_date_permissions', 'attendance_correction'].map(tab => (
+                  {['class_sections', 'student_data', 'previous_date_permissions', 'attendance_correction', 'terms', 'class_terms'].map(tab => (
                     userPermissions[username]?.allowedTabs.includes(tab) && (
                       <li key={tab}>
                         <a
@@ -1302,7 +1448,7 @@ permissions[user.Username] = {
                           onClick={e => { e.preventDefault(); setActiveTab(tab); setActiveReport(null); }}
                           className={`nav-item ${activeTab === tab ? 'active' : ''}`}
                         >
-                          <i className={`uil uil-${tab === 'class_sections' ? 'map' : tab === 'student_data' ? 'graduation-cap' : tab === 'attendance_correction' ? 'edit-alt' : 'calendar-alt'} text-lg`}></i>
+                          <i className={`uil uil-${tab === 'class_sections' ? 'map' : tab === 'student_data' ? 'graduation-cap' : tab === 'attendance_correction' ? 'edit-alt' : tab === 'class_terms' ? 'map' : 'calendar-alt'} text-lg`}></i>
                           {isSidebarOpen && <span>{tab.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>}
                         </a>
                       </li>
@@ -1716,6 +1862,13 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
 
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+      const timeOptions = [];
+for (let h = 0; h < 24; h++) {
+  for (let m = 0; m < 60; m += 30) {
+    timeOptions.push(String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'));
+  }
+}
+
       const clearForm = () => {
         setFormData({});
         setFormErrors({});
@@ -1766,12 +1919,14 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
       ]},
       { section: 'Teaching Access', fields: [
         { name: 'AllowedDays', type: 'select-multiple', options: daysOfWeek, required: true, placeholder: 'Select allowed days', appliesTo: 'teacher' },
-        { name: 'StartTime', type: 'text', required: true, placeholder: 'Default start time (HH:MM)', appliesTo: 'teacher' },
-        { name: 'EndTime', type: 'text', required: true, placeholder: 'Default end time (HH:MM)', appliesTo: 'teacher' },
+      { name: 'StartTime', type: 'select', options: timeOptions, required: true, placeholder: 'Select start time', appliesTo: 'teacher' },
+{ name: 'EndTime', type: 'select', options: timeOptions, required: true, placeholder: 'Select end time', appliesTo: 'teacher' },
+
+
       ]},
       { section: 'Admin Access', fields: [
        { name: 'allowedTabs', type: 'select-multiple', 
-  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
+  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
   required: true, 
   placeholder: 'Select allowed tabs', 
   appliesTo: 'admin' 
@@ -1949,14 +2104,18 @@ const editingRow = visibleUsers[editingIndex];
 };
      
 
-      const handleInputChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setFormData(prev => ({
-          ...prev,
-          [name]: type === 'checkbox' ? checked : value,
-        }));
-        setFormErrors(prev => ({ ...prev, [name]: '' }));
-      };
+    const handleInputChange = (e) => {
+  const { name, value, type, checked } = e.target;
+  setFormData(prev => {
+    const next = { ...prev, [name]: type === 'checkbox' ? checked : value };
+    if (name === 'UserType' && value === 'teacher') {
+      if (!next.StartTime) next.StartTime = '18:00';
+      if (!next.EndTime) next.EndTime = '21:30';
+    }
+    return next;
+  });
+  setFormErrors(prev => ({ ...prev, [name]: '' }));
+};
 
       const handleMultipleSelect = (e, name) => {
         const options = Array.from(e.target.selectedOptions).map(option => option.value);
@@ -2384,6 +2543,7 @@ const editingRow = visibleUsers[editingIndex];
         searchValue: '',
         studentClass: '',
         studentSection: '',
+        termId: '',
         startDate: '',
         endDate: '',
         statusFilter: 'All',
@@ -2411,7 +2571,29 @@ const editingRow = visibleUsers[editingIndex];
       }, [data.student_data]);
 
 
-      const uniqueClasses = [...new Set(data.student_attendance.map(item => item.Student_Class).filter(Boolean))];
+      // Term filter (v4): when a term is picked, only classes in that term for this REC.
+      const termClassList = formData.termId ? termClasses_(data.class_terms || [], formData.termId) : null;
+      const uniqueClasses = [...new Set(data.student_attendance.map(item => item.Student_Class).filter(Boolean))].filter(cls => !termClassList || termClassList.includes(cls));
+      // Term date range for the picked class/section (per-class range, not one global range).
+      const reportTermRange = (() => {
+        if (!formData.termId) return null;
+        const cs = formData.studentClass && formData.studentSection ? formData.studentClass + '-' + formData.studentSection : (formData.studentClass || '');
+        if (cs && formData.studentSection) return termRangeForClass_(data.class_terms || [], cs, formData.termId);
+        if (cs) return termSpanForClass_(data.class_terms || [], cs, formData.termId);
+        return termSpan_(data.class_terms || [], formData.termId);
+      })();
+      // Shared term filter for search + download results: each row must fall inside
+      // its own class-section's term range. Rows with no term row for the class are out.
+      const applyTermFilter = (rows) => {
+        if (!formData.termId) return rows;
+        return rows.filter(item => {
+          const cs = (item.Class_Section || ((item.Student_Class || '') + '-' + (item.Student_Section || ''))).trim();
+          const r = termRangeForClass_(data.class_terms || [], cs || item.Student_Class, formData.termId);
+          if (!r) return false;
+          const k = dayKey(item.Date);
+          return k >= r.start && k <= r.end;
+        });
+      };
       const sectionMap = {};
       uniqueClasses.forEach(cls => {
         sectionMap[cls] = [...new Set(data.student_attendance.filter(item => item.Student_Class === cls).map(item => item.Student_Section).filter(Boolean))];
@@ -2422,6 +2604,7 @@ const editingRow = visibleUsers[editingIndex];
   setFormData(prev => {
     const next = { ...prev, [name]: value };
     if (name === 'studentClass') next.studentSection = '';
+    if (name === 'termId') { next.studentClass = ''; next.studentSection = ''; }
     return next;
   });
   setFormErrors(prev => ({ ...prev, [name]: '' }));
@@ -2434,6 +2617,14 @@ const editingRow = visibleUsers[editingIndex];
         }
         if (formData.startDate && formData.endDate && new Date(formData.startDate) > new Date(formData.endDate)) {
           errors.date = 'Start date must be before end date';
+        }
+        if (formData.termId && reportTermRange) {
+          if (formData.startDate && (formData.startDate < reportTermRange.start || formData.startDate > reportTermRange.end)) {
+            errors.date = 'Start date is outside Term ' + formData.termId + ' for the selected class (' + reportTermRange.start + ' to ' + reportTermRange.end + ')';
+          }
+          if (formData.endDate && (formData.endDate < reportTermRange.start || formData.endDate > reportTermRange.end)) {
+            errors.date = 'End date is outside Term ' + formData.termId + ' for the selected class (' + reportTermRange.start + ' to ' + reportTermRange.end + ')';
+          }
         }
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
@@ -2475,6 +2666,7 @@ const editingRow = visibleUsers[editingIndex];
     if (formData.statusFilter !== 'All') {
       enriched = enriched.filter(item => item.Status === formData.statusFilter);
     }
+    enriched = applyTermFilter(enriched);
 
     setAttendanceData(enriched);
     setError('');
@@ -2508,6 +2700,7 @@ const editingRow = visibleUsers[editingIndex];
           if (formData.statusFilter !== 'All') {
             dataToDownload = dataToDownload.filter(item => item.Status === formData.statusFilter);
           }
+          dataToDownload = applyTermFilter(dataToDownload);
 
           // 🔄 Re-fetch Student_Data so Current_* reflects today's enrolment state
           const freshStudents = await callWithRetry('getStudentData', userPermissions?.REC_ID || '');
@@ -2624,6 +2817,21 @@ const editingRow = visibleUsers[editingIndex];
               </div>
               <div className="form-field">
                 <select
+                  name="termId"
+                  value={formData.termId}
+                  onChange={handleInputChange}
+                  className="form-input"
+                  id="reportTerm"
+                >
+                  <option value="">All Terms</option>
+                  {termPickerOptions_(data.terms || []).map(t => (
+                    <option key={t.Term_ID} value={t.Term_ID}>{t.Term_Name || t.Term_ID}</option>
+                  ))}
+                </select>
+                <label htmlFor="reportTerm">Term</label>
+              </div>
+              <div className="form-field">
+                <select
                   name="studentClass"
                   value={formData.studentClass}
                   onChange={handleInputChange}
@@ -2663,6 +2871,8 @@ const editingRow = visibleUsers[editingIndex];
                   className="form-input"
                   id="startDate"
                   required
+                  min={reportTermRange ? reportTermRange.start : undefined}
+                  max={reportTermRange ? reportTermRange.end : undefined}
                 />
                 <label htmlFor="startDate">Start Date</label>
               </div>
@@ -2675,6 +2885,8 @@ const editingRow = visibleUsers[editingIndex];
                   className="form-input"
                   id="endDate"
                   required
+                  min={reportTermRange ? reportTermRange.start : undefined}
+                  max={reportTermRange ? reportTermRange.end : undefined}
                 />
                 <label htmlFor="endDate">End Date</label>
               </div>
@@ -4648,6 +4860,7 @@ const handlePrintAllInView = async () => {
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedTerm, setSelectedTerm] = useState('');
   const [reportData, setReportData] = useState([]);
   const [daysInMonth, setDaysInMonth] = useState(30);
   const [includeInactive, setIncludeInactive] = useState(false);   // ← NEW
@@ -4672,11 +4885,25 @@ const handlePrintAllInView = async () => {
     }
   }, [selectedMonth]);
 
+  // Term filter (v4): classes in the picked term, and that class-section's term range.
+  const mbrTermClasses = selectedTerm ? termClasses_(data.class_terms || [], selectedTerm) : null;
+  const mbrVisibleClasses = mbrTermClasses ? classes.filter(c => mbrTermClasses.includes(c)) : classes;
+  const mbrTermRange = (selectedTerm && selectedClass && selectedSection && selectedClass !== '__ALL__' && selectedSection !== '__ALL__')
+    ? termRangeForClass_(data.class_terms || [], selectedClass + '-' + selectedSection, selectedTerm)
+    : null;
+
   const generateReport = (e) => {
     e.preventDefault();
     if (!selectedClass || !selectedSection || !selectedMonth) {
       setError('Please select Class, Section, and Month.');
       return;
+    }
+    if (selectedTerm && selectedClass !== '__ALL__' && selectedSection !== '__ALL__') {
+      const r = termRangeForClass_(data.class_terms || [], selectedClass + '-' + selectedSection, selectedTerm);
+      if (!r) {
+        setError('No term dates set up for ' + selectedClass + '-' + selectedSection + ' in Term ' + selectedTerm + '. Add a Class_Terms row first.');
+        return;
+      }
     }
 
     setIsLoading(true);
@@ -4755,7 +4982,16 @@ if (students.length === 0) {
       if (!studentIdSet.has(norm(a.Std_ID))) return false;
       const dt = parseAnyDate(a.Date);
       if (!dt) return false;
-      return dt.getFullYear() === year && (dt.getMonth() + 1) === month;
+      if (dt.getFullYear() !== year || (dt.getMonth() + 1) !== month) return false;
+      // Term filter (v4): each row must fall inside its own class-section's term range.
+      if (selectedTerm) {
+        const cs = ((a.Student_Class || '') + '-' + (a.Student_Section || '')).trim();
+        const r = termRangeForClass_(data.class_terms || [], cs, selectedTerm);
+        if (!r) return false;
+        const k = termDateKey_(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()));
+        if (k < r.start || k > r.end) return false;
+      }
+      return true;
     });
 
 
@@ -5143,6 +5379,13 @@ html += `
     const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
     monthOptions.push({ value: val, label });
   }
+  // Term filter (v4): only months overlapping the picked class-section's term range.
+  const visibleMonthOptions = mbrTermRange ? monthOptions.filter(m => {
+    const [y, mo] = m.value.split('-').map(Number);
+    const ms = new Date(y, mo - 1, 1);
+    const me = new Date(y, mo, 0);
+    return ms <= termParseDate_(mbrTermRange.end) && me >= termParseDate_(mbrTermRange.start);
+  }) : monthOptions;
 
   return (
     <div className="card p-6">
@@ -5154,6 +5397,18 @@ html += `
       <div className="form-container mb-6">
         <form onSubmit={generateReport}>
           <div className="form-row">
+            <div className="form-field">
+              <select
+                className="form-input"
+                id="mbrTerm"
+                value={selectedTerm}
+                onChange={e => { setSelectedTerm(e.target.value); setSelectedClass(''); setSelectedSection(''); setSelectedMonth(''); }}
+              >
+                <option value="">All Terms</option>
+                {termPickerOptions_(data.terms || []).map(t => <option key={t.Term_ID} value={t.Term_ID}>{t.Term_Name || t.Term_ID}</option>)}
+              </select>
+              <label htmlFor="mbrTerm">Term</label>
+            </div>
             <div className="form-field">
               <select
                   className="form-input"
@@ -5168,7 +5423,7 @@ html += `
                   >
                <option value="" disabled>Select Class</option>
               <option value="__ALL__">All Classes</option>
-             {classes.map(c => <option key={c} value={c}>{c}</option>)}
+             {mbrVisibleClasses.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
               <label htmlFor="mbrClass">Class</label>
             </div>
@@ -5198,7 +5453,7 @@ html += `
     required
   >
     <option value="" disabled>Select Month</option>
-    {monthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+    {visibleMonthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
   </select>
   <label htmlFor="mbrMonth">Month</label>
 </div>
@@ -5321,6 +5576,7 @@ html += `
   const [dailyClass, setDailyClass] = useState('');
   const [dailySection, setDailySection] = useState('');
   const [dailyFormat, setDailyFormat] = useState('png');
+  const [reportTerm, setReportTerm] = useState('');
 
   const [reportType, setReportType] = useState('single');
   const [monthlyClass, setMonthlyClass] = useState('');
@@ -5330,7 +5586,10 @@ html += `
   const [monthlyFormat, setMonthlyFormat] = useState('png');
   const [downloadHistory, setDownloadHistory] = useState([]);
 
-  const classesList = [...new Set(data.student_data.map(s => s.Student_Class).filter(Boolean))];
+  const classesList = [...new Set(data.student_data.map(s => s.Student_Class).filter(Boolean))].filter(cls => !reportTerm || termClasses_(data.class_terms || [], reportTerm).includes(cls));
+  // Term ranges for the picked daily / monthly class-section (per-class range, not one global range).
+  const dailyTermRange = (reportTerm && dailyClass && dailySection) ? termRangeForClass_(data.class_terms || [], dailyClass + '-' + dailySection, reportTerm) : null;
+  const monthlyTermRange = (reportTerm && monthlyClass && monthlySection) ? termRangeForClass_(data.class_terms || [], monthlyClass + '-' + monthlySection, reportTerm) : null;
   const sectionsByClass = {};
   classesList.forEach(cls => {
     sectionsByClass[cls] = [...new Set(data.student_data.filter(s => s.Student_Class === cls).map(s => s.Student_Section).filter(Boolean))];
@@ -5367,10 +5626,20 @@ html += `
       const dt = parseAnyDate(a.Date);
       if (dt) set.add(`${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`);
     });
-    return Array.from(set).sort((a, b) => b.localeCompare(a)).map(key => {
+    const months = Array.from(set).sort((a, b) => b.localeCompare(a)).map(key => {
       const [y, m] = key.split('-').map(Number);
       return { key, display: `${new Date(y, m - 1).toLocaleString('default', { month: 'long' })} ${y}` };
     });
+    // Term filter (v4): only months overlapping this class-section's term range.
+    if (monthlyTermRange) {
+      return months.filter(mo => {
+        const [y, m] = mo.key.split('-').map(Number);
+        const ms = new Date(y, m - 1, 1);
+        const me = new Date(y, m, 0);
+        return ms <= termParseDate_(monthlyTermRange.end) && me >= termParseDate_(monthlyTermRange.start);
+      });
+    }
+    return months;
   })();
 
   const computeSummary = (stdId, month, year) => {
@@ -5586,6 +5855,16 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
     setError('Please select date, class and section.');
     return;
   }
+  if (reportTerm) {
+    if (!dailyTermRange) {
+      setError('No term dates set up for ' + dailyClass + '-' + dailySection + ' in Term ' + reportTerm + '. Add a Class_Terms row first.');
+      return;
+    }
+    if (dailyDate < dailyTermRange.start || dailyDate > dailyTermRange.end) {
+      setError('Selected date is outside Term ' + reportTerm + ' for ' + dailyClass + '-' + dailySection + ' (' + dailyTermRange.start + ' to ' + dailyTermRange.end + ').');
+      return;
+    }
+  }
 
   // ---- Population: Student_Data, filtered by class/section + day eligibility ----
   const dailyRoster = (data.student_data || []).filter(s =>
@@ -5663,6 +5942,19 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
     setError('Please fill all fields.');
     return;
   }
+  if (reportTerm) {
+    if (!monthlyTermRange) {
+      setError('No term dates set up for ' + monthlyClass + '-' + monthlySection + ' in Term ' + reportTerm + '. Add a Class_Terms row first.');
+      return;
+    }
+    const [my, mm] = monthlyMonth.split('-').map(Number);
+    const ms = new Date(my, mm - 1, 1);
+    const me = new Date(my, mm, 0);
+    if (me < termParseDate_(monthlyTermRange.start) || ms > termParseDate_(monthlyTermRange.end)) {
+      setError('Selected month is outside Term ' + reportTerm + ' for ' + monthlyClass + '-' + monthlySection + ' (' + monthlyTermRange.start + ' to ' + monthlyTermRange.end + ').');
+      return;
+    }
+  }
 
   const [year, month] = monthlyMonth.split('-').map(Number);
   const monthName = new Date(year, month - 1).toLocaleString('default', { month: 'long' });
@@ -5688,6 +5980,11 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
     if (String(r.Student_Section || '').trim() !== String(monthlySection).trim()) return;
     const dt = parseAnyDate(r.Date);
     if (!dt || dt.getFullYear() !== year || (dt.getMonth() + 1) !== month) return;
+    // Term filter (v4): only count days inside this class-section's term range.
+    if (monthlyTermRange) {
+      const k = termDateKey_(new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()));
+      if (k < monthlyTermRange.start || k > monthlyTermRange.end) return;
+    }
 
     const sid = String(r.Std_ID || '').trim();
     if (!sid) return;
@@ -5834,6 +6131,21 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
         <h2 className="text-xl font-semibold">Attendance Reports</h2>
       </div>
 
+      <div className="form-row" style={{ marginBottom: '1rem' }}>
+        <div className="form-field">
+          <select
+            className="form-input"
+            id="reportTerm"
+            value={reportTerm}
+            onChange={e => { setReportTerm(e.target.value); setDailyDate(''); setDailyClass(''); setDailySection(''); setMonthlyClass(''); setMonthlySection(''); setMonthlyStudentId(''); setMonthlyMonth(''); }}
+          >
+            <option value="">All Terms</option>
+            {termPickerOptions_(data.terms || []).map(t => <option key={t.Term_ID} value={t.Term_ID}>{t.Term_Name || t.Term_ID}</option>)}
+          </select>
+          <label htmlFor="reportTerm">Term</label>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* ---------- Daily Attendance Report ---------- */}
         <div className="form-container">
@@ -5847,6 +6159,8 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
                 value={dailyDate}
                 onChange={e => setDailyDate(e.target.value)}
                 required
+                min={dailyTermRange ? dailyTermRange.start : undefined}
+                max={dailyTermRange ? dailyTermRange.end : undefined}
               />
               <label htmlFor="dailyDate">Date</label>
             </div>
@@ -6506,10 +6820,17 @@ const handleAddClassMapping = async (e) => {
         setIsStdIdEditable(table === 'student_data' ? false : false);
       };
 
-      const getDayOfWeek = (dateStr) => {
-        const date = new Date(dateStr);
-        return daysOfWeek[date.getDay()];
-      };
+   const getDayOfWeek = (dateStr) => {
+  if (!dateStr) return '';
+  const parts = String(dateStr).split('-');
+  if (parts.length === 3) {
+    const date = new Date(parts[0], parts[1] - 1, parts[2]);
+    return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()];
+  }
+  const date = new Date(dateStr);
+  return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getDay()];
+};
+
 
       const parseDDMMMYYYYToDate = (dateStr) => {
   if (!dateStr) return '';
@@ -6558,10 +6879,16 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         return t !== 'admin' && t !== 'superadmin';
       });
 
-      const assignedPermissionUsers = new Set((data.user_permissions || []).map(p => p.Username));
-      const availablePermissionUsers = nonAdminUsers
-        .map(u => u.Username)
-        .filter(u => u === formData.Username || !assignedPermissionUsers.has(u));
+    const assignedPermissionUsers = new Set((data.user_permissions || []).map(p => p.Username));
+const availablePermissionUsers = nonAdminUsers
+  .map(u => u.Username)
+  .filter(u => u === formData.Username || !assignedPermissionUsers.has(u));
+
+const assignedAssignmentUsers = new Set((data.teacher_assignments || []).map(a => a.Username));
+const availableAssignmentUsers = nonAdminUsers
+  .map(u => u.Username)
+  .filter(u => u === formData.Username || !assignedAssignmentUsers.has(u));
+
 
       const tableConfigs = {
                 user_permissions: {
@@ -6625,14 +6952,39 @@ const formatDateToDDMMMYYYY = (dateStr) => {
               { name: 'Allowed_Date', type: 'date', required: true, placeholder: 'Select date' },
               { name: 'Day', type: 'text', disabled: true, placeholder: 'Day' },
               { name: 'Password', type: 'text', required: true, placeholder: 'Enter password' },
+              { name: 'Attendance_Type', type: 'select', options: ['Both', 'Normal', 'Episodic'], required: true, placeholder: 'Select attendance type' },
+
             ]}
           ],
         },
         teacher_assignments: {
           fields: [
             { section: 'Teacher Assignments', fields: [
-              { name: 'Username', type: 'select', options: users.map(u => u.Username), required: true, placeholder: 'Select username' },
+              { name: 'Username', type: 'select', options: availableAssignmentUsers, required: true, placeholder: 'Select username' },
+
               { name: 'Class_Section', type: 'select-multiple', options: classSections, required: true, placeholder: 'Select class sections' },
+            ]}
+          ],
+        },
+        terms: {
+          fields: [
+            { section: 'Term', fields: [
+              { name: 'Term_ID', type: 'text', required: true, placeholder: 'e.g. Term-2026-2027' },
+              { name: 'Term_Name', type: 'text', required: true, placeholder: 'e.g. Term 2026-2027' },
+              { name: 'Is_Active', type: 'select', options: ['TRUE', 'FALSE'], required: true, placeholder: 'Select status' },
+            ]}
+          ],
+        },
+        class_terms: {
+          fields: [
+            { section: 'Term Assignment', fields: [
+              { name: 'Class_Section', type: 'select-multiple', options: MASTER_CLASSES, required: true, placeholder: 'Select classes' },
+              { name: 'Term_ID', type: 'select', options: [], required: true, placeholder: (data.terms || []).length ? 'Select term' : 'Add a Term first' },
+              { name: 'Is_Active', type: 'select', options: ['TRUE', 'FALSE'], required: true, placeholder: 'Select status' },
+              { name: 'Start_Date', type: 'date', required: true, placeholder: 'Start date' },
+              { name: 'End_Date', type: 'date', required: true, placeholder: 'End date' },
+              { name: 'Notes', type: 'text', required: false, placeholder: 'Notes (optional)' },
+              { name: 'REC_ID', type: 'text', disabled: true, placeholder: 'School ID (auto-populated)' },
             ]}
           ],
         },
@@ -6704,7 +7056,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         config.fields.forEach(section => {
           section.fields.forEach(field => {
             if (field.disabled && formData[field.name] === undefined) return;
-            if (field.required && !formData[field.name]) {
+            if (field.required && (!formData[field.name] || (Array.isArray(formData[field.name]) && formData[field.name].length === 0))) {
               errors[field.name] = `${field.name.replace('_', ' ')} is required`;
             }
             if (field.name === 'Std_ID' && formData[field.name] && !/^\d+$/.test(formData[field.name])) {
@@ -6816,6 +7168,13 @@ const formatDateToDDMMMYYYY = (dateStr) => {
   if (table === 'teacher_assignments' && formData.Class_Section) {
     dataToSubmit.Class_Section = formData.Class_Section.join(',');
   }
+
+if (table === 'class_terms' && Array.isArray(formData.Class_Section)) {
+  const picked = formData.Class_Section;
+  dataToSubmit.Class_Section = picked.length === 1 ? picked[0] : '{' + picked.join(',') + '}';
+}
+
+
   if (recId) dataToSubmit.REC_ID = recId;
 
   // ── Duplicate guard for Class Sections tab (Add only) ──
@@ -6918,6 +7277,22 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         if (table === 'teacher_assignments') {
           newFormData.Class_Section = item.Class_Section ? item.Class_Section.split(',') : [];
         }
+        if (table === 'class_terms') {
+          const toInputDate = (v) => {
+            if (!v) return '';
+            const s2 = String(v).trim();
+            if (/^\d{4}-\d{2}-\d{2}/.test(s2)) return s2.slice(0, 10);
+            const d = new Date(s2);
+            if (isNaN(d)) return '';
+            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+          };
+          newFormData.Start_Date = toInputDate(item.Start_Date);
+          newFormData.End_Date = toInputDate(item.End_Date);
+          newFormData.Class_Section = item.Class_Section ? String(item.Class_Section).replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
+
+        }
+
+
                 if (table === 'student_data') {
           newFormData.Date_of_Joining = parseDDMMMYYYYToDate(item.Date_of_Joining);
         }
@@ -7033,6 +7408,17 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
     return String(map.Sections || '')
       .split(',').map(s => s.trim()).filter(Boolean);
   }
+// Term dropdown for Class_Terms: only active terms, plus the row's own term when editing.
+if (table === 'class_terms' && field.name === 'Term_ID') {
+  const active = termPickerOptions_(data.terms || []).filter(t => termIsActive_(t.Is_Active));
+  const own = String(formData.Term_ID || '').trim();
+  if (own && !active.some(t => String(t.Term_ID).trim() === own)) {
+    const ownRow = (data.terms || []).find(t => String(t.Term_ID || '').trim() === own);
+    if (ownRow) active.push(ownRow);
+  }
+  return active.map(t => t.Term_ID);
+}
+
   // Existing dynamic options for Student form
   if (field.name === 'Student_Section') {
     return classSectionMap[formData.Student_Class] || [];
@@ -7074,17 +7460,19 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
                     </>
                   ) : (
                     <>
-                      <input
-                        type={field.type}
-                        name={field.name}
-                        value={formData[field.name] || ''}
-                        onChange={handleInputChange}
-                        placeholder={field.placeholder}
-                        className="form-input"
-                        id={field.name}
-                        disabled={field.disabled}
-                        required={field.required}
-                      />
+                    <input
+  type={field.type}
+  name={field.name}
+  value={formData[field.name] || ''}
+  onChange={handleInputChange}
+  placeholder={field.placeholder}
+  className="form-input"
+  id={field.name}
+  disabled={field.disabled}
+  required={field.required}
+  max={field.name === 'Allowed_Date' ? new Date().toLocaleDateString('en-CA') : undefined}
+/>
+
                       <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                     </>
                   )}

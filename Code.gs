@@ -36,6 +36,9 @@ function authenticateUser(username, password) {
         const canCorrectCol = data[0].indexOf('canCorrectAttendance');
         const canDeleteUsersCol = data[0].indexOf('canDeleteUsers');   // 👈 ADD
 
+var recInfo = getRecInfo_(userRecId);
+
+
         return {
           success: true,
           user: {
@@ -49,6 +52,9 @@ function authenticateUser(username, password) {
             canAmendSIRN: data[i][16] || 'No',
             canCorrectAttendance: canCorrectCol !== -1 ? (data[i][canCorrectCol] || 'No') : 'No',
             REC_ID: userRecId,  // ← Correct REC_ID
+            REC_Name: recInfo.REC_Name,
+LB_Name: recInfo.LB,
+
             allowedTabs: data[i][7] || 'users,user_permissions,class_sections,previous_date_permissions,teacher_assignments,student_data,student_attendance,qr_management,reserve_codes'
           }
         };
@@ -60,6 +66,22 @@ function authenticateUser(username, password) {
     return { success: false, message: 'Authentication error: ' + e.message };
   }
 }
+
+function getRecInfo_(recId) {
+  try {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RECNames');
+    if (!sheet || !recId) return { REC_Name: '', LB: '' };
+    var data = sheet.getDataRange().getValues();
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][3]).trim() === String(recId).trim()) {
+        return { REC_Name: data[i][4] || '', LB: data[i][2] || '' };
+      }
+    }
+  } catch (e) {}
+  return { REC_Name: '', LB: '' };
+}
+
+
 
 // Get data from a specific sheet
 function getSheetData(sheetName, recId) {
@@ -89,7 +111,13 @@ if (isPrevPermSheet_(sheetName)) ensurePrevPermColumns_(sheet);
         
         const row = {};
         for (let j = 0; j < headers.length; j++) {
-          row[headers[j]] = data[i][j] !== null && data[i][j] !== undefined ? data[i][j].toString() : '';
+          const v = data[i][j];
+if (v instanceof Date) {
+  row[headers[j]] = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+} else {
+  row[headers[j]] = v !== null && v !== undefined ? v.toString() : '';
+}
+
         }
         row._rowNumber = i + 1;
         result.push(row);
@@ -317,8 +345,10 @@ function stampPrevPermTimestamps_(rowData) {
   const grantedAt = new Date();
   rowData.Granted_At = grantedAt;
   rowData.Expires_At = new Date(grantedAt.getTime() + 24 * 60 * 60 * 1000);
-  if (!rowData.Attendance_Type) rowData.Attendance_Type = 'Both';
+  const t = String(rowData.Attendance_Type || 'Both').trim().toLowerCase();
+  rowData.Attendance_Type = t === 'episodic' ? 'Episodic' : t === 'normal' ? 'Normal' : 'Both';
 }
+
 
 function sanitizeRowForClient_(row) {
   const tz = Session.getScriptTimeZone() || 'Asia/Karachi';
@@ -330,6 +360,292 @@ function sanitizeRowForClient_(row) {
   return row;
 }
 
+// ============ TERMS / CLASS_TERMS (v4) ============
+// Terms sheet: Term_ID, Term_Name, Is_Active. Names ONLY — no dates.
+// Class_Terms sheet: Class_Section, Term_ID, Is_Active, Start_Date, End_Date, Notes, REC_ID.
+// Dates live ONLY in Class_Terms. One term name (e.g. Term-2026-2027) is shared
+// across classes, but each class has its own dates. Reporting filters by date
+// range from Class_Terms — never by a Term_ID stamp, and never from Terms.
+// Marking is untouched. Summary dashboard is excluded (it has no dates).
+const TERMS_SHEET = 'Terms';
+const CLASS_TERMS_SHEET = 'Class_Terms';
+
+function isTermsSheet_(sheetName) {
+  return String(sheetName || '').trim().toLowerCase() === 'terms';
+}
+
+function isClassTermsSheet_(sheetName) {
+  return String(sheetName || '').trim().toLowerCase() === 'class_terms';
+}
+
+// Is_Active is stored as the strings 'TRUE' / 'FALSE' in the sheets.
+function isActiveFlag_(v) {
+  return String(v == null ? '' : v).trim().toLowerCase() === 'true';
+}
+
+// Parse a sheet value to a local-midnight Date, or null.
+// Accepts Date objects, 'yyyy-MM-dd', 'dd-MMM-yyyy' and other Date-parseable strings.
+// 'yyyy-MM-dd' is parsed as a LOCAL date (no UTC shift), so the day is correct in PKT.
+function parseTermDate_(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return null;
+    return new Date(v.getFullYear(), v.getMonth(), v.getDate());
+  }
+  const str = String(v).trim();
+  if (!str) return null;
+  let m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  m = str.match(/^(\d{2})-([A-Za-z]{3})-(\d{4})/);
+  if (m) {
+    const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+    const mi = months[m[2]];
+    if (mi === undefined) return null;
+    const d = new Date(+m[3], mi, +m[1]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(str);
+  if (isNaN(d.getTime())) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+// 'yyyy-MM-dd' for a Date (local time).
+function termDateKey_(d) {
+  if (!d) return '';
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// Expand a Class_Section cell to individual class tokens.
+// '{I,II,III-B}' -> ['I', 'II', 'III-B'];  'VII-A' -> ['VII-A'];  'I' -> ['I'].
+function expandClassCell_(cell) {
+  let str = String(cell || '').trim();
+  if (!str) return [];
+  if (str.charAt(0) === '{' && str.charAt(str.length - 1) === '}') str = str.slice(1, -1);
+  return str.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
+}
+
+// Base class of a class-section: 'VII-A' -> 'VII', 'KGI' -> 'KGI'.
+function baseClassOf_(cs) {
+  const str = String(cs || '').trim();
+  const i = str.indexOf('-');
+  return (i === -1 ? str : str.slice(0, i)).trim();
+}
+
+// Does token `tok` (from a Class_Terms row) cover class-section `cs`?
+// A bare token ('I') covers every section of that class ('I-A', 'I-B', 'I' itself).
+// A section token ('III-B') covers only that exact class-section. Case-insensitive.
+function tokenMatches_(tok, cs) {
+  const t = String(tok || '').trim();
+  const c = String(cs || '').trim();
+  if (!t || !c) return false;
+  if (t.indexOf('-') === -1) return baseClassOf_(c).toLowerCase() === t.toLowerCase();
+  return t.toLowerCase() === c.toLowerCase();
+}
+
+// Does a Class_Section cell cover class-section `cs`?
+function classCellMatches_(cell, cs) {
+  return expandClassCell_(cell).some(function (tok) { return tokenMatches_(tok, cs); });
+}
+
+// Do two token lists cover any common class-section? Returns the overlapping
+// token from the first list, or null. Bare tokens overlap any section of their class.
+function tokensOverlap_(aTokens, bTokens) {
+  for (let i = 0; i < aTokens.length; i++) {
+    for (let j = 0; j < bTokens.length; j++) {
+      if (tokenMatches_(aTokens[i], bTokens[j]) || tokenMatches_(bTokens[j], aTokens[i])) return aTokens[i];
+    }
+  }
+  return null;
+}
+
+// Class_Terms rows for one REC (REC-filtered by getSheetData). [] if the sheet is missing.
+function getClassTermsForRec_(recId) {
+  try {
+    return getSheetData(CLASS_TERMS_SHEET, recId || '');
+  } catch (e) {
+    return [];
+  }
+}
+
+// All Terms, active first. [] if the Terms sheet is missing.
+function getActiveTerms() {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TERMS_SHEET);
+    if (!sheet) return [];
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) return [];
+    const h = data[0];
+    const idI = h.indexOf('Term_ID');
+    const nmI = h.indexOf('Term_Name');
+    const acI = h.indexOf('Is_Active');
+    if (idI === -1) return [];
+    const rows = [];
+    for (let i = 1; i < data.length; i++) {
+      if (!data[i][idI]) continue;
+      rows.push({
+        Term_ID: String(data[i][idI]).trim(),
+        Term_Name: nmI !== -1 ? String(data[i][nmI] || '').trim() : String(data[i][idI]).trim(),
+        Is_Active: acI !== -1 ? String(data[i][acI]) : ''
+      });
+    }
+    rows.sort(function (a, b) {
+      return (isActiveFlag_(b.Is_Active) ? 1 : 0) - (isActiveFlag_(a.Is_Active) ? 1 : 0);
+    });
+    return rows;
+  } catch (e) {
+    return [];
+  }
+}
+
+// First matching ACTIVE Class_Terms row for this REC + class-section (+ optional termId).
+// First match in sheet order wins. Returns { start, end, termId, classSection }
+// with 'yyyy-MM-dd' dates, or null when nothing matches.
+function getTermDateRangeForClassSection(recId, classSection, termId) {
+  const rows = getClassTermsForRec_(recId);
+  const wantTerm = String(termId || '').trim().toLowerCase();
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    if (!isActiveFlag_(r.Is_Active)) continue;
+    if (wantTerm && String(r.Term_ID || '').trim().toLowerCase() !== wantTerm) continue;
+    if (!classCellMatches_(String(r.Class_Section || ''), classSection)) continue;
+    const s = parseTermDate_(r.Start_Date);
+    const e = parseTermDate_(r.End_Date);
+    if (!s || !e) continue;
+    return {
+      start: termDateKey_(s),
+      end: termDateKey_(e),
+      termId: String(r.Term_ID || '').trim(),
+      classSection: String(classSection || '').trim()
+    };
+  }
+  return null;
+}
+
+// Short alias for the report lookup.
+function getTermDateRange(recId, classSection, termId) {
+  return getTermDateRangeForClassSection(recId, classSection, termId);
+}
+
+// All ACTIVE term ranges covering one class-section (one entry per term,
+// first matching row wins per term). Used to list the terms a class belongs to.
+function getTermsForClassSection(recId, classSection) {
+  const rows = getClassTermsForRec_(recId);
+  const seen = {};
+  const out = [];
+  rows.forEach(function (r) {
+    if (!isActiveFlag_(r.Is_Active)) return;
+    if (!classCellMatches_(String(r.Class_Section || ''), classSection)) return;
+    const tid = String(r.Term_ID || '').trim();
+    if (!tid || seen[tid.toLowerCase()]) return;
+    const s = parseTermDate_(r.Start_Date);
+    const e = parseTermDate_(r.End_Date);
+    if (!s || !e) return;
+    seen[tid.toLowerCase()] = true;
+    out.push({ termId: tid, start: termDateKey_(s), end: termDateKey_(e) });
+  });
+  return out;
+}
+
+// Validate a Terms row. excludeRow = sheet row number to skip (Edit), or 0 (Add).
+// Returns an error message string, or null when OK.
+function validateTermsRow_(sheet, headers, rowData, excludeRow) {
+  const termId = String(rowData.Term_ID || '').trim();
+  if (!termId) return 'Term_ID is required.';
+  const idIdx = headers.indexOf('Term_ID');
+  if (idIdx === -1) return null;
+  const all = sheet.getDataRange().getValues();
+  for (let i = 1; i < all.length; i++) {
+    if (excludeRow && (i + 1) === excludeRow) continue;
+    if (String(all[i][idIdx] || '').trim().toLowerCase() === termId.toLowerCase()) {
+      return 'Term "' + termId + '" already exists. Edit the existing term instead.';
+    }
+  }
+  return null;
+}
+
+// Validate a Class_Terms row. excludeRow = sheet row number to skip (Edit), or 0 (Add).
+// Rules: Term_ID must exist in Terms; Start_Date <= End_Date; no exact duplicate
+// (same Term_ID + same Class_Section + same REC_ID); and for the same REC and the
+// same class, the date ranges of two DIFFERENT terms must not overlap.
+// Returns an error message string, or null when OK.
+function validateClassTermsRow_(sheet, headers, rowData, recId, excludeRow) {
+  const termId = String(rowData.Term_ID || '').trim();
+  if (!termId) return 'Term is required. Pick a term from the list.';
+  // Term must exist in Terms (matches Term_ID or Term_Name, case-insensitive,
+  // so both 'Term-2026-2027' and '2026-2027' spellings are accepted).
+  let termExists = false;
+  try {
+    const ts = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TERMS_SHEET);
+    if (ts) {
+      const td = ts.getDataRange().getValues();
+      const th = td[0] || [];
+      const idI = th.indexOf('Term_ID');
+      const nmI = th.indexOf('Term_Name');
+      for (let i = 1; i < td.length; i++) {
+        const idV = idI !== -1 ? String(td[i][idI] || '').trim().toLowerCase() : '';
+        const nmV = nmI !== -1 ? String(td[i][nmI] || '').trim().toLowerCase() : '';
+        if (termId.toLowerCase() === idV || termId.toLowerCase() === nmV) { termExists = true; break; }
+      }
+    }
+  } catch (e) { termExists = false; }
+  if (!termExists) return 'Term "' + termId + '" does not exist in Terms. Add it in Terms first.';
+  const start = parseTermDate_(rowData.Start_Date);
+  const end = parseTermDate_(rowData.End_Date);
+  if (!start || !end) return 'Start Date and End Date are required and must be valid dates.';
+  if (start.getTime() > end.getTime()) return 'Start Date must be on or before End Date.';
+  const rec = String(recId || rowData.REC_ID || '').trim();
+  const csIdx = headers.indexOf('Class_Section');
+  const termIdx = headers.indexOf('Term_ID');
+  const recIdx = headers.indexOf('REC_ID');
+  const sIdx = headers.indexOf('Start_Date');
+  const eIdx = headers.indexOf('End_Date');
+  const actIdx = headers.indexOf('Is_Active');
+  if (csIdx === -1 || termIdx === -1) return null;
+  const newCell = String(rowData.Class_Section || '').trim();
+  const newTokens = expandClassCell_(newCell);
+  const all = sheet.getDataRange().getValues();
+  for (let i = 1; i < all.length; i++) {
+    const rowNum = i + 1;
+    if (excludeRow && rowNum === excludeRow) continue;
+    const exRec = recIdx !== -1 ? String(all[i][recIdx] || '').trim() : '';
+    if (rec && exRec && exRec !== rec) continue;
+    if (!rec && exRec) continue;
+    const exTerm = String(all[i][termIdx] || '').trim();
+    const exCell = String(all[i][csIdx] || '').trim();
+    // Exact duplicate: same term + same class cell + same REC.
+    if (exTerm.toLowerCase() === termId.toLowerCase() && exCell.toLowerCase() === newCell.toLowerCase()) {
+      return 'This Class_Terms row already exists for Term "' + termId + '" and "' + newCell + '". Edit the existing row instead.';
+    }
+    // Overlap: same class, overlapping dates — different term, or same term
+// while both rows are active. A FALSE row is history, so it never blocks,
+// and a new FALSE row never gets blocked. To correct dates, set the old
+// row Is_Active = FALSE first, then add the new row.
+if (newTokens.length) {
+  const overlapTok = tokensOverlap_(newTokens, expandClassCell_(exCell));
+  if (overlapTok) {
+    const exActive = actIdx === -1 ? true : isActiveFlag_(all[i][actIdx]);
+    const newActive = isActiveFlag_(rowData.Is_Active);
+    const sameTerm = exTerm.toLowerCase() === termId.toLowerCase();
+    const blocked = sameTerm ? (exActive && newActive) : true;
+    if (blocked) {
+      const exS = sIdx !== -1 ? parseTermDate_(all[i][sIdx]) : null;
+      const exE = eIdx !== -1 ? parseTermDate_(all[i][eIdx]) : null;
+      if (exS && exE && start.getTime() <= exE.getTime() && end.getTime() >= exS.getTime()) {
+        if (sameTerm) {
+          return 'Class "' + overlapTok + '" already has active dates ' + termDateKey_(exS) + ' to ' + termDateKey_(exE) + ' in Term "' + exTerm + '" — set the old row Is_Active = FALSE first, then add the new dates.';
+        }
+        return 'Class "' + overlapTok + '" already has dates ' + termDateKey_(exS) + ' to ' + termDateKey_(exE) + ' in Term "' + exTerm + '" — dates cannot overlap for the same class over two separate terms.';
+      }
+    }
+  }
+}
+
+  }
+  return null;
+}
 
 // Add a new row to a sheet
 function addSheetRow(sheetName, rowData, currentUsername) {
@@ -359,6 +675,34 @@ function addSheetRow(sheetName, rowData, currentUsername) {
     if (isPrevPermSheet_(sheetName)) ensurePrevPermColumns_(sheet);
 
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+
+
+if (isPrevPermSheet_(sheetName)) {
+  const today = new Date();
+today.setHours(0, 0, 0, 0);
+const parts = String(rowData.Allowed_Date).split('-');
+const allowed = new Date(parts[0], parts[1] - 1, parts[2]);
+if (allowed > today) return { success: false, message: 'Allowed Date cannot be in the future.' };
+
+  const uIdx = headers.indexOf('Username');
+  const dIdx = headers.indexOf('Allowed_Date');
+  if (uIdx !== -1 && dIdx !== -1 && rowData.Username && rowData.Allowed_Date) {
+    const newDate = new Date(rowData.Allowed_Date);
+    const newDateStr = !isNaN(newDate) ? newDate.toDateString() : String(rowData.Allowed_Date).trim();
+    const all = sheet.getDataRange().getValues();
+    const dup = all.some((r, i) => {
+      if (i === 0) return false;
+      if (String(r[uIdx] || '').trim() !== String(rowData.Username).trim()) return false;
+      const d = r[dIdx] instanceof Date ? r[dIdx] : new Date(r[dIdx]);
+      const dStr = !isNaN(d) ? d.toDateString() : String(r[dIdx] || '').trim();
+      return dStr === newDateStr;
+    });
+    if (dup) return { success: false, message: 'This user already has permission for this date.' };
+  }
+}
+
+
 
     if (isPrevPermSheet_(sheetName)) stampPrevPermTimestamps_(rowData);
 
@@ -404,6 +748,17 @@ if (sheetName.toLowerCase() === 'users' && rowData.Password) {
     }
   }
 }
+    // Terms / Class_Terms (v4): normalise Is_Active, then validate.
+    if (isTermsSheet_(sheetName)) {
+      rowData.Is_Active = isActiveFlag_(rowData.Is_Active) ? 'TRUE' : 'FALSE';
+      const tErr = validateTermsRow_(sheet, headers, rowData, 0);
+      if (tErr) return { success: false, message: tErr };
+    }
+    if (isClassTermsSheet_(sheetName)) {
+      rowData.Is_Active = isActiveFlag_(rowData.Is_Active) ? 'TRUE' : 'FALSE';
+      const ctErr = validateClassTermsRow_(sheet, headers, rowData, recId, 0);
+      if (ctErr) return { success: false, message: ctErr };
+    }
     // Build new row
     const newRow = headers.map(header => {
       const value = rowData[header];
@@ -577,6 +932,22 @@ if (sheetName.toLowerCase() === 'users') {
   }
 }
 
+
+    // Terms / Class_Terms (v4): normalise Is_Active, then validate (own row excluded).
+    if (isTermsSheet_(sheetName) || isClassTermsSheet_(sheetName)) {
+      rowData.Is_Active = isActiveFlag_(rowData.Is_Active) ? 'TRUE' : 'FALSE';
+    }
+    if (isTermsSheet_(sheetName)) {
+      const tErr = validateTermsRow_(sheet, headers, rowData, rowIndex);
+      if (tErr) return { success: false, message: tErr };
+    }
+    if (isClassTermsSheet_(sheetName)) {
+      const exRow = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+      const rIdx = headers.indexOf('REC_ID');
+      const ctRec = String(rowData.REC_ID || (rIdx !== -1 ? exRow[rIdx] : '') || '').trim();
+      const ctErr = validateClassTermsRow_(sheet, headers, rowData, ctRec, rowIndex);
+      if (ctErr) return { success: false, message: ctErr };
+    }
 
     // ✅ STUDENT DATA SECTION
     if (sheetName === 'Student_Data') {
@@ -995,7 +1366,7 @@ function deleteSheetRow(sheetName, rowNumber, username) {
 
     sheet.deleteRow(rowNumber);
     SpreadsheetApp.flush();
-    return { success: true, message: 'Record deleted successfully' };
+     return { success: true, message: 'Record deleted successfully' };
   } catch (e) {
     Logger.log('Error in deleteSheetRow: ' + e.message);
     return { success: false, message: 'Failed to delete record: ' + e.message };
