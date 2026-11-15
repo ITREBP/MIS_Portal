@@ -249,12 +249,16 @@
             "XII": "12"
         };
 
-        function getClassTarget(classStr) {
-            if (!classStr) return "7";
-            var trimmed = classStr.trim().toUpperCase();
-            if (romanMap[trimmed]) return romanMap[trimmed];
-            return trimmed;
-        }
+  function getClassTarget(classStr) {
+    if (!classStr) return "7";
+    var trimmed = classStr.trim().toUpperCase();
+    if (trimmed === "HRE") return "12";
+    if (trimmed === "KG I") return "KGI";
+    if (trimmed === "KG II") return "KGII";
+    if (romanMap[trimmed]) return romanMap[trimmed];
+    return trimmed;
+}
+
 
         // ============================================================
         // BUILD CARDS
@@ -291,12 +295,13 @@
 
                               <div class="bottom-layout">
                                 <div class="matrix-box">
-                                  <div class="matrix-row">
-                                    <div class="matrix-cell" id="${cardId}-IBT">IBT <div class="bubble"></div></div>
-                                    <div class="matrix-cell" id="${cardId}-NUR">NUR <div class="bubble"></div></div>
-                                    <div class="matrix-cell" id="${cardId}-KGI">KG I <div class="bubble"></div></div>
-                                    <div class="matrix-cell" id="${cardId}-KGII">KG II <div class="bubble"></div></div>
-                                  </div>
+                                 <div class="matrix-row">
+  <div class="matrix-cell" id="${cardId}-IBT">IBT <div class="bubble"></div></div>
+  <div class="matrix-cell" id="${cardId}-NUR">NUR <div class="bubble"></div></div>
+  <div class="matrix-cell" id="${cardId}-KGI">KG I <div class="bubble"></div></div>
+  <div class="matrix-cell" id="${cardId}-KGII">KG II <div class="bubble"></div></div>
+  
+</div>
                                   <div class="matrix-row">
                                     <div class="matrix-cell" id="${cardId}-1">1 <div class="bubble"></div></div>
                                     <div class="matrix-cell" id="${cardId}-2">2 <div class="bubble"></div></div>
@@ -339,17 +344,18 @@
                     var cardId = 'card-' + j;
                     var qrId = 'qr-' + j;
 
-                    // Highlight bubble — skip entirely for blank reserve-code cards (no Student_Class)
-                    if (student.Student_Class) {
-                        var classTarget = getClassTarget(student.Student_Class);
-                        var targetNode = document.getElementById(cardId + '-' + classTarget);
-                        if (targetNode) {
-                            targetNode.classList.add('active-class');
-                        } else {
-                            var fallback = document.getElementById(cardId + '-6');
-                            if (fallback) fallback.classList.add('active-class');
-                        }
-                    }
+
+                   // Highlight bubble — skip entirely for blank reserve-code cards (no Student_Class)
+if (student.Student_Class) {
+    var classTarget = getClassTarget(student.Student_Class);
+    var targetNode = document.getElementById(cardId + '-' + classTarget);
+    if (targetNode) {
+        targetNode.classList.add('active-class');
+    } else {
+        // No matching bubble cell — log a warning instead of silently picking "6"
+        console.warn('No bubble cell for class "' + student.Student_Class + '" on card ' + cardId);
+    }
+}
 
                     // QR code – uses ONLY the Barcode_ID (like the old HTML)
                     var qrContainer = document.getElementById(qrId);

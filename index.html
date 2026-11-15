@@ -1,20 +1,12 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <base target="_top">
-  </head>
-  <body>
-    
-  </body>
-</html>
-<!DOCTYPE html>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+<base target="_top">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Student Admin Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
@@ -71,6 +63,8 @@
     body.dark {
       background-color: #111827;
     }
+
+    html.dark { background-color: #111827; }
 
     ::-webkit-scrollbar {
       width: 6px;
@@ -217,6 +211,16 @@
       font-size: 0.75rem;
       color: var(--primary-color);
     }
+
+.form-field input:-webkit-autofill + label,
+.form-field input:-webkit-autofill:hover + label,
+.form-field input:-webkit-autofill:focus + label {
+  top: -0.5rem;
+  left: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--primary-color);
+}
+
 
         .form-field input,
     .form-field select {
@@ -652,6 +656,25 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
+    const MC_CAT_FIELD = {
+  Category: 'Category', Hours: 'Category',
+  Old_Category: 'Old_Category', Old_Hours: 'Old_Category',
+  New_Category: 'New_Category', New_Hours: 'New_Category'
+};
+function mcCell(row, field) {
+  const cf = MC_CAT_FIELD[field], s = cf ? String(row[cf] || '') : '';
+  if (s.indexOf(' + ') === -1) return row[field];
+  const items = [];
+  for (const part of s.split(' + ')) {
+    const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
+    if (!m) return row[field];
+    items.push({ name: m[1], hours: Number(m[2]) });
+  }
+
+  // 👇 CHANGE THIS LINE BACK TO FORMATTING NAMES AND HOURS 👇
+  return items.map(i => `${i.name} (${i.hours})`).join(' + ');
+}
+
     function WelcomePage({ teacherName, onContinue }) {
       return (
         <div className="p-6 flex items-center justify-center min-h-screen">
@@ -711,6 +734,15 @@ function parseAnyDate(d) {
   return isNaN(dt) ? null : dt;
 }
 
+// Normalise any date form to yyyy-MM-dd, so the day-category lookup
+// matches whether the sheet gave a Date or a "2025-Nov-03" string.
+function dayKey(d) {
+  const dt = parseAnyDate(d);
+  if (!dt) return String(d || '');
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+}
+
+
 // Is the student enrolled on `targetDate`? (inclusive of both dates)
 // Convention: Inactive_Date = first day the student is NOT active.
 function isEnrolledOn(targetDate, fromDateStr, inactiveDateStr) {
@@ -757,7 +789,12 @@ function parseDayCategories(dayCatStr) {
 
 function parseStudentCategoryMap(catStr) {
   const s = String(catStr || '');
-  if (s.indexOf(' + ') === -1) return {};
+  if (s.indexOf(' + ') === -1) {
+    // Single category – try "Name (hours)" format
+    const m = s.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
+    if (m) return { [m[1].trim()]: Number(m[2]) };
+    return {};      // Plain "Curriculum" with no hours → no map
+  }
   const out = {};
   for (const part of s.split(' + ')) {
     const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
@@ -810,12 +847,12 @@ function formatCategoryString(items) {
       });
 
       // Initialize dark mode based on system preference
-      useEffect(() => {
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          setIsDarkMode(true);
-          document.body.classList.add('dark');
-        }
-      }, []);
+     useEffect(() => {
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    setIsDarkMode(true);
+    document.documentElement.classList.add('dark');
+  }
+}, []);
 
       // Load gender options
       useEffect(() => {
@@ -886,7 +923,7 @@ const refreshData = (recIdOverride = null) => {
           setError('Failed to load class sections: ' + err.message);
           resolve();
         })
-        .getClassSectionData();
+        .getClassSectionData(currentRecId);
     }),
     
     new Promise((resolve) => {
@@ -908,7 +945,7 @@ const refreshData = (recIdOverride = null) => {
           setError('Failed to load class mappings: ' + err.message);
           resolve();
         })
-        .getClassMappingData();
+        .getClassMappingData(currentRecId);
     }),
     
     new Promise((resolve) => {
@@ -1135,10 +1172,10 @@ const refreshData = (recIdOverride = null) => {
         setIsSidebarOpen(!isSidebarOpen);
       };
 
-      const toggleDarkMode = () => {
-        setIsDarkMode(!isDarkMode);
-        document.body.classList.toggle('dark');
-      };
+  const toggleDarkMode = () => {
+  setIsDarkMode(!isDarkMode);
+  document.documentElement.classList.toggle('dark');
+};
 
       const scrollToTop = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1416,17 +1453,23 @@ const refreshData = (recIdOverride = null) => {
                   </h1>
                   </div>
                   <div className="flex items-center gap-2">
-                    {(activeTab || activeReport) && (
-                      <div className="search-box">
-                        <i className="uil uil-search"></i>
-                        <input
-                          type="text"
-                          placeholder="Search..."
-                          value={searchQuery}
-                          onChange={e => setSearchQuery(e.target.value)}
-                        />
-                      </div>
-                    )}
+                  {((activeTab) ||
+  (activeReport && ![
+    'attendance_reports',
+    'batch_hours_log',
+    'attendance_correction_log',
+    'audit_reports'
+  ].includes(activeReport))) && (
+  <div className="search-box">
+    <i className="uil uil-search"></i>
+    <input
+      type="text"
+      placeholder="Search..."
+      value={searchQuery}
+      onChange={e => setSearchQuery(e.target.value)}
+    />
+  </div>
+)}
                     <button onClick={toggleDarkMode} className="btn-outline p-2">
                       <i className={`uil uil-${isDarkMode ? 'sun' : 'moon'} text-lg`}></i>
                     </button>
@@ -1772,66 +1815,101 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
         return Object.keys(errors).length === 0;
       };
 
-      const handleSubmit = async (e) => {
-        e.preventDefault();
-        if (!validateForm()) return;
-        const dataToSubmit = { ...formData };
-if (formData.allowedTabs) {
-  dataToSubmit.allowedTabs = formData.allowedTabs.join(',');
-}
-if (formData.AllowedDays) {
-  dataToSubmit.AllowedDays = formData.AllowedDays.join(',');
-}
-// REC_ID will be auto-filled by the server, so we don't need to set it here
-        if (recId) dataToSubmit.REC_ID = recId;
-        setIsLoading(true);
-        setMessage('');
-        if (editingIndex !== null) {
-                    const rowNumber = visibleUsers[editingIndex]._rowNumber;
-          try {
-            const result = await callWithRetry('updateSheetRow', table, rowNumber, dataToSubmit);
-            if (result.success) {
-              setData(prev => ({
-                ...prev,
-                [table]: prev[table].map((item) =>
-                  item._rowNumber === rowNumber ? { ...item, ...result.data } : item
-                ),
-              }));
-              setSuccessMessage('User updated successfully');
-              setFormData({});
-              setEditingIndex(null);
-              setFormErrors({});
-              refreshData(); // rebuild userPermissions so sidebar/allowedTabs reflect the change immediately
-            } else {
-              setError(result.message || 'Update failed');
-            }
-          } catch (err) {
-            setError('Update failed after retries: ' + err.message);
-          }
-          setIsLoading(false);
-        } else {
-          try {
-            const result = await callWithRetry('addSheetRow', table, dataToSubmit, username);
-            if (result.success) {
-              setData(prev => ({
-                ...prev,
-                [table]: [...prev[table], result.data],
-              }));
-              setSuccessMessage('User added successfully');
-              setFormData({});
-              setIsAdding(false);
-              setFormErrors({});
-              refreshData();
-            } else {
-              setError(result.message || 'Add failed');
-            }
-          } catch (err) {
-            setError('Add failed after retries: ' + err.message);
-          }
-          setIsLoading(false);
-        }
-      };
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  if (!validateForm()) return;
+  const targetTable = table === 'class_sections' ? subTab : table;
+  const dataToSubmit = { ...formData };
 
+  if (table === 'class_sections' && subTab === 'class_mappings') {
+    dataToSubmit.Sections = formData.Sections;
+  }
+  if (table === 'class_sections' && subTab === 'class_sections') {
+    const cls = String(formData.Class || '').trim();
+    const sec = String(formData.Section || '').trim();
+    if (cls && sec) {
+      dataToSubmit.Class_Section = `${cls}-${sec}`;
+    }
+    delete dataToSubmit.Class;
+    delete dataToSubmit.Section;
+  }
+  if (table === 'teacher_assignments' && formData.Class_Section) {
+    dataToSubmit.Class_Section = formData.Class_Section.join(',');
+  }
+  if (recId) dataToSubmit.REC_ID = recId;
+
+  // ── Duplicate guard for Class Sections tab (Add only) ──
+  if (table === 'class_sections' && subTab === 'class_sections' && editingIndex === null) {
+    const combo = dataToSubmit.Class_Section;
+    if (combo) {
+      const dup = (data.class_sections || []).some(r =>
+        String(r.Class_Section || '').trim() === combo
+      );
+      if (dup) {
+        setError(`Section "${combo}" already exists for your school.`);
+        return;
+      }
+    }
+  }
+
+  setIsLoading(true);
+  setMessage('');
+
+  if (editingIndex !== null) {
+    const rowNumber = filteredData[editingIndex]._rowNumber;
+    const editingRow = filteredData[editingIndex];
+
+    try {
+      let result;
+      if (targetTable === 'class_mappings') {
+        result = await callWithRetry(
+          'updateClassMapping',
+          formData.Class,
+          formData.Sections,
+          recId || '',
+          editingRow.Sections
+        );
+      } else {
+        result = await callWithRetry('updateSheetRow', targetTable, rowNumber, dataToSubmit, username);
+      }
+
+      if (result.success) {
+        setSuccessMessage(result.message || 'Record updated successfully');
+        setFormData({});
+        setEditingIndex(null);
+        setFormErrors({});
+        setError('');
+       
+      } else {
+        setError(result.message || 'Update failed');
+      }
+    } catch (err) {
+      setError('Update failed after retries: ' + err.message);
+    }
+    setIsLoading(false);
+  } else {
+    try {
+      const result = await callWithRetry('addSheetRow', targetTable, dataToSubmit, username);
+      if (result.success) {
+        setSuccessMessage('Record added successfully');
+        setData(prev => ({
+          ...prev,
+          [targetTable]: [...prev[targetTable], result.data],
+        }));
+        setFormData({});
+        setIsAdding(false);
+        setFormErrors({});
+        setError('');
+       
+      } else {
+        setError(result.message || 'Add failed');
+      }
+    } catch (err) {
+      setError('Add failed after retries: ' + err.message);
+    }
+    setIsLoading(false);
+  }
+};
       const handleEditClick = (index) => {
         setEditingIndex(index);
         setIsAdding(false);
@@ -1842,20 +1920,23 @@ if (formData.AllowedDays) {
         setFormData(newFormData);
       };
 
+
+
       const handleDeleteClick = (table, index, rowNumber) => {
         setDeleteParams({ table, index, rowNumber });
         setShowDeleteConfirm(true);
       };
 
-      const confirmDelete = async () => {
-        try {
-          await onDelete(deleteParams.table, deleteParams.rowNumber);
-        } catch (err) {
-          setError('Delete failed: ' + err.message);
-        }
-        setShowDeleteConfirm(false);
-        setDeleteParams({ table: '', index: null, rowNumber: null });
-      };
+  const confirmDelete = async () => {
+  try {
+    await onDelete(deleteParams.table, deleteParams.rowNumber);
+  } catch (err) {
+    setError('Delete failed: ' + err.message);
+  }
+  setShowDeleteConfirm(false);
+  setDeleteParams({ table: '', index: null, rowNumber: null });
+};
+     
 
       const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -2285,11 +2366,15 @@ if (formData.AllowedDays) {
         sectionMap[cls] = [...new Set(data.student_attendance.filter(item => item.Student_Class === cls).map(item => item.Student_Section).filter(Boolean))];
       });
 
-      const handleInputChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-        setFormErrors(prev => ({ ...prev, [name]: '' }));
-      };
+     const handleInputChange = (e) => {
+  const { name, value } = e.target;
+  setFormData(prev => {
+    const next = { ...prev, [name]: value };
+    if (name === 'studentClass') next.studentSection = '';
+    return next;
+  });
+  setFormErrors(prev => ({ ...prev, [name]: '' }));
+};
 
       const validateForm = () => {
         const errors = {};
@@ -2303,35 +2388,8 @@ if (formData.AllowedDays) {
         return Object.keys(errors).length === 0;
       };
 
-  const parseDayCategories = (dayCatStr) => {
-    const s = String(dayCatStr || '');
-    if (s.indexOf(' + ') === -1) return [{ name: s.trim(), hours: null }];
-    const items = [];
-    for (const part of s.split(' + ')) {
-      const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
-      if (m) items.push({ name: m[1], hours: Number(m[2]) });
-    }
-    return items.length ? items : [{ name: s.trim(), hours: null }];
-  };
-
-  const parseStudentCategoryMap = (catStr) => {
-    const s = String(catStr || '');
-    if (s.indexOf(' + ') === -1) return {}; 
-    const out = {};
-    for (const part of s.split(' + ')) {
-      const m = part.trim().match(/^(.+) \((\d+(?:\.\d+)?)\)$/);
-      if (m) out[m[1]] = Number(m[2]);
-    }
-    return out;
-  };
-
-  const formatCategoryString = (items) => {
-    if (items.length === 1) return items[0].name;
-    return items.map(i => `${i.name} (${Number(i.hours) || 0})`).join(' + ');
-  };
-
-
-       const handleSearch = async (e) => {
+ 
+      const handleSearch = async (e) => {
   e.preventDefault();
   if (!formData.startDate || !formData.endDate) {
     setError('Please select both start and end dates');
@@ -2341,30 +2399,39 @@ if (formData.AllowedDays) {
   try {
     const [result, allDailyHours] = await Promise.all([
       callWithRetry('getStudentAttendance', { ...formData, username }),
-      callWithRetry('getSheetData', 'Daily_Hours_Setup', userPermissions[username]?.REC_ID || '')
+      callWithRetry('getSheetData', 'Daily_Hours_Setup', userPermissions?.REC_ID || '')
     ]);
 
-    // Build lookup: "Date|Class_Section" -> category
+         // Build lookup: "Date|Class_Section" -> category (dates normalised with dayKey)
     const dayCatLookup = {};
     (allDailyHours || []).forEach(h => {
       if (!h.Date || !h.Class_Section) return;
-      dayCatLookup[`${h.Date}|${h.Class_Section}`] = h.Category || '';
+      dayCatLookup[`${dayKey(h.Date)}|${h.Class_Section}`] = h.Category || '';
     });
 
-    const enriched = result.map(row => ({
+    let enriched = result.map(row => ({
       ...row,
-      _dayCategory: dayCatLookup[`${row.Date}|${row.Class_Section}`] || ''
+      _dayCategory: dayCatLookup[`${dayKey(row.Date)}|${row.Class_Section}`] || ''
     }));
 
-    setResults(enriched);
-    setSearched(true);
+    // Apply class/section/status filters (same as before)
+    if (formData.studentClass) {
+      enriched = enriched.filter(item => item.Student_Class === formData.studentClass);
+    }
+    if (formData.studentSection) {
+      enriched = enriched.filter(item => item.Student_Section === formData.studentSection);
+    }
+    if (formData.statusFilter !== 'All') {
+      enriched = enriched.filter(item => item.Status === formData.statusFilter);
+    }
+
+    setAttendanceData(enriched);
     setError('');
   } catch (err) {
     setError('Search failed: ' + err.message);
   }
   setIsLoading(false);
 };
-
 
           const handleDownload = async (e, type) => {
         e.preventDefault();
@@ -2422,7 +2489,7 @@ if (formData.AllowedDays) {
           if (type === 'CSV') {
             let csv = headers.join(',') + '\n';
             dataWithCurrent.forEach(item => {
-              const row = headers.map(h => `"${(item[h] || '').toString().replace(/"/g, '""')}"`);
+              const row = headers.map(h => `"${(mcCell(item, h) || '').toString().replace(/"/g, '""')}"`);
               csv += row.join(',') + '\n';
             });
             const blob = new Blob([csv], { type: 'text/csv' });
@@ -2439,7 +2506,7 @@ if (formData.AllowedDays) {
             const doc = new jsPDF({ orientation: 'landscape' });
                         doc.autoTable({
               head: [headers],
-              body: dataWithCurrent.map(item => headers.map(h => item[h] || '')),
+              body: dataWithCurrent.map(item => headers.map(h => mcCell(item, h) || '')),
               styles: { fontSize: 6, cellPadding: 1 },
               headStyles: { fontSize: 6 },
             });
@@ -2649,18 +2716,21 @@ if (formData.AllowedDays) {
           ) : (
             <div className="table-container max-h-[600px]">
               <table className="min-w-full">
-                <thead className="sticky-header">
-                                                                       <tr>
-                    {ATTENDANCE_COLUMNS.map(field => (
-                      <th key={field} className="whitespace-nowrap">
-                        {field.replace(/_/g, ' ')}
-                      </th>
-                    ))}
-                    <th className="whitespace-nowrap">Current Class</th>
-                    <th className="whitespace-nowrap">Current Section</th>
-                    <th className="whitespace-nowrap">Current Status</th>
-                  </tr>
-                </thead>
+<thead className="sticky-header">
+  <tr>
+    {ATTENDANCE_COLUMNS.map((field, i) => (
+      <th
+        key={field}
+        className={`whitespace-nowrap ${i === 0 ? 'sticky left-0 z-10 bg-[color:var(--hover-color)]' : ''}`}
+      >
+        {field.replace(/_/g, ' ')}
+      </th>
+    ))}
+    <th className="whitespace-nowrap">Current Class</th>
+    <th className="whitespace-nowrap">Current Section</th>
+    <th className="whitespace-nowrap">Current Status</th>
+  </tr>
+</thead>
                 <tbody>
                                       {filteredData
                     .filter(item => item.Username !== 'superadmin')
@@ -2675,11 +2745,14 @@ if (formData.AllowedDays) {
                             : 'text-gray-400';
                       return (
                         <tr key={index}>
-                          {ATTENDANCE_COLUMNS.map(field => (
-                            <td key={field} className="whitespace-nowrap">
-                              {item[field] || ''}
-                            </td>
-                          ))}
+                          {ATTENDANCE_COLUMNS.map((field, i) => (
+  <td
+    key={field}
+    className={`whitespace-nowrap ${i === 0 ? 'sticky left-0 z-[5] bg-[color:var(--panel-color)]' : ''}`}
+  >
+    {mcCell(item, field) || ''}
+  </td>
+))}
                           <td className="whitespace-nowrap font-semibold text-blue-600">
                             {curr.Student_Class || '—'}
                           </td>
@@ -2734,25 +2807,25 @@ const [editCategory, setEditCategory] = useState('');
   }
   setIsLoading(true);
 
-  try {
+    try {
     // Two calls total: the attendance rows + one full read of the Daily_Hours_Setup sheet.
-    // The old version fired one checkDailyHours() RPC per row, which both
-    // (a) doesn't exist in the Admin project and (b) was retried ~20s each.
+    // The old version fired one checkDailyHours() RPC per row,
+    // which was retried ~20s each.
     const [result, allDailyHours] = await Promise.all([
       callWithRetry('getStudentAttendance', { ...formData, username }),
       callWithRetry('getSheetData', 'Daily_Hours_Setup', userPermissions[username]?.REC_ID || '')
     ]);
 
-    // Build the lookup once: "Date|Class_Section" -> Category
+    // Build the lookup once: "Date|Class_Section" -> Category (dates normalised with dayKey)
     const dayCatLookup = {};
     (allDailyHours || []).forEach(h => {
       if (!h.Date || !h.Class_Section) return;
-      dayCatLookup[`${h.Date}|${h.Class_Section}`] = h.Category || '';
+      dayCatLookup[`${dayKey(h.Date)}|${h.Class_Section}`] = h.Category || '';
     });
 
     const enriched = (result || []).map(row => ({
       ...row,
-      _dayCategory: dayCatLookup[`${row.Date}|${row.Class_Section}`] || ''
+      _dayCategory: dayCatLookup[`${dayKey(row.Date)}|${row.Class_Section}`] || ''
     }));
 
     setResults(enriched);
@@ -2764,16 +2837,18 @@ const [editCategory, setEditCategory] = useState('');
   setIsLoading(false);
 };
 
-  const startEdit = (row, mode) => {
-    console.log('startEdit called:', { mode, id: row.Attendance_ID, hours: row.Hours, category: row.Category });
+ const startEdit = (row, mode) => {
     setEditingId(String(row.Attendance_ID || ''));
     setEditingMode(mode);
     setEditStatus(row.Status || '');
     setEditHours(row.Hours !== undefined && row.Hours !== '' && row.Hours !== null ? row.Hours : '');
-    setEditCategory(row.Category || '');
+    
+    // 👇 CHANGE THIS LINE 👇
+    setEditCategory(mode === 'hours' ? (row._dayCategory || row.Category || '') : (row.Category || ''));
+    
     setEditReason('');
     setEditComment('');
-  };
+};
 
   const cancelEdit = () => {
     setEditingId(null);
@@ -3037,12 +3112,27 @@ const saveEdit = async (row) => {
 <td className="whitespace-nowrap align-top" style={{ minWidth: '240px' }}>
   {String(editingId) === String(row.Attendance_ID) && editingMode === 'hours' ? (
     <div className="flex flex-col gap-2 py-1">
+     {/* ✅ NEW INPUT — auto-rebalances the category split */}
       <input
         type="number"
         min="0.25"
         step="0.25"
         value={editHours}
-        onChange={e => setEditHours(e.target.value)}
+        onChange={e => {
+          const v = e.target.value;
+          setEditHours(v);
+          const dayCats = parseDayCategories(row._dayCategory || row.Category);
+          if (dayCats.length > 1) {
+            const oldMap = parseStudentCategoryMap(editCategory || row.Category);
+            const oldSum = dayCats.reduce((s, c) => s + (oldMap[c.name] ?? c.hours ?? 0), 0) || 1;
+            const newTotal = Number(v) || 0;
+            const scaled = dayCats.map(c => ({
+              name: c.name,
+              hours: Math.round(((oldMap[c.name] ?? c.hours ?? 0) / oldSum) * newTotal * 4) / 4
+            }));
+            setEditCategory(formatCategoryString(scaled));
+          }
+        }}
         className="form-input"
         placeholder="Total Hours"
         style={{ width: '100%', padding: '0.375rem 0.5rem', background: 'var(--panel-color)', color: 'var(--text-color)', border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)' }}
@@ -3058,9 +3148,9 @@ const saveEdit = async (row) => {
       >
 {(parseDayCategories(row._dayCategory || row.Category).filter(c => c && c.name) || []).map(cat => {
           const currentMap = parseStudentCategoryMap(editCategory || row.Category);
-          const catHours = currentMap[cat.name] !== undefined
-            ? currentMap[cat.name]
-            : (cat.hours !== null ? cat.hours : (Number(editHours) || 0));
+       const catHours = currentMap[cat.name] !== undefined
+  ? currentMap[cat.name]
+  : (cat.hours !== null ? cat.hours : (Number(row.Hours) || Number(editHours) || 0));
           return (
             <div key={cat.name} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
               <span style={{ flex: 1, color: 'var(--text-color)' }}>{cat.name}</span>
@@ -3112,11 +3202,15 @@ const saveEdit = async (row) => {
     </div>
   ) : (
     <span>
-      {row.Hours !== undefined && row.Hours !== '' && row.Hours !== null ? row.Hours : '—'}
-      {row.Category ? (
-        <span style={{ color: 'var(--text-light)' }}> ({row.Category})</span>
-      ) : null}
+  {row.Hours !== undefined && row.Hours !== '' && row.Hours !== null ? row.Hours : '—'}
+  {row.Category ? (
+    <span style={{ color: 'var(--text-light)' }}>
+      {' ('}
+      {mcCell(row, 'Category')}
+      {')'}
     </span>
+  ) : null}
+</span>
   )}
 </td>
 
@@ -3770,12 +3864,22 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
   const [selectAll, setSelectAll] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [viewFilter, setViewFilter] = useState('unprinted'); // 'unprinted' | 'printed' | 'all'
+    const [searchFilter, setSearchFilter] = useState('');      // ← ADD THIS LINE
 
-  const displayedStudents = data.student_data.filter(s => {
-    if (viewFilter === 'unprinted') return s.QR_Printed !== 'Yes';
-    if (viewFilter === 'printed') return s.QR_Printed === 'Yes';
-    return true;
-  });
+  const displayedStudents = data.student_data
+    .filter(s => {
+      if (viewFilter === 'unprinted') return s.QR_Printed !== 'Yes';
+      if (viewFilter === 'printed') return s.QR_Printed === 'Yes';
+      return true;
+    })
+    .filter(s => {
+      if (!searchFilter.trim()) return true;
+      const q = searchFilter.trim().toLowerCase();
+      const sid = String(s.Std_ID || '').toLowerCase();
+      const name = String(s.Student_Name || '').toLowerCase();
+      const bc = String(s.Barcode_ID || '').toLowerCase();
+      return sid.includes(q) || name.includes(q) || bc.includes(q);
+    });
 
   const handleRefresh = async () => {
     setIsLoading(true);
@@ -3833,14 +3937,33 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
   };
 
   const handlePrintAll = async () => {
-    if (displayedStudents.length === 0) {
-      setError('No students in this view');
-      return;
-    }
+  if (displayedStudents.length === 0) {
+    setError('No students in this view');
+    return;
+  }
+  const allIds = displayedStudents.map(s => s.Std_ID);
+  setSelectedStudents(allIds);
 
-    setSelectedStudents(displayedStudents.map(s => s.Std_ID));
-    setTimeout(() => handlePrintQR(), 100);
-  };
+  // Inline the print logic so we don't depend on stale `selectedStudents`
+  setIsGenerating(true);
+  try {
+    const studentsToPrint = displayedStudents.filter(s =>
+      allIds.includes(s.Std_ID)
+    );
+    const result = await callWithRetry('generateQRCodePDF', studentsToPrint);
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(result);
+    printWindow.document.close();
+    await callWithRetry('markStudentsAsPrinted', allIds);
+    setSuccessMessage(`QR codes generated for ${allIds.length} students`);
+    setSelectedStudents([]);
+    setSelectAll(false);
+    await refreshData();
+  } catch (err) {
+    setError('Failed to generate QR codes: ' + err.message);
+  }
+  setIsGenerating(false);
+};
 
   return (
     <div className="card p-6">
@@ -3880,6 +4003,28 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
             {f.charAt(0).toUpperCase() + f.slice(1)}
           </button>
         ))}
+      </div>
+
+
+{/* 🆕 Search box — filter by SIRN / Name / Barcode */}
+      <div className="mb-4 flex items-center gap-3">
+        <div className="search-box flex-1" style={{ maxWidth: '400px' }}>
+          <i className="uil uil-search"></i>
+          <input
+            type="text"
+            placeholder="Search by SIRN, Name, or Barcode..."
+            value={searchFilter}
+            onChange={e => { setSearchFilter(e.target.value); setSelectedStudents([]); setSelectAll(false); }}
+          />
+        </div>
+        {searchFilter && (
+          <button
+            onClick={() => { setSearchFilter(''); setSelectedStudents([]); setSelectAll(false); }}
+            className="btn-outline text-sm"
+          >
+            <i className="uil uil-times"></i> Clear
+          </button>
+        )}
       </div>
 
       <div className="flex gap-4 mb-6">
@@ -3932,9 +4077,10 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
               />
               <span className="ml-2 text-sm font-medium">Select All</span>
             </label>
-            <span className="ml-4 text-sm text-gray-500">
-              {selectedStudents.length} of {displayedStudents.length} selected
-            </span>
+<span className="ml-4 text-sm text-gray-500">
+  {selectedStudents.length} of {displayedStudents.length} selected
+  {searchFilter && ` (filtered from ${data.student_data.length})`}
+</span>
           </div>
 
           <div className="table-container max-h-[500px]">
@@ -4081,14 +4227,30 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
     setIsPrinting(false);
   };
 
-  const handlePrintAllInView = () => {
-    if (displayedCodes.length === 0) {
-      setError('No codes in this view');
-      return;
-    }
-    setSelectedCodes(displayedCodes.map(r => r.Barcode_ID));
-    setTimeout(() => handlePrintSelected(), 100);
-  };
+const handlePrintAllInView = async () => {
+  if (displayedCodes.length === 0) {
+    setError('No codes in this view');
+    return;
+  }
+  const allCodes = displayedCodes.map(r => r.Barcode_ID);
+  setSelectedCodes(allCodes);
+
+  setIsPrinting(true);
+  try {
+    const result = await callWithRetry('generateBlankQRCodePDF', allCodes);
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(result);
+    printWindow.document.close();
+    await callWithRetry('markReserveCodesAsPrinted', allCodes);
+    setSuccessMessage(`QR cards generated for ${allCodes.length} reserve codes`);
+    setSelectedCodes([]);
+    setSelectAll(false);
+    await loadReserveCodes();
+  } catch (err) {
+    setError('Failed to generate QR cards: ' + err.message);
+  }
+  setIsPrinting(false);
+};
 
   return (
     <div className="card p-6">
@@ -5039,7 +5201,7 @@ html += `
             <span className="text-gray-400 font-bold">-</span> = No record&nbsp;·&nbsp;
             <span className="text-green-600 font-bold">P2</span> = 2 presents in a day
           </div>
-          <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600">
+          <table className="min-w-max border-collapse border border-gray-300 dark:border-gray-600">
             <thead className="sticky-header">
               <tr>
                 <th className="border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-100 dark:bg-gray-700">Std ID</th>
@@ -5329,7 +5491,7 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
       html += `<td style="padding:8px ${i < 3 ? '12px' : '8px'};
                          text-align:${i < 3 ? 'left' : 'center'};
                          border-bottom:1px solid #f1f5f9;
-                         background:${bgCell};color:${fgColorOr(fgCell, isTotal)};
+                         background:${bgCell};color:${isTotal ? '#1e40af' : fgCell};
                          font-weight:${isTotal ? 700 : weight};font-size:11px;${extra}">
                  ${raw || '—'}
                </td>`;
@@ -5361,10 +5523,7 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
   setIsLoading(false);
 };
 
-// Tiny helper so the total-row override doesn't fight the tint colour
-function fgColorOr(defaultFg, isTotal) {
-  return isTotal ? '#1e40af' : defaultFg;
-}
+
 
   const logDownload = (name, format) => {
     setDownloadHistory(prev => [{ name, format, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }, ...prev].slice(0, 5));
@@ -5833,7 +5992,7 @@ function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, u
     if (filteredData.length === 0) { setError('No data to download'); return; }
     let csv = columns.map(c => columnLabels[c]).join(',') + '\n';
     filteredData.forEach(row => {
-      csv += columns.map(c => `"${(c === 'Date' ? formatLogDate(row[c]) : (row[c] ?? '')).toString().replace(/"/g, '""')}"`).join(',') + '\n';
+      csv += columns.map(c => `"${(c === 'Date' ? formatLogDate(row[c]) : (mcCell(row, c) ?? '')).toString().replace(/"/g, '""')}"`).join(',') + '\n';
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
@@ -5869,7 +6028,7 @@ function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, u
     filteredData.forEach((row, idx) => {
       html += `<tr style="background:${idx % 2 === 0 ? '#ffffff' : '#f8f9fa'};">`;
       columns.forEach(c => {
-        const val = c === 'Date' ? formatLogDate(row[c]) : (row[c] ?? '');
+        const val = c === 'Date' ? formatLogDate(row[c]) : (mcCell(row, c) ?? '');
         html += `<td style="padding:6px 8px;border:1px solid #ddd;">${val}</td>`;
       });
       html += '</tr>';
@@ -5960,10 +6119,10 @@ function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, u
                 <tr key={index}>
                   <td className="whitespace-nowrap">{formatLogDate(row.Date)}</td>
                   <td className="whitespace-nowrap">{row.Class_Section || ''}</td>
-                  <td className="whitespace-nowrap">{row.Old_Hours || '—'}</td>
-                  <td className="whitespace-nowrap">{row.New_Hours || ''}</td>
-                  <td className="whitespace-nowrap">{row.Old_Category || '—'}</td>
-                  <td className="whitespace-nowrap">{row.New_Category || ''}</td>
+<td className="whitespace-nowrap">{mcCell(row, 'Old_Hours') || '—'}</td>
+<td className="whitespace-nowrap">{mcCell(row, 'New_Hours') || ''}</td>
+<td className="whitespace-nowrap">{mcCell(row, 'Old_Category') || '—'}</td>
+<td className="whitespace-nowrap">{mcCell(row, 'New_Category') || ''}</td>
                   <td className="whitespace-nowrap">{row.UserID || ''}</td>
                   <td className="whitespace-nowrap">{row.REC_ID || ''}</td>
                   <td className="whitespace-nowrap">{row.Timestamp || ''}</td>
@@ -6054,7 +6213,7 @@ const columnLabels = {
     if (filteredData.length === 0) { setError('No data to download'); return; }
     let csv = columns.map(c => columnLabels[c]).join(',') + '\n';
     filteredData.forEach(row => {
-      csv += columns.map(c => `"${(c === 'Date' ? formatLogDate(row[c]) : (row[c] ?? '')).toString().replace(/"/g, '""')}"`).join(',') + '\n';
+      csv += columns.map(c => `"${(c === 'Date' ? formatLogDate(row[c]) : (mcCell(row, c) ?? '')).toString().replace(/"/g, '""')}"`).join(',') + '\n';
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
@@ -6090,7 +6249,7 @@ const columnLabels = {
     filteredData.forEach((row, idx) => {
       html += `<tr style="background:${idx % 2 === 0 ? '#ffffff' : '#f8f9fa'};">`;
       columns.forEach(c => {
-        const val = c === 'Date' ? formatLogDate(row[c]) : (row[c] ?? '');
+        const val = c === 'Date' ? formatLogDate(row[c]) : (mcCell(row, c) ?? '');
         html += `<td style="padding:6px 8px;border:1px solid #ddd;">${val}</td>`;
       });
       html += '</tr>';
@@ -6189,10 +6348,10 @@ const columnLabels = {
 <td className="whitespace-nowrap">{row.Class_Section || ''}</td>
 <td className="whitespace-nowrap">{row.Old_Status || ''}</td>
 <td className="whitespace-nowrap">{row.New_Status || ''}</td>
-<td className="whitespace-nowrap">{row.Old_Hours || '—'}</td>
-<td className="whitespace-nowrap">{row.New_Hours || '—'}</td>
-<td className="whitespace-nowrap">{row.Old_Category || '—'}</td>   {/* 🆕 */}
-<td className="whitespace-nowrap">{row.New_Category || '—'}</td>   {/* 🆕 */}
+<td className="whitespace-nowrap">{mcCell(row, 'Old_Hours') || '—'}</td>
+<td className="whitespace-nowrap">{mcCell(row, 'New_Hours') || '—'}</td>
+<td className="whitespace-nowrap">{mcCell(row, 'Old_Category') || '—'}</td>
+<td className="whitespace-nowrap">{mcCell(row, 'New_Category') || '—'}</td>
 <td className="whitespace-nowrap">{row.Reason || '—'}</td>
 <td className="whitespace-nowrap">{row.Comment || '—'}</td>
 <td className="whitespace-nowrap">{row.Corrected_By || ''}</td>
@@ -6216,9 +6375,76 @@ const columnLabels = {
       const [formErrors, setFormErrors] = useState({});
       const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
       const [deleteParams, setDeleteParams] = useState({ table: '', index: null, rowNumber: null });
-      const [subTab, setSubTab] = useState('class_sections');
+      const [subTab, setSubTab] = useState('class_mappings');
       const [message, setMessage] = useState('');
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+      // ✅ Master class list — used for the dropdown
+const MASTER_CLASSES = [
+  'IBT', 'NUR', 'KGI', 'KGII',
+  'I', 'II', 'III', 'IV', 'V', 'VI',
+  'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'
+];
+
+// ✅ State for the new Class Mapping bulk-add form
+const [newMappingClass, setNewMappingClass] = useState('');
+const [newMappingSections, setNewMappingSections] = useState('');
+
+// ✅ Submit handler: adds a Class + all its Sections in one call
+const handleAddClassMapping = async (e) => {
+  e.preventDefault();
+  if (!newMappingClass) {
+    setError('Please select a Class');
+    return;
+  }
+  if (!newMappingSections.trim()) {
+    setError('Please enter at least one section');
+    return;
+  }
+
+  const sections = newMappingSections
+    .split(',')
+    .map(s => s.trim().toUpperCase())
+    .filter(Boolean);
+
+  if (sections.length === 0) {
+    setError('Please enter at least one section');
+    return;
+  }
+  if (!sections.every(s => /^[A-Z]$/.test(s))) {
+    setError('Sections must be single letters (e.g., A,B,C)');
+    return;
+  }
+
+  // Check duplicate class in current mappings
+  const existingClasses = (data.class_mappings || []).map(m => String(m.Class || '').trim());
+  if (existingClasses.includes(newMappingClass)) {
+    setError(`Class "${newMappingClass}" is already mapped. Please edit the existing mapping instead.`);
+    return;
+  }
+
+  setIsLoading(true);
+  try {
+    const result = await callWithRetry(
+      'addClassMappingWithSections',
+      newMappingClass,
+      sections.join(','),
+      recId || ''
+    );
+    if (result.success) {
+      setSuccessMessage(result.message);
+      setNewMappingClass('');
+      setNewMappingSections('');
+      setError('');
+      refreshData(); // reload class_sections + class_mappings
+    } else {
+      setError(result.message || 'Failed to add class mapping');
+    }
+  } catch (err) {
+    setError('Add failed after retries: ' + err.message);
+  }
+  setIsLoading(false);
+};
 
       const clearForm = () => {
         setFormData({});
@@ -6313,13 +6539,26 @@ const formatDateToDDMMMYYYY = (dateStr) => {
             ]}
           ],
         },
-        class_sections: {
-          fields: [
-            { section: 'Class Sections', fields: [
-              { name: 'Class_Section', type: 'text', required: true, placeholder: 'Enter class section (e.g., 1A, 2B)' },
-            ]}
-          ],
-        },
+      class_sections: {
+  fields: [
+    { section: 'Class Sections', fields: [
+      {
+        name: 'Class',
+        type: 'select',
+        required: true,
+        placeholder: 'Select Class',
+        options: (data.class_mappings || []).map(m => m.Class).filter(Boolean)
+      },
+      {
+        name: 'Section',
+        type: 'select',
+        required: true,
+        placeholder: 'Select Section',
+        options: []   // populated dynamically from the selected Class
+      },
+    ]}
+  ],
+},
         class_mappings: {
           fields: [
             { section: 'Class Mappings', fields: [
@@ -6510,33 +6749,68 @@ const formatDateToDDMMMYYYY = (dateStr) => {
   if (!validateForm()) return;
   const targetTable = table === 'class_sections' ? subTab : table;
   const dataToSubmit = { ...formData };
+
   if (table === 'class_sections' && subTab === 'class_mappings') {
     dataToSubmit.Sections = formData.Sections;
+  }
+  if (table === 'class_sections' && subTab === 'class_sections') {
+    const cls = String(formData.Class || '').trim();
+    const sec = String(formData.Section || '').trim();
+    if (cls && sec) {
+      dataToSubmit.Class_Section = `${cls}-${sec}`;
+    }
+    delete dataToSubmit.Class;
+    delete dataToSubmit.Section;
   }
   if (table === 'teacher_assignments' && formData.Class_Section) {
     dataToSubmit.Class_Section = formData.Class_Section.join(',');
   }
   if (recId) dataToSubmit.REC_ID = recId;
-  
+
+  // ── Duplicate guard for Class Sections tab (Add only) ──
+  if (table === 'class_sections' && subTab === 'class_sections' && editingIndex === null) {
+    const combo = dataToSubmit.Class_Section;
+    if (combo) {
+      const dup = (data.class_sections || []).some(r =>
+        String(r.Class_Section || '').trim() === combo
+      );
+      if (dup) {
+        setError(`Section "${combo}" already exists for your school.`);
+        return;
+      }
+    }
+  }
+
   setIsLoading(true);
   setMessage('');
-  
+
   if (editingIndex !== null) {
     const rowNumber = filteredData[editingIndex]._rowNumber;
+    const editingRow = filteredData[editingIndex];
+
     try {
-            const result = await callWithRetry('updateSheetRow', targetTable, rowNumber, dataToSubmit, username);
+      let result;
+      if (targetTable === 'class_mappings') {
+        result = await callWithRetry(
+          'updateClassMapping',
+          formData.Class,
+          formData.Sections,
+          recId || '',
+          editingRow.Sections
+        );
+      } else {
+        result = await callWithRetry('updateSheetRow', targetTable, rowNumber, dataToSubmit, username);
+      }
+
       if (result.success) {
-        setSuccessMessage('Record updated successfully');
-        setData(prev => ({
-          ...prev,
-          [targetTable]: prev[targetTable].map((item) =>
-            item._rowNumber === rowNumber ? { ...item, ...result.data } : item
-          ),
-        }));
+        setSuccessMessage(result.message || 'Record updated successfully');
         setFormData({});
         setEditingIndex(null);
         setFormErrors({});
-        setError('');  // ✅ CLEAR ERROR MESSAGE
+        setError('');
+        if (targetTable === 'class_mappings' || targetTable === 'class_sections') {
+          refreshData();
+        }
       } else {
         setError(result.message || 'Update failed');
       }
@@ -6546,7 +6820,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
     setIsLoading(false);
   } else {
     try {
-            const result = await callWithRetry('addSheetRow', targetTable, dataToSubmit, username);
+      const result = await callWithRetry('addSheetRow', targetTable, dataToSubmit, username);
       if (result.success) {
         setSuccessMessage('Record added successfully');
         setData(prev => ({
@@ -6556,7 +6830,7 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         setFormData({});
         setIsAdding(false);
         setFormErrors({});
-        setError('');  // ✅ CLEAR ERROR MESSAGE
+        setError('');
         if (targetTable === 'class_sections' || targetTable === 'class_mappings') {
           refreshData();
         }
@@ -6574,11 +6848,22 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         setEditingIndex(index);
         setIsAdding(false);
         const item = filteredData[index];
+
         const newFormData = { ...item };
         if (table === 'users') {
           newFormData.allowedTabs = item.allowedTabs ? item.allowedTabs.split(',') : [];
           newFormData.AllowedDays = item.AllowedDays ? item.AllowedDays.split(',') : [];
         }
+
+        if (table === 'class_sections' && subTab === 'class_sections') {
+  const combo = String(item.Class_Section || '').trim();
+  const dashPos = combo.lastIndexOf('-');
+  if (dashPos > 0) {
+    newFormData.Class   = combo.slice(0, dashPos).trim();
+    newFormData.Section = combo.slice(dashPos + 1).trim();
+  }
+}
+
         if (table === 'teacher_assignments') {
           newFormData.Class_Section = item.Class_Section ? item.Class_Section.split(',') : [];
         }
@@ -6597,20 +6882,47 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         setIsStdIdEditable(false);
       };
 
-      const handleDeleteClick = (table, index, rowNumber) => {
-        setDeleteParams({ table: table === 'class_sections' ? subTab : table, index, rowNumber });
-        setShowDeleteConfirm(true);
-      };
+    const handleDeleteClick = (table, index, rowNumber) => {
+  if (table === 'class_sections' && subTab === 'class_sections') {
+    setError('Delete the parent Class in Class Mappings instead — individual sections are kept for old records.');
+    return;
+  }
+  const resolved = (table === 'class_sections' && subTab === 'class_mappings') ? 'Class_Sections' : table;
+  setDeleteParams({ table: resolved, index, rowNumber });
+  setShowDeleteConfirm(true);
+};
 
-      const confirmDelete = async () => {
-        try {
-          await onDelete(deleteParams.table, deleteParams.rowNumber);
-        } catch (err) {
-          setError('Delete failed: ' + err.message);
-        }
+
+
+  const confirmDelete = async () => {
+  try {
+    if (subTab === 'class_mappings' && table === 'class_sections') {
+      const row = filteredData[deleteParams.index];
+      const cls = row?.Class || '';
+      if (!cls) {
+        setError('Cannot determine class name for delete');
         setShowDeleteConfirm(false);
-        setDeleteParams({ table: '', index: null, rowNumber: null });
-      };
+        return;
+      }
+      setIsLoading(true);
+      const result = await callWithRetry('deleteClassMappingWithSections', cls, recId || '');
+      setIsLoading(false);
+      if (result.success) {
+        setSuccessMessage(result.message);
+        refreshData();
+      } else {
+        setError(result.message || 'Delete failed');
+      }
+    } else {
+      await onDelete(deleteParams.table, deleteParams.rowNumber);
+    }
+  } catch (err) {
+    setError('Delete failed: ' + err.message);
+  }
+  setShowDeleteConfirm(false);
+  setDeleteParams({ table: '', index: null, rowNumber: null });
+};
+
 
       const handleInputChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -6622,6 +6934,10 @@ const formatDateToDDMMMYYYY = (dateStr) => {
         if (name === 'Student_Class' && table === 'student_data') {
           setFormData(prev => ({ ...prev, Student_Section: '' }));
         }
+if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections') {
+  setFormData(prev => ({ ...prev, Section: '' }));
+}
+
         if (name === 'Allowed_Date' && table === 'previous_date_permissions') {
           setFormData(prev => ({ ...prev, Day: getDayOfWeek(value) }));
         }
@@ -6656,9 +6972,24 @@ const formatDateToDDMMMYYYY = (dateStr) => {
                         required={field.required}
                       >
                         <option value="" disabled>{field.placeholder}</option>
-                        {(field.name === 'Student_Section' ? classSectionMap[formData.Student_Class] || [] : field.options).map(option => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
+                        {(() => {
+  // Dynamic options for Class Sections tab
+  if (table === 'class_sections' && subTab === 'class_sections' && field.name === 'Section') {
+    const sel = String(formData.Class || '').trim();
+    if (!sel) return [];
+    const map = (data.class_mappings || []).find(m => String(m.Class || '').trim() === sel);
+    if (!map) return [];
+    return String(map.Sections || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+  }
+  // Existing dynamic options for Student form
+  if (field.name === 'Student_Section') {
+    return classSectionMap[formData.Student_Class] || [];
+  }
+  return field.options || [];
+})().map(option => (
+  <option key={option} value={option}>{option}</option>
+))}
                       </select>
                       <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                     </>
@@ -6783,47 +7114,107 @@ const formatDateToDDMMMYYYY = (dateStr) => {
             </div>
           )}
           {!isAdding && editingIndex === null && (
-            <div className="flex flex-wrap gap-2 mb-6">
-                            <button
-                onClick={async () => {
-                  setIsAdding(true);
-                  const defaults = {};
-                  const cfg = table === 'class_sections' ? tableConfigs[subTab] : tableConfigs[table];
-                  if (cfg) {
-                    cfg.fields.forEach(section => section.fields.forEach(f => {
-                      if (f.type === 'checkbox') defaults[f.name] = false;
-                    }));
-                  }
-                  if (table === 'student_data') {
-                    const barcodeField = tableConfigs.student_data.fields
-                      .flatMap(s => s.fields)
-                      .find(f => f.name === 'Barcode_ID');
-                    defaults.Barcode_ID = barcodeField ? barcodeField.placeholder : '';
-                  }
-                  setFormData(defaults);
-                  setIsStdIdEditable(table === 'student_data');
-                  if (table === 'student_data') {
-                    try {
-                      const reserveResult = await callWithRetry('getSheetData', 'Reserve_Codes', recId);
-                      const unused = reserveResult.find(r => r.Status === 'Unused');
-                      if (unused) setFormData(prev => ({ ...prev, Barcode_ID: unused.Barcode_ID }));
-                    } catch (e) {
-                      // Reserve_Codes sheet may not exist yet — keep the "auto-generated" placeholder text
-                    }
-                  }
-                }}
-                className="btn-primary"
-              >
-                Add New {table === 'class_sections' ? subTab.replace('_', ' ') : table.replace('_', ' ')}
-              </button>
-              <button
-                onClick={() => refreshData()} 
-                className="btn-secondary"
-              >
-                Refresh Data
-              </button>
-            </div>
+  <div className="flex flex-wrap gap-2 mb-6">
+    {/* Existing Add button (for all tables EXCEPT class_mappings) */}
+    {!(table === 'class_sections' && subTab === 'class_mappings') && (
+      <button
+        onClick={async () => {
+          setIsAdding(true);
+          const defaults = {};
+          const cfg = table === 'class_sections' ? tableConfigs[subTab] : tableConfigs[table];
+          if (cfg) {
+            cfg.fields.forEach(section => section.fields.forEach(f => {
+              if (f.type === 'checkbox') defaults[f.name] = false;
+            }));
+          }
+          if (table === 'student_data') {
+            const barcodeField = tableConfigs.student_data.fields
+              .flatMap(s => s.fields)
+              .find(f => f.name === 'Barcode_ID');
+            defaults.Barcode_ID = barcodeField ? barcodeField.placeholder : '';
+          }
+          setFormData(defaults);
+          setIsStdIdEditable(table === 'student_data');
+          if (table === 'student_data') {
+            try {
+              const reserveResult = await callWithRetry('getSheetData', 'Reserve_Codes', recId);
+              const unused = reserveResult.find(r => r.Status === 'Unused');
+              if (unused) setFormData(prev => ({ ...prev, Barcode_ID: unused.Barcode_ID }));
+            } catch (e) {
+              // Reserve_Codes sheet may not exist yet
+            }
+          }
+        }}
+        className="btn-primary"
+      >
+        Add New {table === 'class_sections' ? subTab.replace('_', ' ') : table.replace('_', ' ')}
+      </button>
+    )}
+    <button
+      onClick={() => refreshData()} 
+      className="btn-secondary"
+    >
+      Refresh Data
+    </button>
+  </div>
+)}
+
+{/* ✅ Bulk Add Class Mapping form (only on Class Mappings tab) */}
+{table === 'class_sections' && subTab === 'class_mappings' && !isAdding && editingIndex === null && (
+  <div className="form-container mb-6">
+    <h3 className="text-lg font-semibold mb-4">Add New Class Mapping</h3>
+    <form onSubmit={handleAddClassMapping}>
+      <div className="form-row">
+        <div className="form-field">
+          <select
+            value={newMappingClass}
+            onChange={e => setNewMappingClass(e.target.value)}
+            className="form-input"
+            id="newMappingClass"
+            required
+          >
+            <option value="" disabled>Select Class</option>
+            {MASTER_CLASSES.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <label htmlFor="newMappingClass">Class</label>
+        </div>
+        <div className="form-field">
+          <input
+            type="text"
+            value={newMappingSections}
+            onChange={e => setNewMappingSections(e.target.value)}
+            placeholder="e.g., A,B,C,D"
+            className="form-input"
+            id="newMappingSections"
+            required
+          />
+          <label htmlFor="newMappingSections">Sections (comma-separated)</label>
+        </div>
+      </div>
+      <div className="form-actions">
+        <button
+          type="submit"
+          disabled={isLoading}
+          className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+        >
+          {isLoading ? (
+            <>
+              <i className="uil uil-spinner text-xl loading-spinner"></i>
+              Adding...
+            </>
+          ) : (
+            'Add Class Mapping'
           )}
+        </button>
+      </div>
+    </form>
+    <p className="text-sm text-gray-500 mt-3">
+      💡 Tip: Enter sections as single letters separated by commas (e.g., <code>A,B,C,D</code>). Each combination (Class-Section) will be auto-generated in the Class Sections list.
+    </p>
+  </div>
+)}
           {isLoading ? (
             <p className="text-gray-500">Loading...</p>
           ) : filteredData.length === 0 ? (
@@ -6888,13 +7279,19 @@ const formatDateToDDMMMYYYY = (dateStr) => {
                             { name: 'REC_ID' },  // ← ADD THIS
                           ]
                         : (table === 'class_sections' ? tableConfigs[subTab].fields.flatMap(s => s.fields) : tableConfigs[table].fields.flatMap(s => s.fields))
-                      ).map(field => (
-                                                <td key={field.name}>
-                          {table === 'user_permissions' && !['Username', 'REC_ID'].includes(field.name)
-                            ? ((item[field.name] === true || item[field.name] === 'true' || item[field.name] === 'TRUE') ? 'Yes' : 'No')
-                            : (item[field.name] || '')}
+                                            ).map(field => (
+                        <td key={field.name}>
+                          {table === 'user_permissions' && !['Username', 'REC_ID'].includes(field.name) ? (
+                            (item[field.name] === true || item[field.name] === 'true' || item[field.name] === 'TRUE') ? 'Yes' : 'No'
+                          ) : table === 'class_sections' && subTab === 'class_sections' ? (
+                            /* 👇 SPLIT 'I-A' INTO 'I' AND 'A' FOR THE TABLE 👇 */
+                            field.name === 'Class' ? String(item.Class_Section || '').split('-')[0] || '' :
+                            field.name === 'Section' ? String(item.Class_Section || '').split('-').slice(1).join('-') || '' :
+                            (item[field.name] || '')
+                          ) : (
+                            (item[field.name] || '')
+                          )}
                         </td>
-                        
                       ))}
                       <td>
                         <button

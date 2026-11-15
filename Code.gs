@@ -59,12 +59,12 @@ function authenticateUser(username, password) {
 }
 
 // Get data from a specific sheet
-// Get data from a specific sheet
 function getSheetData(sheetName, recId) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(sheetName);
     if (!sheet) throw new Error(sheetName + ' sheet not found');
+if (isPrevPermSheet_(sheetName)) ensurePrevPermColumns_(sheet);    
     
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
@@ -99,45 +99,171 @@ function getSheetData(sheetName, recId) {
   }
 }
 
-// Get Class_Section data (column A)
-function getClassSectionData() {
+// ============ CLASS_MAPPING MIGRATION (one-time, REC-aware, atomic) ============
+function ensureClassMappingSheet_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    Logger.log('ensureClassMappingSheet_: could not acquire lock within 30s — skipping migration this run.');
+    return;
+  }
+
   try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // Already migrated → nothing to do
+    if (ss.getSheetByName('Class_Mapping')) return;
+
+    const src = ss.getSheetByName('Class_Sections');
+    if (!src) return;
+
+    const data = src.getDataRange().getValues();
+    if (data.length <= 1) {
+      const dst = ss.insertSheet('Class_Mapping');
+      dst.appendRow(['Class', 'Sections', 'REC_ID']);
+      dst.setFrozenRows(1);
+      SpreadsheetApp.flush();
+      Logger.log('Class_Mapping sheet created (source was empty).');
+      return;
+    }
+
+    const headers = data[0];
+    const secIdCol = headers.indexOf('Class_Section');
+    const recCol   = headers.indexOf('REC_ID');
+    if (secIdCol === -1 || recCol === -1) {
+      Logger.log('Migration skipped — required columns missing in Class_Sections');
+      return;
+    }
+
+    // 1. Group by (Class, REC_ID) — two schools may both have class "I"
+    const byKey = {};
+    for (let i = 1; i < data.length; i++) {
+      const combo = String(data[i][secIdCol] || '').trim();
+      if (!combo) continue;
+
+      const dashPos = combo.lastIndexOf('-');
+      if (dashPos <= 0) {
+        Logger.log(`Migration: skipping malformed row ${i + 1} — "${combo}" has no hyphen`);
+        continue;
+      }
+
+      const cls = combo.slice(0, dashPos).trim();
+      const sec = combo.slice(dashPos + 1).trim().toUpperCase();
+      if (!cls || !sec) continue;
+
+      const recId = String(data[i][recCol] || '').trim();
+      if (!recId) {
+        Logger.log(`Migration: skipping row ${i + 1} — no REC_ID in Col B`);
+        continue;
+      }
+
+      const key = `${cls}|${recId}`;
+      if (!byKey[key]) byKey[key] = { class: cls, recId: recId, sections: new Set() };
+      byKey[key].sections.add(sec);
+    }
+
+    // 2. Create Class_Mapping and write one row per (Class, REC_ID)
+    const dst = ss.insertSheet('Class_Mapping');
+    dst.appendRow(['Class', 'Sections', 'REC_ID']);
+
+    const expectedCount = Object.keys(byKey).length;
+    const rows = Object.keys(byKey)
+      .sort()
+      .map(key => {
+        const e = byKey[key];
+        return [e.class, Array.from(e.sections).sort().join(','), e.recId];
+      });
+
+    if (rows.length > 0) {
+      dst.getRange(2, 1, rows.length, 3).setValues(rows);
+    }
+    dst.setFrozenRows(1);
+    SpreadsheetApp.flush();
+
+    // 3. VERIFY before clearing
+    const written = dst.getLastRow() - 1;
+    if (written !== expectedCount) {
+      Logger.log(`Migration ABORTED before clearing: wrote ${written} rows, expected ${expectedCount}. Col C/D/E preserved.`);
+      ss.deleteSheet(dst);
+      return;
+    }
+
+    // 4. Clear Col C/D/E in Class_Sections (headers + data, all RECs)
+    const lastCol = src.getLastColumn();
+    if (lastCol >= 3) {
+      const totalRows = src.getLastRow();
+      if (totalRows >= 1) {
+        src.getRange(1, 3, totalRows, lastCol - 2).clearContent();
+      }
+    }
+
+    SpreadsheetApp.flush();
+    Logger.log(`Migration complete: ${written} class mappings created. Class_Sections Col C+ cleared.`);
+  } catch (e) {
+    Logger.log('Migration FAILED: ' + e.message);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+function getClassSectionData(recId) {
+  try {
+    ensureClassMappingSheet_();
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName('Class_Sections');
     if (!sheet) throw new Error('Class_Sections sheet not found');
-    
+
     const data = sheet.getDataRange().getValues();
-    
-    return data.slice(1) // Skip header row
-      .filter(row => row[0]) // Filter empty rows
-      .map((row, index) => ({
-        Class_Section: row[0] ? row[0].toString() : '',
-        _rowNumber: index + 2
-      }));
+    const headers = data[0];
+    const secCol = headers.indexOf('Class_Section');
+    const recCol = headers.indexOf('REC_ID');
+    if (secCol === -1) throw new Error('Class_Section column not found');
+
+    const result = [];
+    for (let i = 1; i < data.length; i++) {
+      const sec = String(data[i][secCol] || '').trim();
+      if (!sec) continue;
+      if (recId && recCol !== -1) {
+        const rowRec = String(data[i][recCol] || '').trim();
+        if (rowRec !== recId) continue;
+      }
+      result.push({ Class_Section: sec, _rowNumber: i + 1 });
+    }
+    return result;
   } catch (e) {
     Logger.log('Failed to fetch class section data: ' + e.message);
     throw new Error('Failed to fetch class section data: ' + e.message);
   }
 }
 
-// Get class and section mappings from Class_Sections sheet
-function getClassMappingData() {
+function getClassMappingData(recId) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName('Class_Sections');
-    if (!sheet) throw new Error('Class_Sections sheet not found');
-    
-    var data = sheet.getDataRange().getValues();
-    var result = [];
-    
-    for (var i = 1; i < data.length; i++) {
-      if (data[i][2] || data[i][3]) {
-        result.push({
-          Class: data[i][2] !== null && data[i][2] !== undefined ? data[i][2].toString() : '',
-          Sections: data[i][3] !== null && data[i][3] !== undefined ? data[i][3].toString() : '',
-          _rowNumber: i + 1
-        });
+    ensureClassMappingSheet_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Class_Mapping');
+    if (!sheet) throw new Error('Class_Mapping sheet not found');
+
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const clsCol  = headers.indexOf('Class');
+    const secCol  = headers.indexOf('Sections');
+    const recCol  = headers.indexOf('REC_ID');
+    if (clsCol === -1 || secCol === -1) throw new Error('Required columns missing in Class_Mapping');
+
+    const result = [];
+    for (let i = 1; i < data.length; i++) {
+      const cls = String(data[i][clsCol] || '').trim();
+      if (!cls) continue;
+      if (recId && recCol !== -1) {
+        const rowRec = String(data[i][recCol] || '').trim();
+        if (rowRec !== recId) continue;
       }
+      result.push({
+        Class: cls,
+        Sections: String(data[i][secCol] || '').trim(),
+        REC_ID: recCol !== -1 ? String(data[i][recCol] || '').trim() : '',
+        _rowNumber: i + 1
+      });
     }
     return result;
   } catch (e) {
@@ -146,7 +272,62 @@ function getClassMappingData() {
   }
 }
 
-// Add a new row to a sheet
+
+// ============ PREVIOUS_DATE_PERMISSIONS AUTO-SETUP ============
+const PREV_PERM_SHEET = 'Previous_Date_Permissions';
+const PREV_PERM_NEW_COLUMNS = ['Attendance_Type', 'Granted_At', 'Expires_At'];
+
+function isPrevPermSheet_(sheetName) {
+  return String(sheetName || '').trim().toLowerCase() === PREV_PERM_SHEET.toLowerCase();
+}
+
+function ensurePrevPermColumns_(sheet) {
+  if (!sheet) return [];
+  let lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return [];
+  let headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const missing = PREV_PERM_NEW_COLUMNS.filter(c => headers.indexOf(c) === -1);
+  if (missing.length === 0) return headers;
+  sheet.getRange(1, lastCol + 1, 1, missing.length).setValues([missing]);
+  const totalRows = sheet.getMaxRows();
+  missing.forEach(function (name, i) {
+    const colIndex = lastCol + 1 + i;
+    if (name === 'Granted_At' || name === 'Expires_At') {
+      if (totalRows > 1) {
+        sheet.getRange(2, colIndex, totalRows - 1, 1).setNumberFormat('dd-MMM-yyyy hh:mm AM/PM');
+      }
+      sheet.setColumnWidth(colIndex, 180);
+    }
+  });
+  SpreadsheetApp.flush();
+  lastCol = sheet.getLastColumn();
+  return sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+}
+
+function setupPrevPermColumns() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(PREV_PERM_SHEET);
+  if (!sheet) throw new Error(PREV_PERM_SHEET + ' sheet not found');
+  ensurePrevPermColumns_(sheet);
+}
+
+function stampPrevPermTimestamps_(rowData) {
+  const grantedAt = new Date();
+  rowData.Granted_At = grantedAt;
+  rowData.Expires_At = new Date(grantedAt.getTime() + 24 * 60 * 60 * 1000);
+  if (!rowData.Attendance_Type) rowData.Attendance_Type = 'Both';
+}
+
+function sanitizeRowForClient_(row) {
+  const tz = Session.getScriptTimeZone() || 'Asia/Karachi';
+  Object.keys(row).forEach(function (k) {
+    if (row[k] instanceof Date) {
+      row[k] = Utilities.formatDate(row[k], tz, 'dd-MMM-yyyy hh:mm a');
+    }
+  });
+  return row;
+}
+
+
 // Add a new row to a sheet
 function addSheetRow(sheetName, rowData, currentUsername) {
   try {
@@ -172,7 +353,11 @@ function addSheetRow(sheetName, rowData, currentUsername) {
       }
     }
     
+    if (isPrevPermSheet_(sheetName)) ensurePrevPermColumns_(sheet);
+
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+    if (isPrevPermSheet_(sheetName)) stampPrevPermTimestamps_(rowData);
 
     // Get REC_ID from the current user
     let recId = '';
@@ -235,7 +420,7 @@ function addSheetRow(sheetName, rowData, currentUsername) {
     return { 
       success: true, 
       message: 'Record added successfully', 
-      data: { ...rowData, _rowNumber: sheet.getLastRow() } 
+      data: sanitizeRowForClient_({ ...rowData, _rowNumber: sheet.getLastRow() })
     };
   } catch (e) {
     Logger.log('Error in addSheetRow: ' + e.message);
@@ -324,6 +509,8 @@ function updateSheetRow(sheetName, rowIndex, rowData, currentUsername) {
         return { success: false, message: 'Permission denied: Sheet or range is protected' };
       }
     }
+
+    if (isPrevPermSheet_(sheetName)) ensurePrevPermColumns_(sheet);
     
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     if (!headers || headers.length === 0) {
@@ -580,6 +767,11 @@ return {
 };
     }
     
+if (isPrevPermSheet_(sheetName)) stampPrevPermTimestamps_(rowData);
+
+
+   
+
     // ✅ OTHER SHEETS (Users, User_Permissions, etc.)
     const newRow = headers.map(function(header) {
       const value = rowData[header];
@@ -626,7 +818,7 @@ return {
     return {
       success: true,
       message: 'Record updated successfully',
-      data: { ...rowData, _rowNumber: rowIndex }
+      data: sanitizeRowForClient_({ ...rowData, _rowNumber: rowIndex })
     };
     
   } catch (e) {
@@ -1836,3 +2028,212 @@ function sumBreakdown_(items) {
   if (!Array.isArray(items)) return 0;
   return items.reduce((sum, i) => sum + (Number(i.hours) || 0), 0);
 }
+
+
+
+// ============ CLASS MAPPINGS — BULK ADD ============
+const MASTER_CLASSES = [
+  'IBT', 'NUR', 'KGI', 'KGII',
+  'I', 'II', 'III', 'IV', 'V', 'VI',
+  'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'
+];
+
+/**
+ * Add a Class + all its Sections in ONE call.
+ * Writes to Class_Sections sheet:
+ *   - Column C: Class
+ *   - Column D: Sections (comma-separated)
+ *   - Column A: one row per Class-Section combo (I-A, I-B, ...)
+ */
+function addClassMappingWithSections(className, sectionsStr, recId) {
+  try {
+    ensureClassMappingSheet_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const mapSheet = ss.getSheetByName('Class_Mapping');
+    const secSheet = ss.getSheetByName('Class_Sections');
+    if (!mapSheet) throw new Error('Class_Mapping sheet not found');
+    if (!secSheet) throw new Error('Class_Sections sheet not found');
+
+    const cls = String(className || '').trim();
+    if (!MASTER_CLASSES.includes(cls)) {
+      throw new Error(`"${cls}" is not a valid class. Choose from: ${MASTER_CLASSES.join(', ')}`);
+    }
+
+    const sections = String(sectionsStr || '')
+      .split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+
+    if (!sections.length) throw new Error('At least one section is required');
+    if (!sections.every(s => /^[A-Z]$/.test(s))) {
+      throw new Error('Sections must be single letters (e.g., A,B,C)');
+    }
+
+    const finalRecId = String(recId || '').trim();
+    if (!finalRecId) throw new Error('REC_ID is required to add a class mapping');
+
+    // 1. Duplicate check scoped to (Class, REC_ID)
+    const mapData = mapSheet.getDataRange().getValues();
+    for (let i = 1; i < mapData.length; i++) {
+      if (String(mapData[i][0] || '').trim() === cls &&
+          String(mapData[i][2] || '').trim() === finalRecId) {
+        throw new Error(`Class "${cls}" is already mapped for this school. Edit the existing mapping instead.`);
+      }
+    }
+
+    // 2. Write ONE row to Class_Mapping
+    mapSheet.appendRow([cls, sections.join(','), finalRecId]);
+
+    // 3. Write N rows to Class_Sections (skip existing)
+    const secData = secSheet.getDataRange().getValues();
+    const existing = new Set();
+    for (let i = 1; i < secData.length; i++) {
+      const combo = String(secData[i][0] || '').trim();
+      const rec   = String(secData[i][1] || '').trim();
+      if (combo) existing.add(`${combo}|${rec}`);
+    }
+
+    const newRows = [];
+    for (const sec of sections) {
+      const combo = `${cls}-${sec}`;
+      if (existing.has(`${combo}|${finalRecId}`)) continue;
+      newRows.push([combo, finalRecId]);
+    }
+
+    if (newRows.length > 0) {
+      secSheet.getRange(secSheet.getLastRow() + 1, 1, newRows.length, 2).setValues(newRows);
+    }
+
+    SpreadsheetApp.flush();
+    return {
+      success: true,
+      message: `Added Class "${cls}" with sections ${sections.join(', ')} (${newRows.length} new section rows)`,
+      data: { Class: cls, Sections: sections.join(','), REC_ID: finalRecId }
+    };
+  } catch (e) {
+    Logger.log('Error in addClassMappingWithSections: ' + e.message);
+    return { success: false, message: e.message };
+  }
+}
+
+function updateClassMapping(className, newSectionsStr, recId, oldSectionsStr) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) {
+    return { success: false, message: 'System busy. Please try again.' };
+  }
+  try {
+    ensureClassMappingSheet_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const mapSheet = ss.getSheetByName('Class_Mapping');
+    const secSheet = ss.getSheetByName('Class_Sections');
+    if (!mapSheet) throw new Error('Class_Mapping sheet not found');
+    if (!secSheet) throw new Error('Class_Sections sheet not found');
+
+    const cls = String(className || '').trim();
+    const finalRecId = String(recId || '').trim();
+    if (!cls || !finalRecId) throw new Error('className and recId are required');
+
+    const newSections = String(newSectionsStr || '')
+      .split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+    const oldSections = String(oldSectionsStr || '')
+      .split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+
+    if (!newSections.length) throw new Error('At least one section is required');
+    if (!newSections.every(s => /^[A-Z]$/.test(s))) {
+      throw new Error('Sections must be single letters (e.g., A,B,C)');
+    }
+
+    // 1. Find row in Class_Mapping
+    const mapData = mapSheet.getDataRange().getValues();
+    let mapRowIndex = -1;
+    for (let i = 1; i < mapData.length; i++) {
+      if (String(mapData[i][0] || '').trim() === cls &&
+          String(mapData[i][2] || '').trim() === finalRecId) {
+        mapRowIndex = i + 1;
+        break;
+      }
+    }
+    if (mapRowIndex === -1) {
+      return { success: false, message: `Class "${cls}" mapping not found for this school` };
+    }
+
+    // 2. Update Class_Mapping row
+    mapSheet.getRange(mapRowIndex, 2).setValue(newSections.join(','));
+
+    // 3. APPEND-ONLY: add newly-added sections to Class_Sections.
+    //    Removed sections stay in Class_Sections (orphaned but preserved).
+    const added = newSections.filter(s => !oldSections.includes(s));
+
+    if (added.length > 0) {
+      const secData = secSheet.getDataRange().getValues();
+      const existing = new Set();
+      for (let i = 1; i < secData.length; i++) {
+        const combo = String(secData[i][0] || '').trim();
+        const rec   = String(secData[i][1] || '').trim();
+        if (combo) existing.add(`${combo}|${rec}`);
+      }
+      const newRows = added
+        .map(sec => [`${cls}-${sec}`, finalRecId])
+        .filter(([combo]) => !existing.has(`${combo}|${finalRecId}`));
+      if (newRows.length > 0) {
+        secSheet.getRange(secSheet.getLastRow() + 1, 1, newRows.length, 2).setValues(newRows);
+      }
+    }
+
+    SpreadsheetApp.flush();
+    return {
+      success: true,
+      message: `Updated Class "${cls}": +${added.length} new section(s) appended to Class_Sections (removals preserved)`,
+      data: { Class: cls, Sections: newSections.join(','), REC_ID: finalRecId }
+    };
+  } catch (e) {
+    Logger.log('Error in updateClassMapping: ' + e.message);
+    return { success: false, message: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+function deleteClassMappingWithSections(className, recId) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) {
+    return { success: false, message: 'System busy. Please try again.' };
+  }
+  try {
+    ensureClassMappingSheet_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const mapSheet = ss.getSheetByName('Class_Mapping');
+    if (!mapSheet) throw new Error('Class_Mapping sheet not found');
+
+    const cls = String(className || '').trim();
+    const finalRecId = String(recId || '').trim();
+    if (!cls || !finalRecId) throw new Error('className and recId are required');
+
+    // 1. Delete only from Class_Mapping
+    const mapData = mapSheet.getDataRange().getValues();
+    const mapRowsToDelete = [];
+    for (let i = mapData.length - 1; i >= 1; i--) {
+      if (String(mapData[i][0] || '').trim() === cls &&
+          String(mapData[i][2] || '').trim() === finalRecId) {
+        mapRowsToDelete.push(i + 1);
+      }
+    }
+    if (mapRowsToDelete.length === 0) {
+      return { success: false, message: `Class "${cls}" mapping not found for this school` };
+    }
+    mapRowsToDelete.forEach(r => mapSheet.deleteRow(r));
+
+    // 2. Class_Sections is NOT touched — sections remain (append-only registry)
+
+    SpreadsheetApp.flush();
+    return {
+      success: true,
+      message: `Removed class "${cls}" from Class Mappings (sections preserved in Class Sections)`
+    };
+  } catch (e) {
+    Logger.log('Error in deleteClassMappingWithSections: ' + e.message);
+    return { success: false, message: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
