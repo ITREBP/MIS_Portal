@@ -394,7 +394,16 @@ if (sheetName.toLowerCase() === 'users') {
   }
 }
 
-
+if (sheetName.toLowerCase() === 'users' && rowData.Password) {
+  const expectedRec = String(rowData.REC_ID || recId || '').trim();
+  const pwd = String(rowData.Password).trim();
+  if (expectedRec) {
+    const prefix = expectedRec + '-';
+    if (!pwd.startsWith(prefix) || pwd === prefix) {
+      return { success: false, message: 'Password must start with ' + prefix + ' and have a password after it.' };
+    }
+  }
+}
     // Build new row
     const newRow = headers.map(header => {
       const value = rowData[header];
@@ -542,6 +551,33 @@ function updateSheetRow(sheetName, rowIndex, rowData, currentUsername) {
       throw new Error('No headers found in the sheet');
     }
     
+
+// Edit: duplicate + password prefix check for Users
+if (sheetName.toLowerCase() === 'users') {
+  const uIdx = headers.indexOf('Username');
+  const tIdx = headers.indexOf('UserType');
+  const rIdx = headers.indexOf('REC_ID');
+  const existingRow = sheet.getRange(rowIndex, 1, 1, headers.length).getValues()[0];
+  const newU = String(rowData.Username || '').trim();
+  const newT = String(rowData.UserType || '').trim();
+  const newR = String(rowData.REC_ID || (rIdx !== -1 ? existingRow[rIdx] : '') || '').trim();
+  if (uIdx !== -1 && tIdx !== -1 && rIdx !== -1 && newU) {
+    const all = sheet.getDataRange().getValues();
+    const dup = all.some((r, i) => (i + 1) !== rowIndex && i > 0 && String(r[uIdx] || '').trim().toLowerCase() === newU.toLowerCase() && String(r[tIdx] || '').trim() === newT && String(r[rIdx] || '').trim() === newR);
+    if (dup) return { success: false, message: 'Username ' + newU + ' already exists as ' + newT + ' for this school.' };
+  }
+  if (rowData.Password) {
+    const pwd = String(rowData.Password).trim();
+    if (newR) {
+      const prefix = newR + '-';
+      if (!pwd.startsWith(prefix) || pwd === prefix) {
+        return { success: false, message: 'Password must start with ' + prefix + ' and have a password after it.' };
+      }
+    }
+  }
+}
+
+
     // ✅ STUDENT DATA SECTION
     if (sheetName === 'Student_Data') {
       const rowRange = sheet.getRange(rowIndex, 1, 1, sheet.getLastColumn());

@@ -5,16 +5,19 @@
 <base target="_top">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Student Admin Dashboard</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
   <link rel="stylesheet" href="https://unicons.iconscout.com/release/v4.0.0/css/line.css">
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script>
+  tailwind.config = { darkMode: 'class' };
+</script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style>
     :root {
       --primary-color: #3b82f6;
@@ -847,12 +850,14 @@ function formatCategoryString(items) {
       });
 
       // Initialize dark mode based on system preference
-     useEffect(() => {
+ useEffect(() => {
   if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
     setIsDarkMode(true);
     document.documentElement.classList.add('dark');
+    document.body.classList.add('dark');
   }
 }, []);
+
 
       // Load gender options
       useEffect(() => {
@@ -1179,10 +1184,13 @@ permissions[user.Username] = {
         setIsSidebarOpen(!isSidebarOpen);
       };
 
-  const toggleDarkMode = () => {
-  setIsDarkMode(!isDarkMode);
-  document.documentElement.classList.toggle('dark');
+ const toggleDarkMode = () => {
+  const next = !isDarkMode;
+  setIsDarkMode(next);
+  document.documentElement.classList.toggle('dark', next);
+  document.body.classList.toggle('dark', next);
 };
+
 
       const scrollToTop = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1211,70 +1219,44 @@ permissions[user.Username] = {
       }, [successMessage]);
 
       if (!isAuthenticated) {
-        return (
-          <div className="flex items-center justify-center min-h-screen p-4">
-            <div className="card p-8 w-full max-w-md fade-in">
-              <div className="text-center mb-6">
-                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-blue-900">
-                  <i className="uil uil-user-circle text-2xl text-blue-600 dark:text-blue-400"></i>
-                </div>
-                <h2 className="text-2xl font-bold">Admin Login</h2>
-                <p className="text-gray-600 dark:text-gray-400 mt-2">Enter your credentials to continue</p>
-              </div>
-              {error && <div className="notification error">{error}</div>}
-              <form onSubmit={handleLogin}>
-                <div className="space-y-4">
-                  <div className="form-field">
-                    <input
-                      type="text"
-                      value={username}
-                      onChange={e => setUsername(e.target.value)}
-                      required
-                      placeholder="Username"
-                      className="form-input"
-                      id="username"
-                    />
-                    <label htmlFor="username">Username</label>
-                  </div>
-                  <div className="form-field">
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      required
-                      placeholder="Password"
-                      className="form-input"
-                      id="password"
-                    />
-                    <label htmlFor="password">Password</label>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <input type="checkbox" id="remember-me" className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded dark:border-gray-600" />
-                      <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Remember me</label>
-                    </div>
-                    <a href="#" className="text-sm text-blue-600 hover:underline dark:text-blue-400">Forgot password?</a>
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className={`btn-primary w-full ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
-                  >
-                    {isLoading ? (
-                      <>
-                        <i className="uil uil-spinner text-xl loading-spinner"></i>
-                        Authenticating...
-                      </>
-                    ) : (
-                      'Login'
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
+  return (
+    <div className="flex items-center justify-center min-h-screen p-4" style={{ background: 'linear-gradient(180deg, #ecfdf5 0%, #ffffff 70%)' }}>
+      <div className="card p-8 w-full max-w-md fade-in" style={{ borderTop: '4px solid #16a34a' }}>
+        <div className="text-center mb-6">
+          <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span style={{ fontSize: '28px' }}>🌱</span>
           </div>
-        );
-      }
+          <h2 className="text-2xl font-bold">Student MIS Admin Portal</h2>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">Paperless attendance for a sustainability</p>
+        </div>
+        {error && <div className="notification error">{error}</div>}
+        <form onSubmit={handleLogin}>
+          <div className="space-y-4">
+            <div className="form-field">
+              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required placeholder="Username" className="form-input" id="username" />
+              <label htmlFor="username">Username</label>
+            </div>
+            <div className="form-field">
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Password" className="form-input" id="password" />
+              <label htmlFor="password">Password</label>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <input type="checkbox" id="remember-me" className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded dark:border-gray-600" />
+                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Remember me</label>
+              </div>
+              <a href="#" className="text-sm text-green-600 hover:underline dark:text-green-400">Forgot password?</a>
+            </div>
+            <button type="submit" disabled={isLoading} className={`w-full py-3 rounded-lg text-white font-semibold ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`} style={{ background: '#16a34a' }}>
+              {isLoading ? (<><i className="uil uil-spinner text-xl loading-spinner"></i> Authenticating...</>) : ('🌱 Login')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 
       return (
         <div className="flex min-h-screen">
@@ -1857,6 +1839,14 @@ const handleSubmit = async (e) => {
   }
   if (recId) dataToSubmit.REC_ID = recId;
 
+  if (recId && dataToSubmit.Password) {
+  const prefix = recId + '-';
+  let pwd = String(dataToSubmit.Password).trim();
+  if (pwd === prefix) { setError('Enter a password after ' + prefix); return; }
+  if (!pwd.startsWith(prefix)) dataToSubmit.Password = prefix + pwd.replace(/^\d+-/, '');
+}
+
+
   // ── Duplicate guard for Class Sections tab (Add only) ──
   if (table === 'class_sections' && subTab === 'class_sections' && editingIndex === null) {
     const combo = dataToSubmit.Class_Section;
@@ -2042,22 +2032,44 @@ const editingRow = visibleUsers[editingIndex];
                         />
                         <label htmlFor={field.name}>{field.placeholder}</label>
                       </>
-                    ) : (
-                      <>
-                        <input
-                          type={field.type}
-                          name={field.name}
-                          value={formData[field.name] || ''}
-                          onChange={handleInputChange}
-                          placeholder={field.placeholder}
-                          className="form-input"
-                          id={field.name}
-                          disabled={field.disabled}
-                          required={field.required}
-                        />
-                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
-                      </>
-                    )}
+
+) : field.name === 'Password' && recId ? (
+  <>
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      <span style={{ background: '#eee', padding: '8px 10px', border: '1px solid #ddd', borderRight: 'none', color: '#888' }}>{recId + '-'}</span>
+      <input
+        type="text"
+        name="Password"
+        value={String(formData.Password || '').startsWith(recId + '-') ? String(formData.Password).slice((recId + '-').length) : String(formData.Password || '').replace(/^\d+-/, '')}
+        onChange={e => { setFormData(prev => ({ ...prev, Password: recId + '-' + e.target.value })); setFormErrors(prev => ({ ...prev, Password: '' })); }}
+        placeholder="Enter password"
+        className="form-input"
+        id="Password"
+        required={field.required}
+      />
+    </div>
+    <label htmlFor="Password" style={{ top: '-0.5rem', left: '0.75rem', fontSize: '0.75rem', color: '#3b82f6' }}>Password</label>
+
+  </>
+) : (
+  <>
+    <input
+      type={field.type}
+      name={field.name}
+      value={formData[field.name] || ''}
+      onChange={handleInputChange}
+      placeholder={field.placeholder}
+      className="form-input"
+      id={field.name}
+      disabled={field.disabled}
+      required={field.required}
+    />
+    <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+  </>
+)}
+
+
+                
                     {formErrors[field.name] && (
                       <p className="form-error">{formErrors[field.name]}</p>
                     )}
@@ -2184,9 +2196,9 @@ const editingRow = visibleUsers[editingIndex];
               </div>
               <button
                 onClick={() => {
-                  setIsAdding(true);
-                  setFormData({});
-                }}
+  setIsAdding(true);
+  setFormData(recId ? { Password: recId + '-' } : {});
+}}
                 className="btn-primary"
               >
                 <i className="uil uil-plus"></i>
