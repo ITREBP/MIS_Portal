@@ -878,15 +878,18 @@ const refreshData = (recIdOverride = null) => {
           setData(prev => ({ ...prev, users: result }));
           const permissions = {};
           result.forEach(user => {
-            permissions[user.Username] = {
-                            allowedTabs: user.allowedTabs ? user.allowedTabs.split(',').map(t => t.trim()) : [],
-              student_delete: user.student_delete === 'Yes',
-              canQueryAttendance: user.canQueryAttendance === 'Yes',
-              canDownload: user.canDownload === 'Yes',
-              canAmendSIRN: user.canAmendSIRN === 'Yes',
-              canCorrectAttendance: user.canCorrectAttendance === 'Yes',
-              REC_ID: user.REC_ID || ''
-            };
+           const isAdminType = user.UserType === 'admin' || user.UserType === 'superadmin';
+permissions[user.Username] = {
+  allowedTabs: isAdminType && user.allowedTabs ? user.allowedTabs.split(',').map(t => t.trim()) : [],
+  student_delete: isAdminType && user.student_delete === 'Yes',
+  canQueryAttendance: isAdminType && user.canQueryAttendance === 'Yes',
+  canDeleteUsers: isAdminType && user.canDeleteUsers === 'Yes',
+  canDownload: isAdminType && user.canDownload === 'Yes',
+  canAmendSIRN: isAdminType && user.canAmendSIRN === 'Yes',
+  canCorrectAttendance: isAdminType && user.canCorrectAttendance === 'Yes',
+  REC_ID: user.REC_ID || '',
+  UserType: user.UserType || ''
+};
           });
           setUserPermissions(permissions);
           setCanDeleteStudent(permissions[username]?.student_delete || false);
@@ -1002,9 +1005,11 @@ const refreshData = (recIdOverride = null) => {
     
        
     
-  ]).finally(() => {
-    setIsLoading(false);
-  });
+]).finally(() => {
+  setIsLoading(false);
+  setSuccessMessage('Data refreshed');
+});
+
 };
 
      // useEffect(() => {
@@ -1031,11 +1036,13 @@ const refreshData = (recIdOverride = null) => {
           [result.user.Username]: {
             allowedTabs: result.user.allowedTabs ? result.user.allowedTabs.split(',').map(t => t.trim()) : [],
             student_delete: result.user.student_delete === 'Yes',
+            canDeleteUsers: result.user.canDeleteUsers === 'Yes',
             canQueryAttendance: result.user.canQueryAttendance === 'Yes',
             canDownload: result.user.canDownload === 'Yes',
             canAmendSIRN: result.user.canAmendSIRN === 'Yes',
             canCorrectAttendance: result.user.canCorrectAttendance === 'Yes',
-            REC_ID: userRecId
+            REC_ID: userRecId,
+             UserType: result.user.UserType || ''   // 👈 ADD THIS
           }
         };
         
@@ -1103,7 +1110,7 @@ const refreshData = (recIdOverride = null) => {
         setIsLoading(true);
         const rowNumber = data[table][index]._rowNumber;
         try {
-          const result = await callWithRetry('updateSheetRow', table, rowNumber, updatedItem);
+          const result = await callWithRetry('updateSheetRow', table, rowNumber, updatedItem, username);
           if (result.success) {
             setData(prev => ({
               ...prev,
@@ -1661,6 +1668,7 @@ activeTab === 'qr_management' ? (
       setData={setData}
       searchQuery={searchQuery}
       canDeleteStudent={canDeleteStudent}
+      userType={userPermissions[username]?.UserType || ''}
         canAmendSIRN={userPermissions[username]?.canAmendSIRN}  // ← ADD THIS
 
       refreshData={refreshData}
@@ -1712,7 +1720,9 @@ activeTab === 'qr_management' ? (
       );
     }
 
-function UserManagement({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, setSuccessMessage, setError, username, recId }) {
+function UserManagement({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, setSuccessMessage, setError, username, recId, userType }) {
+
+      const isSuperadmin = userType === 'superadmin' || username === 'superadmin';
       const [isAdding, setIsAdding] = useState(false);
       const [editingIndex, setEditingIndex] = useState(null);
       const [formData, setFormData] = useState({});
@@ -1721,6 +1731,7 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
       const [deleteParams, setDeleteParams] = useState({ table: '', index: null, rowNumber: null });
       const [message, setMessage] = useState('');
       const [activeView, setActiveView] = useState('cards'); // 'cards' or 'table'
+
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
       const clearForm = () => {
@@ -1761,35 +1772,38 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
       };
 
       const tableConfigs = {
-        users: {
-          fields: [
-            { section: 'Account Information', fields: [
-              { name: 'Username', type: 'text', required: true, placeholder: 'Enter username' },
-              { name: 'Password', type: 'text', required: true, placeholder: 'Enter password' },
-              { name: 'UserType', type: 'select', options: ['admin', 'teacher'], required: true, placeholder: 'Select user type' },
-              { name: 'Teacher_Name', type: 'text', required: true, placeholder: 'Enter teacher name' },
-            ]},
-            { section: 'Access Control', fields: [
-  { name: 'AllowedDays', type: 'select-multiple', options: daysOfWeek, required: true, placeholder: 'Select allowed days' },
-  { name: 'StartTime', type: 'text', required: true, placeholder: 'Default start time (HH:MM)' },
-  { name: 'EndTime', type: 'text', required: true, placeholder: 'Default end time (HH:MM)' },
-  { name: 'allowedTabs', type: 'select-multiple', 
+  users: {
+    fields: [
+      { section: 'Account Information', fields: [
+        { name: 'Username', type: 'text', required: true, placeholder: 'Enter username', appliesTo: 'both' },
+        { name: 'Password', type: 'text', required: true, placeholder: 'Enter password', appliesTo: 'both' },
+        { name: 'UserType', type: 'select', options: ['admin', 'teacher'], required: true, placeholder: 'Select user type', appliesTo: 'both' },
+        { name: 'Teacher_Name', type: 'text', required: true, placeholder: 'Enter teacher name', appliesTo: 'both' },
+        { name: 'Email', type: 'text', required: false, placeholder: 'Email address', appliesTo: 'both' },
+        { name: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true, placeholder: 'Status', appliesTo: 'both' },
+      ]},
+      { section: 'Teaching Access', fields: [
+        { name: 'AllowedDays', type: 'select-multiple', options: daysOfWeek, required: true, placeholder: 'Select allowed days', appliesTo: 'teacher' },
+        { name: 'StartTime', type: 'text', required: true, placeholder: 'Default start time (HH:MM)', appliesTo: 'teacher' },
+        { name: 'EndTime', type: 'text', required: true, placeholder: 'Default end time (HH:MM)', appliesTo: 'teacher' },
+      ]},
+      { section: 'Admin Access', fields: [
+       { name: 'allowedTabs', type: 'select-multiple', 
   options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
-    required: true, 
-    placeholder: 'Select allowed tabs' 
+  required: true, 
+  placeholder: 'Select allowed tabs', 
+  appliesTo: 'admin' 
+},
+        { name: 'student_delete', type: 'select', options: ['Yes','No'], required: false, placeholder: 'Allow student delete', superadminOnly: true, appliesTo: 'admin' },
+        { name: 'canDeleteUsers', type: 'select', options: ['Yes','No'], required: false, placeholder: 'Allow user delete', superadminOnly: true, appliesTo: 'admin' },
+        { name: 'canQueryAttendance', type: 'select', options: ['Yes','No'], required: false, placeholder: 'Allow query attendance', appliesTo: 'admin' },
+        { name: 'canDownload', type: 'select', options: ['Yes','No'], required: false, placeholder: 'Allow download attendance', appliesTo: 'admin' },
+        { name: 'canAmendSIRN', type: 'select', options: ['Yes','No'], required: false, placeholder: 'Allow amend SIRN', appliesTo: 'admin' },
+        { name: 'canCorrectAttendance', type: 'select', options: ['Yes','No'], required: false, placeholder: 'Allow correct attendance', appliesTo: 'admin' },
+      ]},
+    ],
   },
-  { name: 'REC_ID', type: 'text', disabled: true, placeholder: 'School ID (auto-populated)' },  // ← ADD THIS
-]},
-          { section: 'Permissions', fields: [
-  { name: 'student_delete', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow student delete' },
-  { name: 'canQueryAttendance', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow query attendance' },
-  { name: 'canDownload', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow download attendance' },
-  { name: 'canAmendSIRN', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow amend SIRN' },  // ← ADD THIS
-  { name: 'canCorrectAttendance', type: 'select', options: ['Yes', 'No'], required: true, placeholder: 'Allow correct attendance' },
-]}
-          ],
-        }
-      };
+};
 
            const filteredData = searchQuery
         ? data[table].filter(item => {
@@ -1801,19 +1815,24 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
 
       const visibleUsers = filteredData.filter(user => user.Username !== 'superadmin');
 
-      const validateForm = () => {
-        const errors = {};
-        const config = tableConfigs[table];
-        config.fields.forEach(section => {
-          section.fields.forEach(field => {
-            if (field.required && !formData[field.name]) {
-              errors[field.name] = `${field.name.replace('_', ' ')} is required`;
-            }
-          });
-        });
-        setFormErrors(errors);
-        return Object.keys(errors).length === 0;
-      };
+ const validateForm = () => {
+  const errors = {};
+  const config = tableConfigs[table];
+  const currentType = formData.UserType || '';
+  config.fields.forEach(section => {
+    section.fields.forEach(field => {
+      if (field.appliesTo !== 'both' && field.appliesTo !== currentType) return;
+      const v = formData[field.name];
+      const empty = v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+      if (field.required && empty) {
+        errors[field.name] = `${field.name.replace('_', ' ')} is required`;
+      }
+    });
+  });
+  setFormErrors(errors);
+  return Object.keys(errors).length === 0;
+};
+
 
 const handleSubmit = async (e) => {
   e.preventDefault();
@@ -1856,8 +1875,9 @@ const handleSubmit = async (e) => {
   setMessage('');
 
   if (editingIndex !== null) {
-    const rowNumber = filteredData[editingIndex]._rowNumber;
-    const editingRow = filteredData[editingIndex];
+const rowNumber = visibleUsers[editingIndex]._rowNumber;
+const editingRow = visibleUsers[editingIndex];
+
 
     try {
       let result;
@@ -1879,7 +1899,8 @@ const handleSubmit = async (e) => {
         setEditingIndex(null);
         setFormErrors({});
         setError('');
-       
+       refreshData();
+
       } else {
         setError(result.message || 'Update failed');
       }
@@ -1952,88 +1973,100 @@ const handleSubmit = async (e) => {
         setFormData(prev => ({ ...prev, [name]: options }));
       };
 
-      const renderFormFields = () => {
+            const renderFormFields = () => {
         const config = tableConfigs[table];
-        
-        return config.fields.map((section, sectionIndex) => (
-          <div key={sectionIndex} className="form-section">
-            <div className="form-section-title">
-              <i className="uil uil-folder"></i>
-              {section.section}
+        const currentType = formData.UserType || '';
+
+        return config.fields.map((section, sectionIndex) => {
+          const visibleFields = section.fields.filter(field => {
+            if (field.appliesTo === 'both') return true;
+            if (!currentType) return false;   // no UserType picked → hide type-specific fields
+            return field.appliesTo === currentType;
+          });
+
+          if (visibleFields.length === 0) return null;
+
+          return (
+            <div key={sectionIndex} className="form-section">
+              <div className="form-section-title">
+                <i className="uil uil-folder"></i>
+                {section.section}
+              </div>
+              <div className="form-row">
+                {visibleFields.map(field => (
+                  <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
+                    {field.type === 'select' ? (
+                      <>
+                        <select
+                          name={field.name}
+                          value={formData[field.name] || ''}
+                          onChange={handleInputChange}
+                          className="form-input"
+                          id={field.name}
+                          disabled={field.disabled || (field.superadminOnly && !isSuperadmin) || (field.name === 'UserType' && editingIndex !== null)}
+
+                          required={field.required}
+                        >
+                          <option value="" disabled>{field.placeholder}</option>
+                          {field.options.map(option => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                      </>
+                    ) : field.type === 'select-multiple' ? (
+                      <>
+                        <select
+                          multiple
+                          name={field.name}
+                          value={formData[field.name] || []}
+                          onChange={e => handleMultipleSelect(e, field.name)}
+                          className="form-input"
+                          id={field.name}
+                          required={field.required}
+                        >
+                          {field.options.map(option => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                      </>
+                    ) : field.type === 'checkbox' ? (
+                      <>
+                        <input
+                          type="checkbox"
+                          name={field.name}
+                          checked={formData[field.name] || false}
+                          onChange={handleInputChange}
+                          id={field.name}
+                        />
+                        <label htmlFor={field.name}>{field.placeholder}</label>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          type={field.type}
+                          name={field.name}
+                          value={formData[field.name] || ''}
+                          onChange={handleInputChange}
+                          placeholder={field.placeholder}
+                          className="form-input"
+                          id={field.name}
+                          disabled={field.disabled}
+                          required={field.required}
+                        />
+                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                      </>
+                    )}
+                    {formErrors[field.name] && (
+                      <p className="form-error">{formErrors[field.name]}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="form-row">
-              {section.fields.map(field => (
-                <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
-                  {field.type === 'select' ? (
-                    <>
-                      <select
-                        name={field.name}
-                        value={formData[field.name] || ''}
-                        onChange={handleInputChange}
-                        className="form-input"
-                        id={field.name}
-                        disabled={field.disabled}
-                        required={field.required}
-                      >
-                        <option value="" disabled>{field.placeholder}</option>
-                        {field.options.map(option => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
-                    </>
-                  ) : field.type === 'select-multiple' ? (
-                    <>
-                      <select
-                        multiple
-                        name={field.name}
-                        value={formData[field.name] || []}
-                        onChange={e => handleMultipleSelect(e, field.name)}
-                        className="form-input"
-                        id={field.name}
-                        required={field.required}
-                      >
-                        {field.options.map(option => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
-                    </>
-                  ) : field.type === 'checkbox' ? (
-                    <>
-                      <input
-                        type="checkbox"
-                        name={field.name}
-                        checked={formData[field.name] || false}
-                        onChange={handleInputChange}
-                        id={field.name}
-                      />
-                      <label htmlFor={field.name}>{field.placeholder}</label>
-                    </>
-                  ) : (
-                    <>
-                      <input
-                        type={field.type}
-                        name={field.name}
-                        value={formData[field.name] || ''}
-                        onChange={handleInputChange}
-                        placeholder={field.placeholder}
-                        className="form-input"
-                        id={field.name}
-                        disabled={field.disabled}
-                        required={field.required}
-                      />
-                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
-                    </>
-                  )}
-                  {formErrors[field.name] && (
-                    <p className="form-error">{formErrors[field.name]}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        ));
+          );
+        });
       };
 
       const UserCard = ({ user, index }) => (
@@ -2055,12 +2088,14 @@ const handleSubmit = async (e) => {
               >
                 <i className="uil uil-edit"></i>
               </button>
-              <button
-                onClick={() => handleDeleteClick(table, index, user._rowNumber)}
-                className="text-red-500 hover:text-red-700"
-              >
-                <i className="uil uil-trash"></i>
-              </button>
+            {isSuperadmin && (
+  <button
+    onClick={() => handleDeleteClick(table, index, user._rowNumber)}
+    className="text-red-500 hover:text-red-700"
+  >
+    <i className="uil uil-trash"></i>
+  </button>
+)}
             </div>
           </div>
           
@@ -2088,6 +2123,14 @@ const handleSubmit = async (e) => {
       Delete Students
     </span>
   )}
+
+  {user.canDeleteUsers === 'Yes' && (
+  <span className="permission-badge">
+    <i className="uil uil-user-minus"></i>
+    Delete Users
+  </span>
+)}
+
   {user.canQueryAttendance === 'Yes' && (
     <span className="permission-badge">
       <i className="uil uil-search"></i>
@@ -2273,20 +2316,16 @@ const handleSubmit = async (e) => {
                             : item[field.name] || ''}
                         </td>
                       ))}
-                      <td>
-                        <button
-                          onClick={() => handleEditClick(index)}
-                          className="text-blue-500 hover:underline mr-4"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteClick(table, index, item._rowNumber)}
-                          className="text-red-500 hover:underline"
-                        >
-                          Delete
-                        </button>
-                      </td>
+                     <td>
+  <button onClick={() => handleEditClick(index)} className="text-blue-500 hover:underline mr-4">
+    Edit
+  </button>
+  {isSuperadmin && (
+    <button onClick={() => handleDeleteClick(table, index, item._rowNumber)} className="text-red-500 hover:underline">
+      Delete
+    </button>
+  )}
+</td>
                     </tr>
                   ))}
                 </tbody>
@@ -6968,7 +7007,7 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
                         onChange={handleInputChange}
                         className="form-input"
                         id={field.name}
-                        disabled={field.disabled}
+                        disabled={field.disabled || (field.superadminOnly && !isSuperadmin)}
                         required={field.required}
                       >
                         <option value="" disabled>{field.placeholder}</option>

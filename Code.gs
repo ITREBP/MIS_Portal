@@ -34,9 +34,12 @@ function authenticateUser(username, password) {
         }
         
         const canCorrectCol = data[0].indexOf('canCorrectAttendance');
+        const canDeleteUsersCol = data[0].indexOf('canDeleteUsers');   // 👈 ADD
+
         return {
           success: true,
           user: {
+            canDeleteUsers: canDeleteUsersCol !== -1 ? (data[i][canDeleteUsersCol] || 'No') : 'No', 
             Username: data[i][0],
             UserType: data[i][2],
             Teacher_Name: data[i][3],
@@ -377,6 +380,21 @@ function addSheetRow(sheetName, rowData, currentUsername) {
       rowData.REC_ID = recId;
     }
 
+if (sheetName.toLowerCase() === 'users') {
+  const uIdx = headers.indexOf('Username');
+  const tIdx = headers.indexOf('UserType');
+  const rIdx = headers.indexOf('REC_ID');
+  const newU = String(rowData.Username || '').trim();
+  const newT = String(rowData.UserType || '').trim();
+  const newR = String(rowData.REC_ID || recId || '').trim();
+  if (uIdx !== -1 && tIdx !== -1 && rIdx !== -1 && newU) {
+    const all = sheet.getDataRange().getValues();
+    const dup = all.some((r, i) => i > 0 && String(r[uIdx] || '').trim().toLowerCase() === newU.toLowerCase() && String(r[tIdx] || '').trim() === newT && String(r[rIdx] || '').trim() === newR);
+    if (dup) return { success: false, message: 'Username ' + newU + ' already exists as ' + newT + ' for this school.' };
+  }
+}
+
+
     // Build new row
     const newRow = headers.map(header => {
       const value = rowData[header];
@@ -390,9 +408,16 @@ function addSheetRow(sheetName, rowData, currentUsername) {
         if (sheetName.toLowerCase() === 'user_permissions' && !['Username', 'REC_ID'].includes(header)) {
         return value === 'true' || value === true;
       }
-      if (sheetName === 'Users' && ['StartTime', 'EndTime'].includes(header)) {
-        return value ? value.toString() : '';
-      }
+    if (sheetName === 'Users' && ['StartTime', 'EndTime'].includes(header)) {
+  return value ? value.toString() : '';
+}
+// 🆕 Handle all multiselect (array) fields → comma-joined strings
+if (sheetName.toLowerCase() === 'users' && ['allowedTabs', 'AllowedDays'].includes(header)) {
+
+  if (Array.isArray(value)) return value.join(',');
+  return value ? value.toString() : '';
+}
+
       if (sheetName === 'Users' && ['canQueryAttendance', 'canDownload'].includes(header)) {
         return value === 'Yes' ? 'Yes' : 'No';
       }
@@ -773,6 +798,55 @@ if (isPrevPermSheet_(sheetName)) stampPrevPermTimestamps_(rowData);
    
 
     // ✅ OTHER SHEETS (Users, User_Permissions, etc.)
+
+if (sheetName === 'Users') {
+  const usersSheet = ss.getSheetByName('Users');
+  const userHeaders = usersSheet.getRange(1, 1, 1, usersSheet.getLastColumn()).getValues()[0];
+  const userData = usersSheet.getDataRange().getValues();
+  const callerRow = userData.find(r => r[0] === username);
+  if (!callerRow) {
+    return { success: false, message: 'User not found. Please re-login.' };
+  }
+
+  // Header-index lookup for UserType (safer than hardcoded [2])
+  const userTypeCol = userHeaders.indexOf('UserType');
+  const isSuperadmin = userTypeCol !== -1
+    ? String(callerRow[userTypeCol] || '').trim() === 'superadmin'
+    : false;
+
+ if (!isSuperadmin) {
+  // Only these 4 columns are superadmin-grantable.
+  // Everything else (canQueryAttendance, canDownload, canAmendSIRN,
+  // canCorrectAttendance, allowedTabs) can be edited by any admin.
+  const PROTECTED = [
+    'student_delete',
+    'canDeleteUsers',
+    'UserType',
+    'REC_ID',
+  ];
+
+  const existingRow = sheet.getRange(rowIndex, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  for (const colName of PROTECTED) {
+    const idx = userHeaders.indexOf(colName);
+    if (idx === -1) continue;
+
+    // Skip fields the client didn't send (type-filtered form hides them)
+    if (rowData[colName] === undefined) continue;
+
+    const oldVal = String(existingRow[idx] ?? '');
+    const newVal = String(rowData[colName] ?? '');
+
+    if (oldVal !== newVal) {
+      return {
+        success: false,
+        message: 'Only superadmin can change "' + colName + '".'
+      };
+    }
+  }
+}
+}  
+
     const newRow = headers.map(function(header) {
       const value = rowData[header];
         if (sheetName.toLowerCase() === 'user_permissions' && !['Username', 'REC_ID'].includes(header)) {
@@ -781,6 +855,12 @@ if (isPrevPermSheet_(sheetName)) stampPrevPermTimestamps_(rowData);
       if (sheetName === 'Users' && ['StartTime', 'EndTime'].includes(header)) {
         return value ? value.toString() : '';
       }
+      if (sheetName.toLowerCase() === 'users' && ['allowedTabs', 'AllowedDays'].includes(header)) {
+
+  if (Array.isArray(value)) return value.join(',');
+  return value ? value.toString() : '';
+}
+
       if (sheetName === 'Users' && ['canQueryAttendance', 'canDownload'].includes(header)) {
         return value === 'Yes' ? 'Yes' : 'No';
       }
@@ -837,25 +917,46 @@ function deleteSheetRow(sheetName, rowNumber, username) {
     var sheet = ss.getSheetByName(sheetName);
     if (!sheet) throw new Error(sheetName + ' sheet not found');
 
-    // Block superadmin deletion
-if (sheetName === 'Users') {
-  const rowData = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
-  if (rowData[0] === 'superadmin') {
-    return { success: false, message: 'Superadmin account cannot be deleted' };
-  }
-}
-    
+    // Block deleting the superadmin row itself
+    if (sheetName === 'Users') {
+      const rowData = sheet.getRange(rowNumber, 1, 1, sheet.getLastColumn()).getValues()[0];
+      if (rowData[0] === 'superadmin') {
+        return { success: false, message: 'Superadmin account cannot be deleted' };
+      }
+    }
+
+    // Fetch caller
+    const usersSheet = ss.getSheetByName('Users');
+    let userRow = null, userHeaders = null;
+    if (usersSheet && username) {
+      userHeaders = usersSheet.getRange(1, 1, 1, usersSheet.getLastColumn()).getValues()[0];
+      const userData = usersSheet.getDataRange().getValues();
+      userRow = userData.find(r => r[0] === username);
+    }
+    if (!userRow) {
+      return { success: false, message: 'User not found. Please re-login.' };
+    }
+
+    const isSuperadmin = userRow[2] === 'superadmin';
+
+    // Student delete — student_delete flag OR superadmin
     if (sheetName === 'Student_Data') {
-      var usersSheet = ss.getSheetByName('Users');
-      if (!usersSheet) throw new Error('Users sheet not found');
-      
-      var userData = usersSheet.getDataRange().getValues();
-      var userRow = userData.find(row => row[0] === username);
-      if (!userRow || userRow[8] !== 'Yes') {
+      const col = userHeaders.indexOf('student_delete');
+      const flag = col !== -1 ? (userRow[col] || 'No') : 'No';
+      if (!isSuperadmin && flag !== 'Yes') {
         return { success: false, message: 'You do not have permission to delete student records' };
       }
     }
-    
+
+    // User delete — canDeleteUsers flag OR superadmin
+    if (sheetName === 'Users') {
+      const col = userHeaders.indexOf('canDeleteUsers');
+      const flag = col !== -1 ? (userRow[col] || 'No') : 'No';
+      if (!isSuperadmin && flag !== 'Yes') {
+        return { success: false, message: 'You do not have permission to delete user accounts' };
+      }
+    }
+
     sheet.deleteRow(rowNumber);
     SpreadsheetApp.flush();
     return { success: true, message: 'Record deleted successfully' };
