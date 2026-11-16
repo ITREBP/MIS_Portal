@@ -306,7 +306,7 @@ function getClassMappingData(recId) {
 
 // ============ PREVIOUS_DATE_PERMISSIONS AUTO-SETUP ============
 const PREV_PERM_SHEET = 'Previous_Date_Permissions';
-const PREV_PERM_NEW_COLUMNS = ['Attendance_Type', 'Granted_At', 'Expires_At'];
+const PREV_PERM_NEW_COLUMNS = ['Attendance_Type', 'Granted_At', 'Expires_At', 'Class_Section'];
 
 function isPrevPermSheet_(sheetName) {
   return String(sheetName || '').trim().toLowerCase() === PREV_PERM_SHEET.toLowerCase();
@@ -347,6 +347,57 @@ function stampPrevPermTimestamps_(rowData) {
   rowData.Expires_At = new Date(grantedAt.getTime() + 24 * 60 * 60 * 1000);
   const t = String(rowData.Attendance_Type || 'Both').trim().toLowerCase();
   rowData.Attendance_Type = t === 'episodic' ? 'Episodic' : t === 'normal' ? 'Normal' : 'Both';
+}
+
+// Previous Date Permissions: a saved row only blocks a new/edited permission while it is LIVE.
+// Live = effective expiry (Expires_At, or Granted_At + 24h when Expires_At is blank/unparseable)
+// is still in the future. A row with neither a usable Expires_At nor a usable Granted_At is
+// NOT live. Expired rows are dead and never block.
+/** Effective expiry: Expires_At ho to wohi; warna Granted_At + 24h; dono na hon to null. */
+function prevPermEffectiveExpiry_(expiresVal, grantedVal) {
+  if (expiresVal !== null && expiresVal !== undefined && String(expiresVal).trim() !== '') {
+    const exp = expiresVal instanceof Date ? expiresVal : new Date(expiresVal);
+    if (!isNaN(exp.getTime())) return exp;
+  }
+  if (grantedVal !== null && grantedVal !== undefined && String(grantedVal).trim() !== '') {
+    const g = grantedVal instanceof Date ? grantedVal : new Date(grantedVal);
+    if (!isNaN(g.getTime())) return new Date(g.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return null;
+}
+
+function isPrevPermRowLive_(expiresVal, grantedVal) {
+  const exp = prevPermEffectiveExpiry_(expiresVal, grantedVal);
+  if (!exp) return false;
+  return exp.getTime() > new Date().getTime();
+}
+
+// True when a LIVE permission already exists for the same Username + Allowed_Date + Class_Section.
+// excludeRow = 1-based sheet row to skip (the row being edited); 0 = exclude nothing.
+// Blank Class_Section equals blank (old unscoped rows match only other blank rows).
+function prevPermDuplicateExists_(sheet, headers, rowData, excludeRow) {
+  const uIdx = headers.indexOf('Username');
+  const dIdx = headers.indexOf('Allowed_Date');
+  const cIdx = headers.indexOf('Class_Section');
+  const eIdx = headers.indexOf('Expires_At');
+  const gIdx = headers.indexOf('Granted_At');
+  if (uIdx === -1 || dIdx === -1) return false;
+  if (!rowData.Username || !rowData.Allowed_Date) return false;
+  const newDate = new Date(rowData.Allowed_Date);
+  const newDateStr = !isNaN(newDate) ? newDate.toDateString() : String(rowData.Allowed_Date).trim();
+  const newCls = String(rowData.Class_Section || '').trim();
+  const all = sheet.getDataRange().getValues();
+  return all.some(function (r, i) {
+    if (i === 0) return false;
+    if (excludeRow && (i + 1) === excludeRow) return false;
+    if (String(r[uIdx] || '').trim() !== String(rowData.Username).trim()) return false;
+    const d = r[dIdx] instanceof Date ? r[dIdx] : new Date(r[dIdx]);
+    const dStr = !isNaN(d) ? d.toDateString() : String(r[dIdx] || '').trim();
+    if (dStr !== newDateStr) return false;
+    const cls = cIdx !== -1 ? String(r[cIdx] || '').trim() : '';
+    if (cls !== newCls) return false;
+    return isPrevPermRowLive_(eIdx !== -1 ? r[eIdx] : '', gIdx !== -1 ? r[gIdx] : '');
+  });
 }
 
 
@@ -685,21 +736,7 @@ const parts = String(rowData.Allowed_Date).split('-');
 const allowed = new Date(parts[0], parts[1] - 1, parts[2]);
 if (allowed > today) return { success: false, message: 'Allowed Date cannot be in the future.' };
 
-  const uIdx = headers.indexOf('Username');
-  const dIdx = headers.indexOf('Allowed_Date');
-  if (uIdx !== -1 && dIdx !== -1 && rowData.Username && rowData.Allowed_Date) {
-    const newDate = new Date(rowData.Allowed_Date);
-    const newDateStr = !isNaN(newDate) ? newDate.toDateString() : String(rowData.Allowed_Date).trim();
-    const all = sheet.getDataRange().getValues();
-    const dup = all.some((r, i) => {
-      if (i === 0) return false;
-      if (String(r[uIdx] || '').trim() !== String(rowData.Username).trim()) return false;
-      const d = r[dIdx] instanceof Date ? r[dIdx] : new Date(r[dIdx]);
-      const dStr = !isNaN(d) ? d.toDateString() : String(r[dIdx] || '').trim();
-      return dStr === newDateStr;
-    });
-    if (dup) return { success: false, message: 'This user already has permission for this date.' };
-  }
+  if (prevPermDuplicateExists_(sheet, headers, rowData, 0)) return { success: false, message: 'This user already has permission for this date for this class.' };
 }
 
 
@@ -930,6 +967,13 @@ if (sheetName.toLowerCase() === 'users') {
       }
     }
   }
+}
+
+
+// Edit: Previous Date Permissions duplicate check (class-aware, expiry-aware; own row excluded).
+// No future-date check here (pre-existing gap, out of scope).
+if (isPrevPermSheet_(sheetName)) {
+  if (prevPermDuplicateExists_(sheet, headers, rowData, rowIndex)) return { success: false, message: 'This user already has permission for this date for this class.' };
 }
 
 
@@ -2744,4 +2788,3 @@ function deleteClassMappingWithSections(className, recId) {
     lock.releaseLock();
   }
 }
-

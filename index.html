@@ -15,14 +15,27 @@
   <script>
   tailwind.config = { darkMode: 'class' };
 </script>
+  <script>
+    /* v6.1: apply the saved theme before React mounts (no flash of green). */
+    (function () {
+      try {
+        var t = localStorage.getItem('attendance-theme');
+        if (t !== 'green' && t !== 'blue' && t !== 'natural') t = 'green';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'green');
+      }
+    })();
+  </script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <style>
     :root {
-      --primary-color: #3b82f6;
-      --primary-light: #dbeafe;
-      --primary-dark: #1e40af;
+      --primary-color: #16a34a;
+      --primary-light: #dcfce7;
+      --primary-dark: #15803d;
+      --primary-ring: rgba(22, 163, 74, 0.15);
       --secondary-color: #64748b;
       --success-color: #10b981;
       --warning-color: #f59e0b;
@@ -42,9 +55,9 @@
     }
 
     body.dark {
-      --primary-color: #60a5fa;
-      --primary-light: #1e3a8a;
-      --primary-dark: #93c5fd;
+      --primary-color: #4ade80;
+      --primary-light: #14532d;
+      --primary-dark: #86efac;
       --secondary-color: #9ca3af;
       --panel-color: #1f2937;
       --text-color: #f9fafb;
@@ -55,6 +68,46 @@
       --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
     }
+
+    /* v6.1 themes: data-theme on <html> picks the primary accent palette.
+       Green is the default (same values as v6). Dark-mode variants keep
+       working with every theme; theme = accent, dark mode = surface. */
+    [data-theme="blue"] {
+      --primary-color: #2563eb;
+      --primary-light: #dbeafe;
+      --primary-dark: #1d4ed8;
+      --primary-ring: rgba(37, 99, 235, 0.15);
+    }
+
+    [data-theme="natural"] {
+      --primary-color: #c2410c;
+      --primary-light: #ffedd5;
+      --primary-dark: #9a3412;
+      --primary-ring: rgba(194, 65, 12, 0.15);
+    }
+
+    body.dark[data-theme="blue"] {
+      --primary-color: #60a5fa;
+      --primary-light: #1e3a8a;
+      --primary-dark: #93c5fd;
+      --primary-ring: rgba(96, 165, 250, 0.20);
+    }
+
+    body.dark[data-theme="natural"] {
+      --primary-color: #fb923c;
+      --primary-light: #7c2d12;
+      --primary-dark: #fdba74;
+      --primary-ring: rgba(251, 146, 60, 0.20);
+    }
+
+    /* v6.1 theme-driven accent utilities (primary accent only). */
+    .bg-accent { background: var(--primary-color); }
+    .bg-accent-light { background: var(--primary-light); }
+    .text-accent { color: var(--primary-color); }
+    .text-accent-dark { color: var(--primary-dark); }
+    .link-accent { color: var(--primary-color); }
+    .link-accent:hover { color: var(--primary-dark); text-decoration: underline; }
+    .accent-check { accent-color: var(--primary-color); }
 
     body {
       background-color: #f8fafc;
@@ -189,44 +242,27 @@
     }
 
     .form-field {
-      position: relative;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.25rem;
     }
 
-    .form-field label {
-      position: absolute;
-      top: 0.75rem;
-      left: 1rem;
+    /* v6: labels sit ABOVE their control (floating-label pattern removed). */
+    .form-field > label {
+      display: block;
       font-size: 0.875rem;
-      color: var(--text-light);
-      transition: all 0.2s ease;
-      pointer-events: none;
-      background: var(--panel-color);
-      padding: 0 0.25rem;
+      font-weight: 500;
+      color: var(--text-color);
+      margin-bottom: 0.375rem;
     }
 
-    .form-field input:focus + label,
-    .form-field select:focus + label,
-    .form-field input:not(:placeholder-shown) + label,
-    .form-field select:not(:placeholder-shown) + label {
-      top: -0.5rem;
-      left: 0.75rem;
-      font-size: 0.75rem;
-      color: var(--primary-color);
+    /* Required fields get a red asterisk after the label. */
+    .form-field:not(.checkbox):has(input[required], select[required], textarea[required]) > label::after {
+      content: ' *';
+      color: var(--error-color);
     }
 
-.form-field input:-webkit-autofill + label,
-.form-field input:-webkit-autofill:hover + label,
-.form-field input:-webkit-autofill:focus + label {
-  top: -0.5rem;
-  left: 0.75rem;
-  font-size: 0.75rem;
-  color: var(--primary-color);
-}
-
-
-        .form-field input,
-    .form-field select {
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
       width: 100%;
       padding: 0.75rem 1rem;
       border: 1px solid var(--border-color);
@@ -238,18 +274,15 @@
     }
 
     .form-field input::placeholder {
-      color: transparent;
-    }
-
-    .form-field input:focus::placeholder {
       color: var(--text-light);
     }
 
     .form-field input:focus,
-    .form-field select:focus {
+    .form-field select:focus,
+    .form-field textarea:focus {
       outline: none;
       border-color: var(--primary-color);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+      box-shadow: 0 0 0 3px var(--primary-ring);
     }
 
     .form-field select[multiple] {
@@ -363,7 +396,7 @@
     .search-box input:focus {
       outline: none;
       border-color: var(--primary-color);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+      box-shadow: 0 0 0 3px var(--primary-ring);
     }
 
     .search-box i {
@@ -506,8 +539,19 @@
 
     .form-row {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 1rem;
+    }
+
+    /* A lone field in a row spans both columns instead of sitting half-width. */
+    .form-row > .form-field:only-child {
+      grid-column: 1 / -1;
+    }
+
+    @media (max-width: 640px) {
+      .form-row {
+        grid-template-columns: 1fr;
+      }
     }
 
         .form-row.checkbox-row {
@@ -525,6 +569,7 @@
       position: static;
       background: none;
       padding: 0;
+      margin-bottom: 0;
       pointer-events: auto;
       cursor: pointer;
       font-size: 0.875rem;
@@ -532,16 +577,19 @@
       white-space: nowrap;
     }
 
-    .form-field.checkbox input:focus + label {
-      font-size: 0.875rem;
-      color: var(--text-color);
-    }
-
+    /* Action buttons stick to the bottom of the viewport on long forms. */
     .form-actions {
       display: flex;
       gap: 0.75rem;
       flex-wrap: wrap;
       margin-top: 1.5rem;
+      position: sticky;
+      bottom: 0;
+      z-index: 5;
+      background: var(--panel-color);
+      padding-top: 0.75rem;
+      padding-bottom: 0.25rem;
+      border-top: 1px solid var(--border-color);
     }
 
     .user-card {
@@ -585,7 +633,7 @@
 
     .user-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
       gap: 1.5rem;
     }
 
@@ -652,6 +700,58 @@
       margin-bottom: 1rem;
       color: var(--text-color);
     }
+    /* ---- v6 layout revamp additions ---- */
+
+    /* Mobile drawer: sidebar slides off-canvas; backdrop dims the page. */
+    .sidebar-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+      z-index: 15;
+    }
+
+    @media (max-width: 767px) {
+      .sidebar {
+        transform: translateX(-105%);
+        box-shadow: var(--shadow-lg);
+      }
+      .sidebar.w-64 {
+        transform: translateX(0);
+      }
+      .main-content {
+        margin-left: 0 !important;
+      }
+      .form-container {
+        padding: 1rem;
+      }
+    }
+
+    /* Sticky first column (key column) on wide tables; header corner stays on top.
+       Only the first header row's corner cell sticks (tables with a 2-row header
+       keep their month sub-columns scrolling). */
+    .table-container thead tr:first-child th:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 12;
+    }
+
+    .table-container tbody td:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      background: var(--panel-color);
+      box-shadow: 1px 0 0 var(--border-color);
+    }
+
+    .table-container tbody tr:hover td:first-child {
+      background: var(--hover-color);
+    }
+
+    /* Group/total rows carry their own row tint; keep it on the sticky cell too. */
+    .table-container tbody tr.bg-gray-50 td:first-child {
+      background: #f9fafb;
+    }
+
   </style>
 </head>
 <body class="font-sans">
@@ -682,8 +782,8 @@ function mcCell(row, field) {
       return (
         <div className="p-6 flex items-center justify-center min-h-screen">
           <div className="card p-8 text-center fade-in max-w-lg w-full">
-            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-blue-900">
-              <i className="uil uil-check-circle text-3xl text-blue-600 dark:text-blue-400"></i>
+            <div className="w-16 h-16 bg-accent-light rounded-full flex items-center justify-center mx-auto mb-4">
+              <i className="uil uil-check-circle text-3xl text-accent"></i>
             </div>
             <h1 className="text-2xl font-bold mb-2">Welcome, {teacherName}!</h1>
             <p className="text-gray-600 dark:text-gray-400 mb-6">You have successfully logged into the MIS Admin Dashboard.</p>
@@ -953,6 +1053,14 @@ function formatCategoryString(items) {
       const [isLoading, setIsLoading] = useState(false);
       const [isSidebarOpen, setIsSidebarOpen] = useState(true);
       const [isDarkMode, setIsDarkMode] = useState(false);
+      // v6.1: theme picker state (accent palette; saved per device).
+      const [theme, setTheme] = useState(() => {
+        try {
+          const t = localStorage.getItem('attendance-theme');
+          return (t === 'blue' || t === 'natural') ? t : 'green';
+        } catch (e) { return 'green'; }
+      });
+      const [showThemeMenu, setShowThemeMenu] = useState(false);
       const [userPermissions, setUserPermissions] = useState({});
       const [searchQuery, setSearchQuery] = useState('');
       const [canDeleteStudent, setCanDeleteStudent] = useState(false);
@@ -968,6 +1076,11 @@ function formatCategoryString(items) {
     document.documentElement.classList.add('dark');
     document.body.classList.add('dark');
   }
+}, []);
+
+// v6: start with the sidebar closed on small screens (mobile drawer).
+useEffect(() => {
+  if (window.innerWidth < 768) setIsSidebarOpen(false);
 }, []);
 
 
@@ -1332,6 +1445,13 @@ permissions[user.Username] = {
   document.body.classList.toggle('dark', next);
 };
 
+      // v6.1: apply theme now + save it for the next visit.
+      const applyTheme = (t) => {
+        setTheme(t);
+        document.documentElement.setAttribute('data-theme', t);
+        try { localStorage.setItem('attendance-theme', t); } catch (e) {}
+      };
+
 
       const scrollToTop = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1361,10 +1481,10 @@ permissions[user.Username] = {
 
       if (!isAuthenticated) {
   return (
-    <div className="flex items-center justify-center min-h-screen p-4" style={{ background: 'linear-gradient(180deg, #ecfdf5 0%, #ffffff 70%)' }}>
-      <div className="card p-8 w-full max-w-md fade-in" style={{ borderTop: '4px solid #16a34a' }}>
+    <div className="flex items-center justify-center min-h-screen p-4" style={{ background: 'linear-gradient(180deg, var(--primary-light) 0%, #ffffff 70%)' }}>
+      <div className="card p-6 sm:p-8 w-full max-w-md fade-in" style={{ borderTop: '4px solid var(--primary-color)' }}>
         <div className="text-center mb-6">
-          <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="w-14 h-14 bg-accent-light rounded-full flex items-center justify-center mx-auto mb-4">
             <span style={{ fontSize: '28px' }}>🌱</span>
           </div>
           <h2 className="text-2xl font-bold">Student MIS Admin Portal</h2>
@@ -1372,25 +1492,37 @@ permissions[user.Username] = {
         </div>
         {error && <div className="notification error">{error}</div>}
         <form onSubmit={handleLogin}>
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="form-field">
-              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required placeholder="Username" className="form-input" id="username" />
               <label htmlFor="username">Username</label>
+              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required placeholder="Username" className="form-input" id="username" />
             </div>
             <div className="form-field">
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Password" className="form-input" id="password" />
               <label htmlFor="password">Password</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required placeholder="Password" className="form-input" id="password" />
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <input type="checkbox" id="remember-me" className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded dark:border-gray-600" />
+                <input type="checkbox" id="remember-me" className="h-4 w-4 accent-check border-gray-300 rounded dark:border-gray-600" />
                 <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">Remember me</label>
               </div>
-              <a href="#" className="text-sm text-green-600 hover:underline dark:text-green-400">Forgot password?</a>
+              <a href="#" className="text-sm link-accent">Forgot password?</a>
             </div>
-            <button type="submit" disabled={isLoading} className={`w-full py-3 rounded-lg text-white font-semibold ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`} style={{ background: '#16a34a' }}>
+            <button type="submit" disabled={isLoading} className={`w-full py-3 rounded-lg text-white font-semibold ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`} style={{ background: 'var(--primary-color)' }}>
               {isLoading ? (<><i className="uil uil-spinner text-xl loading-spinner"></i> Authenticating...</>) : ('🌱 Login')}
             </button>
+          </div>
+          <div className="mt-6 pt-5 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-center text-xs text-gray-500 dark:text-gray-400 mb-3">Theme</p>
+            <div className="flex items-center justify-center gap-2">
+              {[{ id: 'green', label: 'Green', sw: '#16a34a' }, { id: 'blue', label: 'Blue', sw: '#2563eb' }, { id: 'natural', label: 'Natural', sw: '#c2410c' }].map(t => (
+                <button key={t.id} type="button" onClick={() => applyTheme(t.id)} title={t.label + ' theme'} aria-label={t.label + ' theme'} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs ${theme === t.id ? 'border-gray-400 dark:border-gray-500 font-semibold text-gray-800 dark:text-gray-100' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'}`} style={theme === t.id ? { boxShadow: '0 0 0 2px var(--primary-color)' } : undefined}>
+                  <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: t.sw }}></span>
+                  {t.label}
+                  {theme === t.id && <i className="uil uil-check text-accent"></i>}
+                </button>
+              ))}
+            </div>
           </div>
         </form>
       </div>
@@ -1404,7 +1536,7 @@ permissions[user.Username] = {
           {/* Sidebar */}
           <div className={`sidebar ${isSidebarOpen ? 'w-64' : 'w-16'}`}>
             <div className="p-4 flex items-center border-b border-gray-200 dark:border-gray-700">
-              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
+              <div className="w-8 h-8 bg-accent rounded-full flex items-center justify-center text-white font-bold">
                 {isSidebarOpen ? 'SA' : 'S'}
               </div>
               {isSidebarOpen && (
@@ -1414,7 +1546,7 @@ permissions[user.Username] = {
   </div>
 )}
             </div>
-            <div className="p-4">
+            <div className="p-4" onClick={e => { const a = e.target.closest && e.target.closest('a'); if (!a || window.innerWidth >= 768) return; if (a.classList.contains('nav-item') && a.textContent.trim().startsWith('Reports')) return; setIsSidebarOpen(false); }}>
               {/* User Management Section */}
               <div className="nav-section">
                 <div className="nav-section-title">User Management</div>
@@ -1509,7 +1641,7 @@ permissions[user.Username] = {
                     </a>
                    {expandedSections.reports && isSidebarOpen && (
   <div className="sub-nav">
-    {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'batch_hours_log', 'attendance_correction_log'].map(report => {
+    {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'batch_hours_log', 'attendance_correction_log'].map(report => {
       const allowed = userPermissions[username]?.allowedTabs || [];
       
       // 🔒 THE FIX: Force clean the strings (lowercase, trim spaces) to guarantee a match
@@ -1532,6 +1664,8 @@ permissions[user.Username] = {
             ? 'Student Class Wise Report' // 👈 CHANGE THIS to whatever you want the 2nd one to be
             : report === 'monthly_bar_report'
             ? 'Monthly Day Wise Report'
+            : report === 'access_hours_report'
+            ? 'ACCESS Hours Report'
             : report.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
         </a>
       );
@@ -1543,6 +1677,10 @@ permissions[user.Username] = {
               </div>
             </div>
           </div>
+
+          {isSidebarOpen && (
+            <div className="sidebar-backdrop md:hidden" onClick={toggleSidebar} aria-hidden="true"></div>
+          )}
 
           {/* Main Content */}
           <section className={`main-content flex-1 ${isSidebarOpen ? 'ml-64' : 'ml-16'}`}>
@@ -1560,19 +1698,20 @@ permissions[user.Username] = {
   // Loading guard - shows while permissions are being loaded
   <div className="flex items-center justify-center min-h-screen">
     <div className="text-center">
-      <i className="uil uil-spinner text-4xl loading-spinner text-blue-500"></i>
+      <i className="uil uil-spinner text-4xl loading-spinner text-accent"></i>
       <p className="mt-4 text-gray-600 dark:text-gray-400">Loading your permissions...</p>
     </div>
   </div>
 ) : (
   <div className="p-6">
                 {/* Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div className="sticky top-0 z-30 -mx-6 -mt-6 px-4 sm:px-6 py-3 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#f8fafc]/95 dark:bg-[#111827]/95 backdrop-blur border-b border-gray-200 dark:border-gray-700">
                   <div className="flex items-center">
-                    <button onClick={toggleSidebar} className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 mr-2">
+                    <button onClick={toggleSidebar} aria-label="Toggle navigation" className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 mr-2 shrink-0">
                       <i className="uil uil-bars text-xl"></i>
                     </button>
-                    <h1 className="text-xl font-bold">
+                    <div className="min-w-0">
+                    <h1 className="text-xl font-bold truncate">
                                            {activeReport 
                       ? (activeReport === 'student_attendance'
                      ? 'Student Attendance Raw Report' // 👈 Make sure this matches the sidebar!
@@ -1580,14 +1719,22 @@ permissions[user.Username] = {
                      ? 'Student Class Wise Report' // 👈 Make sure this matches the sidebar!
                      : activeReport === 'monthly_bar_report' 
                      ? 'Monthly Day Wise Report' 
+                      : activeReport === 'access_hours_report'
+                      ? 'ACCESS Hours Report'
                       : activeReport.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))
                       : activeTab 
                      ? activeTab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
                      : 'Dashboard'
                      }
                   </h1>
+                    {recInfo.REC_Name && (<p className="text-xs text-gray-500 dark:text-gray-400 truncate">{recInfo.REC_Name}{recInfo.LB_Name ? ' — ' + recInfo.LB_Name : ''}</p>)}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-light text-accent-dark text-xs font-medium px-2.5 py-1 max-w-[140px]" title={username}>
+                      <i className="uil uil-user-circle shrink-0"></i>
+                      <span className="truncate">{username}</span>
+                    </span>
                   {((activeTab) ||
   (activeReport && ![
     'attendance_reports',
@@ -1595,7 +1742,7 @@ permissions[user.Username] = {
     'attendance_correction_log',
     'audit_reports'
   ].includes(activeReport))) && (
-  <div className="search-box">
+  <div className="search-box flex-1 min-w-0 sm:flex-none sm:w-64">
     <i className="uil uil-search"></i>
     <input
       type="text"
@@ -1605,6 +1752,25 @@ permissions[user.Username] = {
     />
   </div>
 )}
+                    <div className="relative">
+                      <button onClick={() => setShowThemeMenu(!showThemeMenu)} className="btn-outline p-2" aria-label="Change theme" title="Theme">
+                        <i className="uil uil-palette text-lg"></i>
+                      </button>
+                      {showThemeMenu && (
+                        <div>
+                          <div className="fixed inset-0 z-40" onClick={() => setShowThemeMenu(false)} aria-hidden="true"></div>
+                          <div className="absolute right-0 mt-2 w-44 card p-2 z-50">
+                            {[{ id: 'green', label: 'Green', sw: '#16a34a' }, { id: 'blue', label: 'Blue', sw: '#2563eb' }, { id: 'natural', label: 'Natural', sw: '#c2410c' }].map(t => (
+                              <button key={t.id} onClick={() => { applyTheme(t.id); setShowThemeMenu(false); }} className="w-full flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-left">
+                                <span className="w-4 h-4 rounded-full shrink-0" style={{ background: t.sw }}></span>
+                                <span className="flex-1 text-sm">{t.label}</span>
+                                {theme === t.id && <i className="uil uil-check text-accent"></i>}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                     <button onClick={toggleDarkMode} className="btn-outline p-2">
                       <i className={`uil uil-${isDarkMode ? 'sun' : 'moon'} text-lg`}></i>
                     </button>
@@ -1694,6 +1860,19 @@ permissions[user.Username] = {
     classes={classes}
     classSectionMap={classSectionMap}
     searchQuery={searchQuery}
+    />
+  ) : activeReport === 'access_hours_report' ? (
+    <AccessHoursReport
+      data={data}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setError={setError}
+      setSuccessMessage={setSuccessMessage}
+      userPermissions={userPermissions[username]}
+      classes={classes}
+      classSectionMap={classSectionMap}
+      searchQuery={searchQuery}
+      username={username}
     />
   ) : activeReport === 'batch_hours_log' ? (
     <BatchHoursLog
@@ -1833,9 +2012,9 @@ activeTab === 'qr_management' ? (
     />
   )
 ) : (
-  <div className="card p-8 text-center">
-    <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 dark:bg-blue-900">
-      <i className="uil uil-dashboard text-3xl text-blue-600 dark:text-blue-400"></i>
+  <div className="card p-8 sm:p-12 text-center max-w-2xl mx-auto">
+    <div className="w-16 h-16 bg-accent-light rounded-full flex items-center justify-center mx-auto mb-4">
+      <i className="uil uil-dashboard text-3xl text-accent"></i>
     </div>
     <h2 className="text-2xl font-bold mb-2">Welcome to Dashboard</h2>
     <p className="text-gray-600 dark:text-gray-400 mb-6">Select a section from the sidebar to get started.</p>
@@ -1926,7 +2105,7 @@ for (let h = 0; h < 24; h++) {
       ]},
       { section: 'Admin Access', fields: [
        { name: 'allowedTabs', type: 'select-multiple', 
-  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
+  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
   required: true, 
   placeholder: 'Select allowed tabs', 
   appliesTo: 'admin' 
@@ -2146,6 +2325,7 @@ const editingRow = visibleUsers[editingIndex];
                   <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
                     {field.type === 'select' ? (
                       <>
+                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                         <select
                           name={field.name}
                           value={formData[field.name] || ''}
@@ -2161,10 +2341,10 @@ const editingRow = visibleUsers[editingIndex];
                             <option key={option} value={option}>{option}</option>
                           ))}
                         </select>
-                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                       </>
                     ) : field.type === 'select-multiple' ? (
                       <>
+                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                         <select
                           multiple
                           name={field.name}
@@ -2178,7 +2358,6 @@ const editingRow = visibleUsers[editingIndex];
                             <option key={option} value={option}>{option}</option>
                           ))}
                         </select>
-                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                       </>
                     ) : field.type === 'checkbox' ? (
                       <>
@@ -2194,8 +2373,9 @@ const editingRow = visibleUsers[editingIndex];
 
 ) : field.name === 'Password' && recId ? (
   <>
-    <div style={{ display: 'flex', alignItems: 'center' }}>
-      <span style={{ background: '#eee', padding: '8px 10px', border: '1px solid #ddd', borderRight: 'none', color: '#888' }}>{recId + '-'}</span>
+    <label htmlFor="Password">Password</label>
+    <div className="flex items-stretch">
+      <span className="shrink-0 flex items-center bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 border border-gray-300 dark:border-gray-600 border-r-0 rounded-l-md px-3 text-sm select-none">{recId + '-'}</span>
       <input
         type="text"
         name="Password"
@@ -2203,15 +2383,16 @@ const editingRow = visibleUsers[editingIndex];
         onChange={e => { setFormData(prev => ({ ...prev, Password: recId + '-' + e.target.value })); setFormErrors(prev => ({ ...prev, Password: '' })); }}
         placeholder="Enter password"
         className="form-input"
+        style={{ flex: '1 1 0%', minWidth: 0, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
         id="Password"
         required={field.required}
       />
     </div>
-    <label htmlFor="Password" style={{ top: '-0.5rem', left: '0.75rem', fontSize: '0.75rem', color: '#3b82f6' }}>Password</label>
 
   </>
 ) : (
   <>
+    <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
     <input
       type={field.type}
       name={field.name}
@@ -2223,7 +2404,6 @@ const editingRow = visibleUsers[editingIndex];
       disabled={field.disabled}
       required={field.required}
     />
-    <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
   </>
 )}
 
@@ -2255,7 +2435,7 @@ const editingRow = visibleUsers[editingIndex];
             <div className="flex gap-2">
               <button
                 onClick={() => handleEditClick(index)}
-                className="text-blue-500 hover:text-blue-700"
+                className="link-accent"
               >
                 <i className="uil uil-edit"></i>
               </button>
@@ -2335,20 +2515,20 @@ const editingRow = visibleUsers[editingIndex];
         <div className="card p-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center">
-              <i className="uil uil-users-alt text-2xl text-blue-500 mr-2"></i>
+              <i className="uil uil-users-alt text-2xl text-accent mr-2"></i>
               <h2 className="text-xl font-semibold">User Management</h2>
             </div>
             <div className="flex items-center gap-4">
               <div className="flex border border-gray-300 dark:border-gray-600 rounded-md overflow-hidden">
                 <button
                   onClick={() => setActiveView('cards')}
-                  className={`px-3 py-2 ${activeView === 'cards' ? 'bg-blue-500 text-white' : 'bg-white dark:bg-gray-800'}`}
+                  className={`px-3 py-2 ${activeView === 'cards' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-800'}`}
                 >
                   <i className="uil uil-apps"></i>
                 </button>
                 <button
                   onClick={() => setActiveView('table')}
-                  className={`px-3 py-2 ${activeView === 'table' ? 'bg-blue-500 text-white' : 'bg-white dark:bg-gray-800'}`}
+                  className={`px-3 py-2 ${activeView === 'table' ? 'bg-accent text-white' : 'bg-white dark:bg-gray-800'}`}
                 >
                   <i className="uil uil-list-ul"></i>
                 </button>
@@ -2394,6 +2574,7 @@ const editingRow = visibleUsers[editingIndex];
                                             return (
                         <div key={day} className="form-row">
                           <div className="form-field">
+                            <label htmlFor={`daySchedule_${day}_start`}>{day} Start Time</label>
                             <input
                               type="text"
                               name={`daySchedule_${day}_start`}
@@ -2403,9 +2584,9 @@ const editingRow = visibleUsers[editingIndex];
                               className="form-input"
                               id={`daySchedule_${day}_start`}
                             />
-                            <label htmlFor={`daySchedule_${day}_start`}>{day} Start Time</label>
                           </div>
                           <div className="form-field">
+                            <label htmlFor={`daySchedule_${day}_end`}>{day} End Time</label>
                             <input
                               type="text"
                               name={`daySchedule_${day}_end`}
@@ -2415,7 +2596,6 @@ const editingRow = visibleUsers[editingIndex];
                               className="form-input"
                               id={`daySchedule_${day}_end`}
                             />
-                            <label htmlFor={`daySchedule_${day}_end`}>{day} End Time</label>
                           </div>
                         </div>
                       );
@@ -2488,7 +2668,7 @@ const editingRow = visibleUsers[editingIndex];
                         </td>
                       ))}
                      <td>
-  <button onClick={() => handleEditClick(index)} className="text-blue-500 hover:underline mr-4">
+  <button onClick={() => handleEditClick(index)} className="link-accent mr-4">
     Edit
   </button>
   {isSuperadmin && (
@@ -2505,20 +2685,20 @@ const editingRow = visibleUsers[editingIndex];
           )}
 
           {showDeleteConfirm && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="card p-6 max-w-sm w-full">
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="card p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
                 <h3 className="text-lg font-semibold mb-4">Confirm Delete</h3>
                 <p className="text-gray-600 dark:text-gray-400 mb-4">Are you sure you want to delete this user?</p>
-                <div className="flex space-x-4">
+                <div className="flex flex-col-reverse sm:flex-row gap-3">
                   <button
                     onClick={confirmDelete}
-                    className="btn-primary"
+                    className="btn-primary w-full sm:w-auto justify-center"
                   >
                     Yes, Delete
                   </button>
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="btn-outline"
+                    className="btn-outline w-full sm:w-auto"
                   >
                     Cancel
                   </button>
@@ -2782,7 +2962,7 @@ const editingRow = visibleUsers[editingIndex];
             return (
         <div className="card p-6">
           <div className="flex items-center mb-4">
-            <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
+            <i className="uil uil-chart-bar text-2xl text-accent mr-2"></i>
                     <h2 className="text-xl font-semibold">Student Attendance Raw Report</h2>
 
           </div>
@@ -2790,6 +2970,7 @@ const editingRow = visibleUsers[editingIndex];
             <h3 className="text-lg font-semibold mb-4">Generate Attendance Report</h3>
             <div className="form-row">
               <div className="form-field">
+                <label htmlFor="searchType">Search By</label>
                 <select
                   name="searchType"
                   value={formData.searchType}
@@ -2801,9 +2982,9 @@ const editingRow = visibleUsers[editingIndex];
                   <option value="Barcode_ID">Barcode ID</option>
                   <option value="Student_Name">Student Name</option>
                 </select>
-                <label htmlFor="searchType">Search By</label>
               </div>
               <div className="form-field">
+                <label htmlFor="searchValue">Search Value</label>
                 <input
                   type="text"
                   name="searchValue"
@@ -2813,9 +2994,9 @@ const editingRow = visibleUsers[editingIndex];
                   className="form-input"
                   id="searchValue"
                 />
-                <label htmlFor="searchValue">Search Value</label>
               </div>
               <div className="form-field">
+                <label htmlFor="reportTerm">Term</label>
                 <select
                   name="termId"
                   value={formData.termId}
@@ -2828,9 +3009,9 @@ const editingRow = visibleUsers[editingIndex];
                     <option key={t.Term_ID} value={t.Term_ID}>{t.Term_Name || t.Term_ID}</option>
                   ))}
                 </select>
-                <label htmlFor="reportTerm">Term</label>
               </div>
               <div className="form-field">
+                <label htmlFor="studentClass">Class</label>
                 <select
                   name="studentClass"
                   value={formData.studentClass}
@@ -2843,9 +3024,9 @@ const editingRow = visibleUsers[editingIndex];
                     <option key={cls} value={cls}>{cls}</option>
                   ))}
                 </select>
-                <label htmlFor="studentClass">Class</label>
               </div>
               <div className="form-field">
+                <label htmlFor="studentSection">Section</label>
                 <select
                   name="studentSection"
                   value={formData.studentSection}
@@ -2860,9 +3041,9 @@ const editingRow = visibleUsers[editingIndex];
                     )) : null
                   }
                 </select>
-                <label htmlFor="studentSection">Section</label>
               </div>
               <div className="form-field">
+                <label htmlFor="startDate">Start Date</label>
                 <input
                   type="date"
                   name="startDate"
@@ -2874,9 +3055,9 @@ const editingRow = visibleUsers[editingIndex];
                   min={reportTermRange ? reportTermRange.start : undefined}
                   max={reportTermRange ? reportTermRange.end : undefined}
                 />
-                <label htmlFor="startDate">Start Date</label>
               </div>
               <div className="form-field">
+                <label htmlFor="endDate">End Date</label>
                 <input
                   type="date"
                   name="endDate"
@@ -2888,9 +3069,9 @@ const editingRow = visibleUsers[editingIndex];
                   min={reportTermRange ? reportTermRange.start : undefined}
                   max={reportTermRange ? reportTermRange.end : undefined}
                 />
-                <label htmlFor="endDate">End Date</label>
               </div>
               <div className="form-field">
+                <label htmlFor="statusFilter">Status Filter</label>
                 <select
                   name="statusFilter"
                   value={formData.statusFilter}
@@ -2903,9 +3084,9 @@ const editingRow = visibleUsers[editingIndex];
                   <option value="Absent">Absent</option>
                   <option value="Leave">Leave</option>
                 </select>
-                <label htmlFor="statusFilter">Status Filter</label>
               </div>
               <div className="form-field">
+                <label htmlFor="format">Download Format</label>
                 <select
                   name="format"
                   value={formData.format}
@@ -2916,7 +3097,6 @@ const editingRow = visibleUsers[editingIndex];
                   <option value="CSV">CSV</option>
                   <option value="PDF">PDF</option>
                 </select>
-                <label htmlFor="format">Download Format</label>
               </div>
             </div>
             <div className="form-actions">
@@ -3204,7 +3384,7 @@ const saveEdit = async (row) => {
       return (
         <div className="card p-6">
           <div className="flex items-center mb-4">
-            <i className="uil uil-edit-alt text-2xl text-blue-500 mr-2"></i>
+            <i className="uil uil-edit-alt text-2xl text-accent mr-2"></i>
             <h2 className="text-xl font-semibold">Attendance Correction</h2>
           </div>
 
@@ -3213,6 +3393,7 @@ const saveEdit = async (row) => {
             <form onSubmit={handleSearch}>
               <div className="form-row">
                 <div className="form-field">
+                  <label htmlFor="correctionSearchType">Search By</label>
                   <select
                     name="searchType"
                     value={formData.searchType}
@@ -3224,9 +3405,9 @@ const saveEdit = async (row) => {
                     <option value="Barcode_ID">Barcode ID</option>
                     <option value="Student_Name">Student Name</option>
                   </select>
-                  <label htmlFor="correctionSearchType">Search By</label>
                 </div>
                 <div className="form-field">
+                  <label htmlFor="correctionSearchValue">Search Value</label>
                   <input
                     type="text"
                     name="searchValue"
@@ -3236,9 +3417,9 @@ const saveEdit = async (row) => {
                     className="form-input"
                     id="correctionSearchValue"
                   />
-                  <label htmlFor="correctionSearchValue">Search Value</label>
                 </div>
                 <div className="form-field">
+                  <label htmlFor="correctionStartDate">Start Date</label>
                   <input
                     type="date"
                     name="startDate"
@@ -3248,9 +3429,9 @@ const saveEdit = async (row) => {
                     id="correctionStartDate"
                     required
                   />
-                  <label htmlFor="correctionStartDate">Start Date</label>
                 </div>
                 <div className="form-field">
+                  <label htmlFor="correctionEndDate">End Date</label>
                   <input
                     type="date"
                     name="endDate"
@@ -3260,9 +3441,9 @@ const saveEdit = async (row) => {
                     id="correctionEndDate"
                     required
                   />
-                  <label htmlFor="correctionEndDate">End Date</label>
                 </div>
                 <div className="form-field">
+                  <label htmlFor="correctionStatusFilter">Status Filter</label>
                   <select
                     name="statusFilter"
                     value={formData.statusFilter}
@@ -3275,7 +3456,6 @@ const saveEdit = async (row) => {
                     <option value="Absent">Absent</option>
                     <option value="Leave">Leave</option>
                   </select>
-                  <label htmlFor="correctionStatusFilter">Status Filter</label>
                 </div>
               </div>
               <div className="form-actions">
@@ -3484,13 +3664,13 @@ const saveEdit = async (row) => {
                             <div className="flex flex-col gap-1 pt-1">
                               <button
                                 onClick={() => editingMode === 'status' ? saveEdit(row) : saveHoursEdit(row)}
-                                className="text-green-600 hover:underline text-sm font-medium"
+                                className="link-accent text-sm font-medium"
                               >Save</button>
                               <button onClick={cancelEdit} className="text-gray-500 hover:underline text-sm">Cancel</button>
                             </div>
                           ) : (
                             <div className="flex flex-col gap-1">
-                              <button onClick={() => startEdit(row, 'status')} className="text-blue-500 hover:underline">Edit Status</button>
+                              <button onClick={() => startEdit(row, 'status')} className="link-accent">Edit Status</button>
                               {String(row.Status).toLowerCase() === 'present' && (
                                 <button onClick={() => startEdit(row, 'hours')} className="text-purple-600 hover:underline">
                                   Edit Hours
@@ -3932,7 +4112,7 @@ const downloadReport = () => {
     <div className="card p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
-          <i className="uil uil-file-graph text-2xl text-blue-500 mr-2"></i>
+          <i className="uil uil-file-graph text-2xl text-accent mr-2"></i>
           <h2 className="text-xl font-semibold">Student Class Wise Report</h2>
         </div>
         <button
@@ -3951,6 +4131,7 @@ const downloadReport = () => {
 
         <div className="form-row">
           <div className="form-field">
+            <label htmlFor="studentClass">Class</label>
             <select
               name="studentClass"
               value={formData.studentClass}
@@ -3963,10 +4144,10 @@ const downloadReport = () => {
                 <option key={cls} value={cls}>{cls}</option>
               ))}
             </select>
-            <label htmlFor="studentClass">Class</label>
           </div>
           
           <div className="form-field">
+            <label htmlFor="studentSection">Section</label>
             <select
               name="studentSection"
               value={formData.studentSection}
@@ -3982,10 +4163,10 @@ const downloadReport = () => {
                 )) : null
               }
             </select>
-            <label htmlFor="studentSection">Section</label>
           </div>
           
           <div className="form-field">
+            <label htmlFor="status">Status</label>
             <select
               name="status"
               value={formData.status}
@@ -3997,10 +4178,10 @@ const downloadReport = () => {
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
             </select>
-            <label htmlFor="status">Status</label>
           </div>
           
           <div className="form-field">
+            <label htmlFor="studentId">Student ID</label>
             <input
               type="text"
               name="studentId"
@@ -4010,10 +4191,10 @@ const downloadReport = () => {
               className="form-input"
               id="studentId"
             />
-            <label htmlFor="studentId">Student ID</label>
           </div>
           
           <div className="form-field">
+            <label htmlFor="month">Month</label>
             <select
               name="month"
               value={formData.month}
@@ -4025,10 +4206,10 @@ const downloadReport = () => {
                 <option key={month.value} value={month.value}>{month.label}</option>
               ))}
             </select>
-            <label htmlFor="month">Month</label>
           </div>
           
           <div className="form-field">
+            <label htmlFor="year">Year</label>
             <select
               name="year"
               value={formData.year}
@@ -4041,7 +4222,6 @@ const downloadReport = () => {
                 <option key={year} value={year}>{year}</option>
               ))}
             </select>
-            <label htmlFor="year">Year</label>
           </div>
         </div>
         
@@ -4232,7 +4412,7 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
     <div className="card p-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center">
-          <i className="uil uil-qrcode-scan text-2xl text-blue-500 mr-2"></i>
+          <i className="uil uil-qrcode-scan text-2xl text-accent mr-2"></i>
           <h2 className="text-xl font-semibold">QR Code Management</h2>
         </div>
         <div className="flex gap-2">
@@ -4336,7 +4516,7 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
                 type="checkbox"
                 checked={selectAll}
                 onChange={handleSelectAll}
-                className="form-checkbox h-5 w-5 text-blue-600"
+                className="form-checkbox h-5 w-5 accent-check"
               />
               <span className="ml-2 text-sm font-medium">Select All</span>
             </label>
@@ -4367,7 +4547,7 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
                         type="checkbox"
                         checked={selectedStudents.includes(student.Std_ID)}
                         onChange={() => handleSelectStudent(student.Std_ID)}
-                        className="form-checkbox h-5 w-5 text-blue-600"
+                        className="form-checkbox h-5 w-5 accent-check"
                       />
                     </td>
                     <td>{student.Std_ID}</td>
@@ -4518,7 +4698,7 @@ const handlePrintAllInView = async () => {
   return (
     <div className="card p-6">
       <div className="flex items-center mb-6">
-        <i className="uil uil-copy text-2xl text-blue-500 mr-2"></i>
+        <i className="uil uil-copy text-2xl text-accent mr-2"></i>
         <h2 className="text-xl font-semibold">Reserve Codes Generator</h2>
       </div>
 
@@ -4532,6 +4712,7 @@ const handlePrintAllInView = async () => {
 
       <div className="flex gap-4 items-end mb-8">
         <div className="form-field flex-1">
+          <label htmlFor="reserveCount">Number of codes to generate</label>
           <input
             type="number"
             min="1"
@@ -4541,7 +4722,6 @@ const handlePrintAllInView = async () => {
             className="form-input"
             id="reserveCount"
           />
-          <label htmlFor="reserveCount">Number of codes to generate</label>
         </div>
 
         <button
@@ -4651,7 +4831,7 @@ const handlePrintAllInView = async () => {
                 type="checkbox"
                 checked={selectAll}
                 onChange={handleSelectAll}
-                className="form-checkbox h-5 w-5 text-blue-600"
+                className="form-checkbox h-5 w-5 accent-check"
               />
               <span className="ml-2 text-sm font-medium">Select All</span>
             </label>
@@ -4680,7 +4860,7 @@ const handlePrintAllInView = async () => {
                         type="checkbox"
                         checked={selectedCodes.includes(row.Barcode_ID)}
                         onChange={() => handleSelectCode(row.Barcode_ID)}
-                        className="form-checkbox h-5 w-5 text-blue-600"
+                        className="form-checkbox h-5 w-5 accent-check"
                       />
                     </td>
                     <td className="font-mono font-bold text-blue-600">{row.Barcode_ID}</td>
@@ -4775,7 +4955,7 @@ const handlePrintAllInView = async () => {
         <div className="card p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center">
-              <i className="uil uil-file-check text-2xl text-blue-500 mr-2"></i>
+              <i className="uil uil-file-check text-2xl text-accent mr-2"></i>
               <h2 className="text-xl font-semibold">Audit Reports</h2>
             </div>
             <div className="flex items-center gap-4">
@@ -5390,7 +5570,7 @@ html += `
   return (
     <div className="card p-6">
       <div className="flex items-center mb-4">
-        <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
+        <i className="uil uil-chart-bar text-2xl text-accent mr-2"></i>
               <h2 className="text-xl font-semibold">Monthly Day Wise Report</h2>
       </div>
 
@@ -5398,6 +5578,7 @@ html += `
         <form onSubmit={generateReport}>
           <div className="form-row">
             <div className="form-field">
+              <label htmlFor="mbrTerm">Term</label>
               <select
                 className="form-input"
                 id="mbrTerm"
@@ -5407,9 +5588,9 @@ html += `
                 <option value="">All Terms</option>
                 {termPickerOptions_(data.terms || []).map(t => <option key={t.Term_ID} value={t.Term_ID}>{t.Term_Name || t.Term_ID}</option>)}
               </select>
-              <label htmlFor="mbrTerm">Term</label>
             </div>
             <div className="form-field">
+              <label htmlFor="mbrClass">Class</label>
               <select
                   className="form-input"
                        id="mbrClass"
@@ -5425,9 +5606,9 @@ html += `
               <option value="__ALL__">All Classes</option>
              {mbrVisibleClasses.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-              <label htmlFor="mbrClass">Class</label>
             </div>
             <div className="form-field">
+              <label htmlFor="mbrSection">Section</label>
 <select
   className="form-input"
   id="mbrSection"
@@ -5442,9 +5623,9 @@ html += `
     (classSectionMap[selectedClass] || []).map(s => <option key={s} value={s}>{s}</option>)
   )}
 </select>
-              <label htmlFor="mbrSection">Section</label>
             </div>
             <div className="form-field">
+  <label htmlFor="mbrMonth">Month</label>
   <select
     className="form-input"
     id="mbrMonth"
@@ -5455,7 +5636,6 @@ html += `
     <option value="" disabled>Select Month</option>
     {visibleMonthOptions.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
   </select>
-  <label htmlFor="mbrMonth">Month</label>
 </div>
 <div className="form-field checkbox" style={{ alignSelf: 'end', marginBottom: '1.5rem', paddingBottom: '0.75rem' }}>
   <input
@@ -5570,6 +5750,847 @@ html += `
     </div>
   );
 }
+
+    // ---------- ACCESS Hours Report (v5) ----------
+    // Mirrors Monthly_Quarterly_Report.xlsx: per-student attended days, working days
+    // and Present-only hours per month, quarter-to-date / monthly / yearly.
+    // P0 = 0h, P1 = 0 < h < 2.5m, P2 = 2.5m <= h < 6.25m, P3 = h >= 6.25m,
+    // Required Hours = 6.25m, where m = ENROLLED months for that child
+    // (later of term start / Date of Joining, to the report month, capped at
+// Inactive_Date). No grid labels. No BH/BI/BJ current-month columns,
+    // no ACCESS-CM, no Contact columns, no DREC.
+    function AccessHoursReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery, username }) {
+      const [selectedTerm, setSelectedTerm] = useState('');
+      const [periodType, setPeriodType] = useState('monthly');
+      const [selectedMonths, setSelectedMonths] = useState([]);
+      const [viewMode, setViewMode] = useState('details');
+      const [trendMode, setTrendMode] = useState('student');
+      const [selectedQuarter, setSelectedQuarter] = useState('Q1');
+      const [selectedClass, setSelectedClass] = useState('');
+      const [reportRows, setReportRows] = useState([]);
+      const [reportMeta, setReportMeta] = useState(null);
+      const [generated, setGenerated] = useState(false);
+
+      const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
+      const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const ACCESS_CLASS_ORDER = ['IBT', 'NUR', 'KGI', 'KGII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'];
+      const SECTION_GROUPS = [
+        { name: 'Pre-Primary', classes: ['IBT', 'NUR', 'KGI', 'KGII'] },
+        { name: 'Lower Primary', classes: ['I', 'II', 'III'] },
+        { name: 'Upper Primary', classes: ['IV', 'V', 'VI'] },
+        { name: 'Secondary', classes: ['VII', 'VIII', 'IX', 'X', 'XI', 'HRE'] },
+      ];
+      const QUARTERS = { Q1: { month: 11, yearOff: 0 }, Q2: { month: 2, yearOff: 1 }, Q3: { month: 5, yearOff: 1 }, Q4: { month: 8, yearOff: 1 } };
+
+      const monthKeyOf = (y, m) => y + '-' + String(m).padStart(2, '0');
+      const monthLabelShort = (key) => {
+        const parts = String(key || '').split('-');
+        const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+        if (!y || !m) return String(key || '');
+        return MONTH_NAMES[m - 1] + ' ' + String(y).slice(2);
+      };
+      const monthLabelLong = (key) => {
+        const parts = String(key || '').split('-');
+        const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+        if (!y || !m) return String(key || '');
+        return MONTH_LONG[m - 1] + ' ' + y;
+      };
+      const monthsInRange = (startKey, endKey) => {
+        const out = [];
+        const sp = String(startKey || '').split('-');
+        let y = parseInt(sp[0], 10), m = parseInt(sp[1], 10);
+        const ep = String(endKey || '').split('-');
+        const ey = parseInt(ep[0], 10), em = parseInt(ep[1], 10);
+        if (!y || !m || !ey || !em) return out;
+        while (y < ey || (y === ey && m <= em)) {
+          out.push(monthKeyOf(y, m));
+          m += 1; if (m > 12) { m = 1; y += 1; }
+        }
+        return out;
+      };
+      const monthStartDate = (key) => { const p = String(key).split('-'); return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, 1); };
+      const monthEndDate = (key) => { const p = String(key).split('-'); return new Date(parseInt(p[0], 10), parseInt(p[1], 10), 0); };
+      const sectionTagOf = (cls) => {
+        const c = String(cls || '').trim();
+        const g = SECTION_GROUPS.find(gr => gr.classes.indexOf(c) !== -1);
+        return g ? g.name : '';
+      };
+
+      // ACTIVE Class_Terms rows of the picked term (data.class_terms is already REC-filtered).
+      const activeTermRows = selectedTerm
+        ? (data.class_terms || []).filter(r => termIsActive_(r.Is_Active) && norm(r.Term_ID).toLowerCase() === norm(selectedTerm).toLowerCase())
+        : [];
+      const termStartYear = () => {
+        const found = String(selectedTerm || '').match(/(\d{4})/);
+        if (found) return parseInt(found[1], 10);
+        const starts = activeTermRows.map(r => termParseDate_(r.Start_Date)).filter(Boolean);
+        if (starts.length) return Math.min.apply(null, starts.map(d => d.getFullYear()));
+        return new Date().getFullYear();
+      };
+      const periodEndKey = () => {
+        if (periodType === 'monthly') return selectedMonths.length ? selectedMonths.slice().sort().pop() : '';
+        const sy = termStartYear();
+        if (periodType === 'quarterly') {
+          const q = QUARTERS[selectedQuarter] || QUARTERS.Q1;
+          return monthKeyOf(sy + q.yearOff, q.month);
+        }
+        // Yearly: latest End_Date among the term's Class_Terms rows (fallback Aug of start year + 1).
+        const ends = activeTermRows.map(r => termParseDate_(r.End_Date)).filter(Boolean);
+        if (ends.length) {
+          const mx = new Date(Math.max.apply(null, ends.map(d => d.getTime())));
+          return monthKeyOf(mx.getFullYear(), mx.getMonth() + 1);
+        }
+        return monthKeyOf(sy + 1, 8);
+      };
+      const reportStartKey = () => {
+        const starts = activeTermRows.map(r => termParseDate_(r.Start_Date)).filter(Boolean);
+        if (!starts.length) return '';
+        const mn = new Date(Math.min.apply(null, starts.map(d => d.getTime())));
+        return monthKeyOf(mn.getFullYear(), mn.getMonth() + 1);
+      };
+      const termSpan = selectedTerm ? termSpan_(data.class_terms || [], selectedTerm) : null;
+      const termMonthOptions = termSpan
+        ? monthsInRange(
+            monthKeyOf(termParseDate_(termSpan.start).getFullYear(), termParseDate_(termSpan.start).getMonth() + 1),
+            monthKeyOf(termParseDate_(termSpan.end).getFullYear(), termParseDate_(termSpan.end).getMonth() + 1)
+          )
+        : [];
+      const termClassList = selectedTerm ? termClasses_(data.class_terms || [], selectedTerm) : null;
+      const inMappings = (classes || []).filter(c => !termClassList || termClassList.indexOf(c) !== -1);
+      const visibleClasses = inMappings.length ? inMappings : (termClassList || []);
+      const quarterOptions = ['Q1', 'Q2', 'Q3', 'Q4'].map(q => {
+        const def = QUARTERS[q];
+        return { value: q, label: q + ' — ends ' + monthLabelLong(monthKeyOf(termStartYear() + def.yearOff, def.month)) };
+      });
+      const periodLabel = () => {
+        if (!reportMeta) return '';
+        if (periodType === 'monthly') return (reportMeta.months || []).map(monthLabelLong).join(', ');
+        if (periodType === 'quarterly') return selectedQuarter + ' (QTD) — ' + monthLabelShort(reportMeta.startKey) + ' to ' + monthLabelLong(reportMeta.endKey);
+        return 'Full year — ' + monthLabelShort(reportMeta.startKey) + ' to ' + monthLabelLong(reportMeta.endKey);
+      };
+      const resetResults = () => { setReportRows([]); setReportMeta(null); setGenerated(false); };
+
+      const buildReportRows = (attRows, setupRows, months, endKey, displayMonths) => {
+        let students = (data.student_data || []).slice();
+        if (selectedClass) students = students.filter(s => norm(s.Student_Class) === norm(selectedClass));
+        const studentById = {};
+        students.forEach(s => { studentById[norm(s.Std_ID)] = s; });
+
+        // Attendance rows, REC-scoped by Std_ID (getStudentAttendance is not REC-filtered).
+        const attByStudent = {};
+        (attRows || []).forEach(a => {
+          const sid = norm(a.Std_ID);
+          if (!studentById[sid]) return;
+          const dt = parseAnyDate(a.Date);
+          if (!dt) return;
+          if (!attByStudent[sid]) attByStudent[sid] = [];
+          attByStudent[sid].push({ status: String(a.Status || '').toLowerCase().trim(), hours: Number(a.Hours || 0), date: new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()) });
+        });
+
+        // Working days: distinct Daily_Hours_Setup dates per class-section.
+        const setupDaysBySection = {};
+        (setupRows || []).forEach(h => {
+          if (!h.Date || !h.Class_Section) return;
+          const k = dayKey(h.Date);
+          if (!k) return;
+          const cs = String(h.Class_Section).trim();
+          if (!setupDaysBySection[cs]) setupDaysBySection[cs] = {};
+          setupDaysBySection[cs][k] = true;
+        });
+        // Fallback: distinct attendance dates per class-section.
+        const attDaysBySection = {};
+        (attRows || []).forEach(a => {
+          const cs = String(a.Class_Section || ((a.Student_Class || '') + '-' + (a.Student_Section || ''))).trim();
+          if (!cs) return;
+          const dt = parseAnyDate(a.Date);
+          if (!dt) return;
+          const k = dayKey(dt);
+          if (!attDaysBySection[cs]) attDaysBySection[cs] = {};
+          attDaysBySection[cs][k] = true;
+        });
+
+        const endMonthEnd = monthEndDate(endKey);
+        const out = [];
+        students.forEach(st => {
+          const cls = norm(st.Student_Class);
+          const sec = norm(st.Student_Section);
+          const cs = cls + '-' + sec;
+          // Class-level span is the fallback; section-level range decides the window.
+          const span = termSpanForClass_(data.class_terms || [], cls, selectedTerm);
+          const range = termRangeForClass_(data.class_terms || [], cs, selectedTerm) || span;
+          const doj = parseAnyDate(st.Date_of_Joining);
+          const inactive = parseAnyDate(st.Inactive_Date);
+          let winStart = range ? termParseDate_(range.start) : monthStartDate(months[0]);
+          if (doj) {
+            const dj = new Date(doj.getFullYear(), doj.getMonth(), doj.getDate());
+            if (dj > winStart) winStart = dj;
+          }
+          let winEnd = new Date(endMonthEnd.getFullYear(), endMonthEnd.getMonth(), endMonthEnd.getDate());
+          if (inactive) {
+            const ia = new Date(inactive.getFullYear(), inactive.getMonth(), inactive.getDate());
+            if (ia < winEnd) winEnd = ia;
+          }
+          // Cap at the student's own class-section term end (e.g. AUG classes end Jul 2027,
+          // so a yearly run to Aug 2027 must not count a 13th month for them).
+          if (range) {
+            const re = termParseDate_(range.end);
+            if (re && re < winEnd) winEnd = re;
+          }
+          const winStartKey = monthKeyOf(winStart.getFullYear(), winStart.getMonth() + 1);
+          const winEndKey = monthKeyOf(winEnd.getFullYear(), winEnd.getMonth() + 1);
+          const winMonths = monthsInRange(winStartKey, winEndKey).filter(k => months.indexOf(k) !== -1);
+          if (!winMonths.length) return; // joined after the period, or left before it started
+          const m = winMonths.length;
+          const winStartStr = termDateKey_(winStart);
+          const winEndStr = termDateKey_(winEnd);
+          const recs = attByStudent[norm(st.Std_ID)] || [];
+          const perMonth = months.map(mk => {
+            if (winMonths.indexOf(mk) === -1) return { key: mk, attended: 0, working: 0, hours: 0 };
+            const ms = monthStartDate(mk), me = monthEndDate(mk);
+            const lo = ms > winStart ? ms : winStart;
+            const hi = me < winEnd ? me : winEnd;
+            const loStr = termDateKey_(lo), hiStr = termDateKey_(hi);
+            let attended = 0, hours = 0;
+            recs.forEach(r => {
+              const k = termDateKey_(r.date);
+              if (k < loStr || k > hiStr) return;
+              // Only Present earns hours — matches MonthlyBarReport's Option A rule.
+              if (r.status === 'present') { attended += 1; hours += (isNaN(r.hours) ? 0 : r.hours); }
+            });
+            hours = Math.round(hours * 100) / 100;
+            let working = 0;
+            const setupSet = setupDaysBySection[cs];
+            if (setupSet) {
+              working = Object.keys(setupSet).filter(k => k >= loStr && k <= hiStr).length;
+            } else {
+              const attSet = attDaysBySection[cs];
+              working = attSet ? Object.keys(attSet).filter(k => k >= loStr && k <= hiStr).length : 0;
+            }
+            return { key: mk, attended, working, hours };
+          });
+          const attTotal = perMonth.reduce((s, x) => s + x.attended, 0);
+          const workTotal = perMonth.reduce((s, x) => s + x.working, 0);
+          const actualHours = Math.round(perMonth.reduce((s, x) => s + x.hours, 0) * 100) / 100;
+          const requiredHours = Math.round(6.25 * m * 100) / 100;
+          // Shortfall before the report month: required for enrolled months
+          // before endKey minus hours earned in those months (0 if ahead).
+          const prevMonths = winMonths.filter(k => k < endKey);
+          const mPrev = prevMonths.length;
+          const actualPrev = Math.round(perMonth.filter(x => x.key < endKey).reduce((s, x) => s + x.hours, 0) * 100) / 100;
+          const shortfallPrev = Math.max(0, Math.round((6.25 * mPrev - actualPrev) * 100) / 100);
+          const requiredThisMonth = Math.round((6.25 + shortfallPrev) * 100) / 100;
+          // Total shortfall so far, and what the child must earn NEXT month
+          // to be fully caught up (next month's own 6.25 plus the shortfall).
+          const totalShortfall = Math.max(0, Math.round((requiredHours - actualHours) * 100) / 100);
+          const requiredNextMonth = Math.round((6.25 + totalShortfall) * 100) / 100;
+          const pct = workTotal > 0 ? Math.min(attTotal / workTotal, 1) : 0;
+          let marking;
+        
+if (actualHours === 0) marking = 'P0';
+else if (actualHours >= 6.25 * m) marking = 'P3';
+else if (actualHours >= 2.5 * m) marking = 'P2';
+else marking = 'P1';
+const accessTag = marking === 'P3' ? 'NOT ACCESS' : 'ACCESS';
+          const activeInMonth = isEnrolledInMonth(monthStartDate(endKey), monthEndDate(endKey), st.Date_of_Joining, st.Inactive_Date) ? 'Y' : 'N';
+          const issueMonths = perMonth.filter(x => x.attended > 0 && x.hours < 1).map(x => monthLabelShort(x.key));
+          // Trend: marking at the end of every month in the full window.
+          // '—' when not enrolled that month (before joining / after leaving).
+          const trend = months.map(mk => {
+            if (winMonths.indexOf(mk) === -1) return { key: mk, marking: '—' };
+            const mK = winMonths.filter(k => k <= mk).length;
+            const actualK = Math.round(perMonth.filter(x => x.key <= mk).reduce((s, x) => s + x.hours, 0) * 100) / 100;
+            let tm;
+            if (actualK === 0) tm = 'P0';
+            else if (actualK >= 6.25 * mK) tm = 'P3';
+            else if (actualK >= 2.5 * mK) tm = 'P2';
+            else tm = 'P1';
+            return { key: mk, marking: tm };
+          });
+          out.push({
+            sectionTag: sectionTagOf(cls),
+            Class: cls,
+            Section: sec,
+            Std_ID: st.Std_ID,
+            Student_Name: st.Student_Name,
+            Date_of_Joining: st.Date_of_Joining || '',
+            Gender: st.Gender || '',
+            perMonth,
+            attTotal, workTotal,
+            pct: Math.round(pct * 1000) / 10,
+            
+            actualHours,
+            requiredHours,
+            shortfallPrev,
+            requiredThisMonth,
+            requiredNextMonth,
+            marking,
+            accessTag,
+            active: activeInMonth,
+            issues: issueMonths.length ? issueMonths.join(', ') : '—',
+            trend,
+            _enrolledMonths: m,
+          });
+        });
+        out.sort((a, b) => {
+          const ai = ACCESS_CLASS_ORDER.indexOf(a.Class), bi = ACCESS_CLASS_ORDER.indexOf(b.Class);
+          const ao = ai === -1 ? 999 : ai, bo = bi === -1 ? 999 : bi;
+          if (ao !== bo) return ao - bo;
+          if (a.Section !== b.Section) return String(a.Section).localeCompare(String(b.Section));
+          return String(a.Student_Name || '').localeCompare(String(b.Student_Name || ''));
+        });
+        // Show only the picked months as columns; totals and marking stay cumulative.
+        if (displayMonths) out.forEach(r => { r.perMonth = r.perMonth.filter(x => displayMonths.indexOf(x.key) !== -1); });
+        return out;
+      };
+
+      const generateReport = async (e) => {
+        if (e) e.preventDefault();
+        if (!selectedTerm) { setError('Please select a Term.'); return; }
+        const endKey = periodEndKey();
+        if (periodType === 'monthly' && !selectedMonths.length) { setError('Please select at least one Month.'); return; }
+        const startKey = reportStartKey();
+        if (!startKey) { setError('No term dates set up for Term ' + selectedTerm + '. Add Class_Terms rows first.'); return; }
+        if (!endKey || endKey < startKey) { setError('The period ends before the term starts.'); return; }
+        setIsLoading(true);
+        setError('');
+        try {
+          const recId = userPermissions?.REC_ID || '';
+          const startDate = startKey + '-01';
+          const endDate = termDateKey_(monthEndDate(endKey));
+          const [attRows, setupRows] = await Promise.all([
+            callWithRetry('getStudentAttendance', { startDate, endDate, statusFilter: 'All', username }),
+            callWithRetry('getSheetData', 'Daily_Hours_Setup', recId)
+          ]);
+          const months = monthsInRange(startKey, endKey);
+          const displayMonths = periodType === 'monthly' ? selectedMonths.slice().sort() : months;
+          const rows = buildReportRows(attRows || [], setupRows || [], months, endKey, displayMonths);
+          setReportRows(rows);
+          setReportMeta({ months: displayMonths, trendMonths: months, endKey, startKey, termId: selectedTerm });
+          setGenerated(true);
+          if (!rows.length) setError('No students enrolled in this period.');
+        } catch (err) {
+          setError('Failed to generate report: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+
+      const downloadCSV = () => {
+        if (!reportRows.length) { setError('No data to download'); return; }
+        if (viewMode === 'trend') {
+          if (trendMode === 'student') { downloadTrendStudentCSV(); return; }
+          downloadTrendSummaryCSV(); return;
+        }
+        const months = reportMeta.months;
+        const headers = ['Section Tag', 'Class', 'Sec', 'SIRN', 'Full Name', 'Date of Joining', 'Gender'];
+        months.forEach(mk => { headers.push(monthLabelShort(mk) + ' Attended', monthLabelShort(mk) + ' Working', monthLabelShort(mk) + ' Hours'); });
+        headers.push('Attended Days', 'Working Days', 'Attendance %','Actual Hours', 'Required Hours', 'Access Marking', 'ACCESS TAG', 'Active', 'Prev Shortfall', 'Required This Month', 'Required Next Month', 'Data Issues');
+        let csv = headers.join(',') + '\n';
+        reportRows.forEach(r => {
+          const line = [r.sectionTag, r.Class, r.Section, r.Std_ID, r.Student_Name, r.Date_of_Joining, r.Gender];
+          r.perMonth.forEach(x => { line.push(x.attended, x.working, x.hours); });
+          line.push(r.attTotal, r.workTotal, r.pct + '%', r.actualHours, r.requiredHours, r.marking, r.accessTag, r.active, r.shortfallPrev, r.requiredThisMonth, r.requiredNextMonth, r.issues);
+          csv += line.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',') + '\n';
+        });
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'access_hours_report_' + (reportMeta.termId || '') + '_' + (reportMeta.endKey || '') + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        setSuccessMessage('CSV downloaded!');
+      };
+
+      const downloadTrendStudentCSV = () => {
+        const tMonths = (reportMeta && reportMeta.trendMonths) || [];
+        const headers = ['Section Tag', 'Class', 'Sec', 'SIRN', 'Full Name', 'Gender', 'Active', 'Date of Joining'].concat(tMonths.map(monthLabelShort));
+        let csv = headers.join(',') + '\n';
+        filteredRows.forEach(r => {
+          const line = [r.sectionTag, r.Class, r.Section, r.Std_ID, r.Student_Name, r.Gender, r.active, r.Date_of_Joining];
+          tMonths.forEach(mk => {
+            const t = (r.trend || []).find(x => x.key === mk);
+            line.push(t ? t.marking : '—');
+          });
+          csv += line.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',') + '\n';
+        });
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'access_hours_trend_' + (reportMeta.termId || '') + '_' + (reportMeta.endKey || '') + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        setSuccessMessage('CSV downloaded!');
+      };
+
+      const downloadTrendSummaryCSV = () => {
+        const headers = ['Class', 'Month', 'P0', 'P1', 'P2', 'P3', 'Total'];
+        let csv = headers.join(',') + '\n';
+        const pushBlock = (block) => {
+          block.rows.forEach(rr => {
+            const line = [block.heading, monthLabelShort(rr.month), rr.P0, rr.P1, rr.P2, rr.P3, rr.total];
+            csv += line.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',') + '\n';
+          });
+        };
+        trendSummary.classes.forEach(pushBlock);
+        trendSummary.groups.forEach(pushBlock);
+        pushBlock(trendSummary.grand);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'access_hours_trend_summary_' + (reportMeta.termId || '') + '_' + (reportMeta.endKey || '') + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        setSuccessMessage('CSV downloaded!');
+      };
+
+      const clearForm = () => {
+        setSelectedTerm('');
+        setPeriodType('monthly');
+        setSelectedMonths([]);
+        setSelectedQuarter('Q1');
+        setSelectedClass('');
+        resetResults();
+      };
+
+      // Summary: per-class P0–P3 counts, group subtotals, Grand Total and %tage row.
+      const summaryRows = (() => {
+        const byClass = {};
+        reportRows.forEach(r => {
+          if (['P0', 'P1', 'P2', 'P3'].indexOf(r.marking) === -1) return;
+          if (!byClass[r.Class]) byClass[r.Class] = { P0: 0, P1: 0, P2: 0, P3: 0 };
+          byClass[r.Class][r.marking] += 1;
+        });
+        const classOrder = ACCESS_CLASS_ORDER.filter(c => byClass[c])
+          .concat(Object.keys(byClass).filter(c => ACCESS_CLASS_ORDER.indexOf(c) === -1).sort());
+        const rows = [];
+        const addRow = (label, counts, isGroup, isPct) => {
+          const total = counts.P0 + counts.P1 + counts.P2 + counts.P3;
+          rows.push({
+            label, P0: counts.P0, P1: counts.P1, P2: counts.P2, P3: counts.P3, total,
+            p02: total ? Math.round(((counts.P0 + counts.P1 + counts.P2) / total) * 1000) / 10 : 0,
+            p3: total ? Math.round((counts.P3 / total) * 1000) / 10 : 0,
+            isGroup: !!isGroup, isPct: !!isPct
+          });
+        };
+        SECTION_GROUPS.forEach(g => {
+          const inGroup = classOrder.filter(c => g.classes.indexOf(c) !== -1);
+          inGroup.forEach(c => addRow(c, byClass[c], false, false));
+          if (inGroup.length) {
+            const sum = { P0: 0, P1: 0, P2: 0, P3: 0 };
+            inGroup.forEach(c => { sum.P0 += byClass[c].P0; sum.P1 += byClass[c].P1; sum.P2 += byClass[c].P2; sum.P3 += byClass[c].P3; });
+            addRow(g.name, sum, true, false);
+          }
+        });
+        const totals = { P0: 0, P1: 0, P2: 0, P3: 0 };
+        classOrder.forEach(c => { totals.P0 += byClass[c].P0; totals.P1 += byClass[c].P1; totals.P2 += byClass[c].P2; totals.P3 += byClass[c].P3; });
+        addRow('Grand Total', totals, true, false);
+        const gt = totals.P0 + totals.P1 + totals.P2 + totals.P3;
+        rows.push({
+          label: '%tage',
+          P0: gt ? Math.round((totals.P0 / gt) * 1000) / 10 : 0,
+          P1: gt ? Math.round((totals.P1 / gt) * 1000) / 10 : 0,
+          P2: gt ? Math.round((totals.P2 / gt) * 1000) / 10 : 0,
+          P3: gt ? Math.round((totals.P3 / gt) * 1000) / 10 : 0,
+          total: 100,
+          p02: gt ? Math.round(((totals.P0 + totals.P1 + totals.P2) / gt) * 1000) / 10 : 0,
+          p3: gt ? Math.round((totals.P3 / gt) * 1000) / 10 : 0,
+          isGroup: true, isPct: true
+        });
+        return rows;
+      })();
+
+      // Class Summary trend: per-class P0–P3 counts at the end of every month.
+      const trendSummary = (() => {
+        const tMonths = (reportMeta && reportMeta.trendMonths) || [];
+        const counts = {};
+        reportRows.forEach(r => {
+          (r.trend || []).forEach(t => {
+            if (t.marking === '—') return;
+            if (!counts[r.Class]) counts[r.Class] = {};
+            if (!counts[r.Class][t.key]) counts[r.Class][t.key] = { P0: 0, P1: 0, P2: 0, P3: 0 };
+            counts[r.Class][t.key][t.marking] += 1;
+          });
+        });
+        const classOrder = ACCESS_CLASS_ORDER.filter(c => counts[c])
+          .concat(Object.keys(counts).filter(c => ACCESS_CLASS_ORDER.indexOf(c) === -1).sort());
+        const monthRows = (get) => tMonths.map(mk => {
+          const c = get(mk) || { P0: 0, P1: 0, P2: 0, P3: 0 };
+          return { month: mk, P0: c.P0, P1: c.P1, P2: c.P2, P3: c.P3, total: c.P0 + c.P1 + c.P2 + c.P3 };
+        });
+        const classes = classOrder.map(c => ({ heading: 'Class ' + c, rows: monthRows(mk => counts[c][mk]) }));
+        const groups = [];
+        SECTION_GROUPS.forEach(g => {
+          const inGroup = classOrder.filter(c => g.classes.indexOf(c) !== -1);
+          if (!inGroup.length) return;
+          groups.push({ heading: g.name, rows: monthRows(mk => {
+            const sum = { P0: 0, P1: 0, P2: 0, P3: 0 };
+            inGroup.forEach(c => { const cc = counts[c][mk]; if (cc) { sum.P0 += cc.P0; sum.P1 += cc.P1; sum.P2 += cc.P2; sum.P3 += cc.P3; } });
+            return sum;
+          }) });
+        });
+        const grand = { heading: 'Grand Total', rows: monthRows(mk => {
+          const sum = { P0: 0, P1: 0, P2: 0, P3: 0 };
+          classOrder.forEach(c => { const cc = counts[c][mk]; if (cc) { sum.P0 += cc.P0; sum.P1 += cc.P1; sum.P2 += cc.P2; sum.P3 += cc.P3; } });
+          return sum;
+        }) };
+        return { classes, groups, grand };
+      })();
+
+      const filteredRows = searchQuery
+        ? reportRows.filter(item => Object.values(item).some(val => {
+            if (val && typeof val === 'object') return false;
+            return String(val ?? '').toLowerCase().includes(searchQuery.toLowerCase());
+          }))
+        : reportRows;
+      const markingClass = (mk) => mk === 'P3' ? 'text-green-600 bg-green-50 dark:bg-green-900/30'
+        : mk === 'P2' ? 'text-blue-600 bg-blue-50 dark:bg-blue-900/30'
+        : mk === 'P1' ? 'text-orange-600 bg-orange-50 dark:bg-orange-900/30'
+        : mk === 'P0' ? 'text-red-600 bg-red-50 dark:bg-red-900/30'
+        : 'text-gray-500 bg-gray-100 dark:bg-gray-800';
+      const thFixed = 'border border-gray-300 dark:border-gray-600 p-2 bg-gray-100 dark:bg-gray-700';
+      const thMonth = 'border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900';
+
+      const renderTrendSummaryBlock = (block, key) => (
+        <div key={key} className="mb-6">
+          <h3 className="text-lg font-semibold mb-2">{block.heading}</h3>
+          <div className="table-container max-h-[400px] overflow-auto">
+            <table className="min-w-max border-collapse border border-gray-300 dark:border-gray-600">
+              <thead className="sticky-header">
+                <tr>
+                  <th className={thFixed + ' text-left'}>Month</th>
+                  <th className={thFixed + ' text-center'}>P0</th>
+                  <th className={thFixed + ' text-center'}>P1</th>
+                  <th className={thFixed + ' text-center'}>P2</th>
+                  <th className={thFixed + ' text-center'}>P3</th>
+                  <th className={thFixed + ' text-center'}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {block.rows.map((rr, ri) => (
+                  <tr key={ri} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{monthLabelShort(rr.month)}</td>
+                    <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{rr.P0}</td>
+                    <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{rr.P1}</td>
+                    <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{rr.P2}</td>
+                    <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{rr.P3}</td>
+                    <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{rr.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="card p-6">
+          <div className="flex items-center mb-4">
+            <i className="uil uil-clock text-2xl text-accent mr-2"></i>
+            <h2 className="text-xl font-semibold">ACCESS Hours Report</h2>
+          </div>
+
+          <div className="form-container mb-6">
+            <form onSubmit={generateReport}>
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="ahrTerm">Term</label>
+                  <select
+                    className="form-input"
+                    id="ahrTerm"
+                    value={selectedTerm}
+                    onChange={e => { setSelectedTerm(e.target.value); setSelectedMonths([]); setSelectedClass(''); resetResults(); }}
+                  >
+                    <option value="" disabled>Select Term</option>
+                    {termPickerOptions_(data.terms || []).map(t => <option key={t.Term_ID} value={t.Term_ID}>{t.Term_Name || t.Term_ID}</option>)}
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor="ahrPeriod">Period</label>
+                  <select
+                    className="form-input"
+                    id="ahrPeriod"
+                    value={periodType}
+                    onChange={e => { setPeriodType(e.target.value); resetResults(); }}
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly (QTD)</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor="ahrView">View</label>
+                  <select
+                    className="form-input"
+                    id="ahrView"
+                    value={viewMode}
+                    onChange={e => setViewMode(e.target.value)}
+                  >
+                    <option value="details">Details</option>
+                    <option value="trend">Trend</option>
+                  </select>
+                </div>
+                {viewMode === 'trend' && (
+                  <div className="form-field">
+                    <label htmlFor="ahrTrend">Trend</label>
+                    <select
+                      className="form-input"
+                      id="ahrTrend"
+                      value={trendMode}
+                      onChange={e => setTrendMode(e.target.value)}
+                    >
+                      <option value="student">Student Trend</option>
+                      <option value="summary">Class Summary</option>
+                    </select>
+                  </div>
+                )}
+                {periodType === 'monthly' && (
+                  <div className="form-field">
+                    <label htmlFor="ahrMonth">Months</label>
+                    <select
+                      className="form-input"
+                      id="ahrMonth"
+                      multiple
+                      value={selectedMonths}
+                      onChange={e => { setSelectedMonths(Array.from(e.target.selectedOptions).map(o => o.value).sort()); resetResults(); }}
+                      disabled={!selectedTerm}
+                    >
+                      {termMonthOptions.map(mk => <option key={mk} value={mk}>{monthLabelLong(mk)}</option>)}
+                    </select>
+                  </div>
+                )}
+                {periodType === 'quarterly' && (
+                  <div className="form-field">
+                    <label htmlFor="ahrQuarter">Quarter</label>
+                    <select
+                      className="form-input"
+                      id="ahrQuarter"
+                      value={selectedQuarter}
+                      onChange={e => { setSelectedQuarter(e.target.value); resetResults(); }}
+                      disabled={!selectedTerm}
+                    >
+                      {quarterOptions.map(q => <option key={q.value} value={q.value}>{q.label}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div className="form-field">
+                  <label htmlFor="ahrClass">Class</label>
+                  <select
+                    className="form-input"
+                    id="ahrClass"
+                    value={selectedClass}
+                    onChange={e => { setSelectedClass(e.target.value); resetResults(); }}
+                  >
+                    <option value="">All Classes</option>
+                    {visibleClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-actions">
+                <button type="submit" disabled={isLoading} className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
+                  {isLoading ? <><i className="uil uil-spinner text-xl loading-spinner"></i> Generating...</> : 'Generate Report'}
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadCSV}
+                  disabled={reportRows.length === 0 || isLoading}
+                  className={`btn-secondary ${reportRows.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <i className="uil uil-file-csv"></i> CSV
+                </button>
+                <button type="button" onClick={clearForm} className="btn-outline">Clear</button>
+              </div>
+            </form>
+          </div>
+
+          <div className="p-2 mb-4 text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded">
+            <strong>How it works:</strong>&nbsp;
+            Required = 6.25h × enrolled months (from term start or joining date, whichever is later).&nbsp;
+            <span className="text-red-600 font-bold">P0</span> = 0h&nbsp;·&nbsp;
+            <span className="text-orange-600 font-bold">P1</span> = below 2.5h × months&nbsp;·&nbsp;
+            <span className="text-blue-600 font-bold">P2</span> = 2.5h to 6.25h × months&nbsp;·&nbsp;
+            <span className="text-green-600 font-bold">P3</span> = 6.25h × months or more.&nbsp;
+            Months before joining or after leaving show 0. Only Present days earn hours.
+            Month columns show only the months you pick; totals and marking still cover the whole window from term start to the latest picked month.
+            Prev Shortfall = hours short before this month (0 if ahead); Required This Month = 6.25 + Prev Shortfall — what the child must earn this month to catch up.
+            Required Next Month = 6.25 + total shortfall so far — what the child must earn next month to be fully caught up.
+            Trend shows each child's marking at the end of every month (cumulative to that month); '—' means not enrolled that month.
+          </div>
+
+          {isLoading ? (
+            <p className="text-gray-500">Loading data...</p>
+          ) : !generated ? (
+            <p className="text-gray-500">Select a Term and period, then Generate Report.</p>
+          ) : filteredRows.length === 0 ? (
+            <p className="text-gray-500">No data available for the selected filters.</p>
+          ) : (
+            <div>
+              <div className="mb-3 text-sm text-gray-700 dark:text-gray-300">
+                <strong>{periodLabel()}</strong> &nbsp;·&nbsp; Term {reportMeta ? reportMeta.termId : ''} &nbsp;·&nbsp; {filteredRows.length} student{filteredRows.length === 1 ? '' : 's'}
+              </div>
+              {viewMode === 'details' && (
+                <div>
+              <div className="table-container max-h-[600px] overflow-auto mb-6">
+                <table className="min-w-max border-collapse border border-gray-300 dark:border-gray-600">
+                  <thead className="sticky-header">
+                    <tr>
+                      <th rowSpan="2" className={thFixed + ' text-left'}>Section</th>
+                      <th rowSpan="2" className={thFixed + ' text-left'}>Class</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Sec</th>
+                      <th rowSpan="2" className={thFixed + ' text-left'}>SIRN</th>
+                      <th rowSpan="2" className={thFixed + ' text-left'}>Full Name</th>
+                      <th rowSpan="2" className={thFixed + ' text-left'}>DoJ</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Gender</th>
+                      {reportMeta.months.map(mk => (
+                        <th key={mk} colSpan="3" className={thMonth}>{monthLabelShort(mk)}</th>
+                      ))}
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Attended Days</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Working Days</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Attendance %</th>
+                     
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Actual Hours</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Required Hours</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Access Marking</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>ACCESS TAG</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Active</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Prev Shortfall</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Required This Month</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Required Next Month</th>
+                      <th rowSpan="2" className={thFixed + ' text-left'}>Data Issues</th>
+                    </tr>
+                    <tr>
+                      {reportMeta.months.map(mk => ([
+                        <th key={mk + '-a'} className={thMonth + ' text-xs'}>Att</th>,
+                        <th key={mk + '-w'} className={thMonth + ' text-xs'}>Work</th>,
+                        <th key={mk + '-h'} className={thMonth + ' text-xs'}>Hrs</th>
+                      ]))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRows.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.sectionTag}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Class}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.Section}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Std_ID}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Student_Name}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Date_of_Joining}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.Gender}</td>
+                        {row.perMonth.map(x => ([
+                          <td key={x.key + '-a'} className="border border-gray-300 dark:border-gray-600 p-2 text-center">{x.attended}</td>,
+                          <td key={x.key + '-w'} className="border border-gray-300 dark:border-gray-600 p-2 text-center">{x.working}</td>,
+                          <td key={x.key + '-h'} className="border border-gray-300 dark:border-gray-600 p-2 text-center">{x.hours}</td>
+                        ]))}
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.attTotal}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.workTotal}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.pct}%</td>
+                        
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.actualHours}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.requiredHours}</td>
+                        <td className={'border border-gray-300 dark:border-gray-600 p-2 text-center font-bold ' + markingClass(row.marking)}>{row.marking}</td>
+                        <td className={'border border-gray-300 dark:border-gray-600 p-2 text-center font-bold ' + (row.accessTag === 'NOT ACCESS' ? 'text-green-600 bg-green-50 dark:bg-green-900/30' : 'text-orange-600 bg-orange-50 dark:bg-orange-900/30')}>{row.accessTag}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.active}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.shortfallPrev}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.requiredThisMonth}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.requiredNextMonth}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.issues}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <h3 className="text-lg font-semibold mb-2">Summary — ACCESS by class</h3>
+              <div className="table-container max-h-[400px] overflow-auto">
+                <table className="min-w-max border-collapse border border-gray-300 dark:border-gray-600">
+                  <thead className="sticky-header">
+                    <tr>
+                      <th className={thFixed + ' text-left'}>Class</th>
+                      <th className={thFixed + ' text-center'}>P0</th>
+                      <th className={thFixed + ' text-center'}>P1</th>
+                      <th className={thFixed + ' text-center'}>P2</th>
+                      <th className={thFixed + ' text-center'}>P3</th>
+                      <th className={thFixed + ' text-center'}>Total</th>
+                      <th className={thFixed + ' text-center'}>P0–P2%</th>
+                      <th className={thFixed + ' text-center'}>P3%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryRows.map((s, idx) => (
+                      <tr key={idx} className={s.isGroup ? 'font-bold bg-gray-50 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{s.label}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{s.isPct ? s.P0 + '%' : s.P0}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{s.isPct ? s.P1 + '%' : s.P1}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{s.isPct ? s.P2 + '%' : s.P2}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{s.isPct ? s.P3 + '%' : s.P3}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{s.isPct ? '' : s.total}</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{s.p02}%</td>
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{s.p3}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+                </div>
+              )}
+              {viewMode === 'trend' && trendMode === 'student' && (
+                <div>
+                  <div className="table-container max-h-[600px] overflow-auto mb-6">
+                    <table className="min-w-max border-collapse border border-gray-300 dark:border-gray-600">
+                      <thead className="sticky-header">
+                        <tr>
+                          <th className={thFixed + ' text-left'}>Section</th>
+                          <th className={thFixed + ' text-left'}>Class</th>
+                          <th className={thFixed + ' text-center'}>Sec</th>
+                          <th className={thFixed + ' text-left'}>SIRN</th>
+                          <th className={thFixed + ' text-left'}>Full Name</th>
+                          <th className={thFixed + ' text-center'}>Gender</th>
+                          <th className={thFixed + ' text-center'}>Active</th>
+                          {(reportMeta.trendMonths || []).map(mk => (
+                            <th key={mk} className={thMonth}>{monthLabelShort(mk)}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRows.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.sectionTag}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Class}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.Section}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Std_ID}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{row.Student_Name}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-center">{row.Gender}</td>
+                            <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{row.active}</td>
+                            {(row.trend || []).map(t => (
+                              <td key={t.key} className={'border border-gray-300 dark:border-gray-600 p-2 text-center font-bold ' + (t.marking === '—' ? 'text-gray-400' : markingClass(t.marking))}>{t.marking}</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {viewMode === 'trend' && trendMode === 'summary' && (
+                <div>
+                  {trendSummary.classes.map((block, bi) => renderTrendSummaryBlock(block, 'c' + bi))}
+                  {trendSummary.groups.map((block, bi) => renderTrendSummaryBlock(block, 'g' + bi))}
+                  {renderTrendSummaryBlock(trendSummary.grand, 'grand')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
 
     function AttendanceReportsPage({ data, isLoading, setIsLoading, setError, setSuccessMessage }) {
   const [dailyDate, setDailyDate] = useState('');
@@ -6127,12 +7148,13 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
   return (
     <div className="card p-6">
       <div className="flex items-center mb-4">
-        <i className="uil uil-chart-bar text-2xl text-blue-500 mr-2"></i>
+        <i className="uil uil-chart-bar text-2xl text-accent mr-2"></i>
         <h2 className="text-xl font-semibold">Attendance Reports</h2>
       </div>
 
       <div className="form-row" style={{ marginBottom: '1rem' }}>
         <div className="form-field">
+          <label htmlFor="reportTerm">Term</label>
           <select
             className="form-input"
             id="reportTerm"
@@ -6142,7 +7164,6 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
             <option value="">All Terms</option>
             {termPickerOptions_(data.terms || []).map(t => <option key={t.Term_ID} value={t.Term_ID}>{t.Term_Name || t.Term_ID}</option>)}
           </select>
-          <label htmlFor="reportTerm">Term</label>
         </div>
       </div>
 
@@ -6152,6 +7173,7 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
           <h3 className="text-lg font-semibold mb-4">Daily Attendance Report</h3>
           <form onSubmit={generateDaily}>
             <div className="form-field">
+              <label htmlFor="dailyDate">Date</label>
               <input
                 type="date"
                 className="form-input"
@@ -6162,9 +7184,9 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
                 min={dailyTermRange ? dailyTermRange.start : undefined}
                 max={dailyTermRange ? dailyTermRange.end : undefined}
               />
-              <label htmlFor="dailyDate">Date</label>
             </div>
             <div className="form-field">
+              <label htmlFor="dailyClass">Class</label>
               <select
                 className="form-input"
                 id="dailyClass"
@@ -6175,9 +7197,9 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
                 <option value="" disabled>Select Class</option>
                 {classesList.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
-              <label htmlFor="dailyClass">Class</label>
             </div>
             <div className="form-field">
+              <label htmlFor="dailySection">Section</label>
               <select
                 className="form-input"
                 id="dailySection"
@@ -6189,9 +7211,9 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
                 <option value="" disabled>Select Section</option>
                 {(sectionsByClass[dailyClass] || []).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
-              <label htmlFor="dailySection">Section</label>
             </div>
             <div className="form-field">
+              <label htmlFor="dailyFormat">Format</label>
               <select
                 className="form-input"
                 id="dailyFormat"
@@ -6201,7 +7223,6 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
                 <option value="png">PNG (High Quality)</option>
                 <option value="csv">CSV</option>
               </select>
-              <label htmlFor="dailyFormat">Format</label>
             </div>
             <button
               type="submit"
@@ -6218,48 +7239,48 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
           <h3 className="text-lg font-semibold mb-4">Monthly Summary Report</h3>
           <form onSubmit={generateMonthly}>
             <div className="form-field">
+              <label htmlFor="reportType">Report Type</label>
               <select className="form-input" id="reportType" value={reportType} onChange={e => { setReportType(e.target.value); setMonthlyMonth(''); }}>
                 <option value="single">Single Student</option>
                 <option value="all">All Students in Class</option>
               </select>
-              <label htmlFor="reportType">Report Type</label>
             </div>
             <div className="form-field">
+              <label htmlFor="monthlyClass">Class</label>
               <select className="form-input" id="monthlyClass" value={monthlyClass} onChange={e => { setMonthlyClass(e.target.value); setMonthlySection(''); setMonthlyStudentId(''); setMonthlyMonth(''); }} required>
                 <option value="" disabled>Select Class</option>
                 {classesList.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
-              <label htmlFor="monthlyClass">Class</label>
             </div>
             <div className="form-field">
+              <label htmlFor="monthlySection">Section</label>
               <select className="form-input" id="monthlySection" value={monthlySection} onChange={e => { setMonthlySection(e.target.value); setMonthlyStudentId(''); setMonthlyMonth(''); }} required disabled={!monthlyClass}>
                 <option value="" disabled>Select Section</option>
                 {(sectionsByClass[monthlyClass] || []).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
-              <label htmlFor="monthlySection">Section</label>
             </div>
             {reportType === 'single' && (
               <div className="form-field">
+                <label htmlFor="monthlyStudent">Student</label>
                 <select className="form-input" id="monthlyStudent" value={monthlyStudentId} onChange={e => { setMonthlyStudentId(e.target.value); setMonthlyMonth(''); }} required disabled={!monthlySection}>
                   <option value="" disabled>Select Student</option>
                   {monthlyStudents.map(s => <option key={s.Std_ID} value={s.Std_ID}>{s.Student_Name} ({s.Std_ID})</option>)}
                 </select>
-                <label htmlFor="monthlyStudent">Student</label>
               </div>
             )}
             <div className="form-field">
+              <label htmlFor="monthlyMonth">Month</label>
               <select className="form-input" id="monthlyMonth" value={monthlyMonth} onChange={e => setMonthlyMonth(e.target.value)} required>
                 <option value="" disabled>Select Month</option>
                 {availableMonths.map(m => <option key={m.key} value={m.key}>{m.display}</option>)}
               </select>
-              <label htmlFor="monthlyMonth">Month</label>
             </div>
             <div className="form-field">
+              <label htmlFor="monthlyFormat">Format</label>
               <select className="form-input" id="monthlyFormat" value={monthlyFormat} onChange={e => setMonthlyFormat(e.target.value)}>
                 <option value="png">PNG (High Quality)</option>
                 <option value="csv">CSV</option>
               </select>
-              <label htmlFor="monthlyFormat">Format</label>
             </div>
             <button type="submit" disabled={isLoading} className={`btn-primary w-full ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
               <i className="uil uil-download"></i> Download Summary
@@ -6421,7 +7442,7 @@ function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, u
     <div className="card p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
-          <i className="uil uil-history text-2xl text-blue-500 mr-2"></i>
+          <i className="uil uil-history text-2xl text-accent mr-2"></i>
           <h2 className="text-xl font-semibold">Batch Hours Update Log</h2>
         </div>
         <button onClick={loadLog} className="btn-outline" disabled={isLoading}>
@@ -6432,26 +7453,26 @@ function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, u
       <div className="form-container mb-6">
         <div className="form-row">
           <div className="form-field">
-            <input type="date" className="form-input" id="bhlFromDate" value={fromDate} onChange={e => setFromDate(e.target.value)} placeholder="From date" />
             <label htmlFor="bhlFromDate">From Date</label>
+            <input type="date" className="form-input" id="bhlFromDate" value={fromDate} onChange={e => setFromDate(e.target.value)} placeholder="From date" />
           </div>
           <div className="form-field">
-            <input type="date" className="form-input" id="bhlToDate" value={toDate} onChange={e => setToDate(e.target.value)} placeholder="To date" />
             <label htmlFor="bhlToDate">To Date</label>
+            <input type="date" className="form-input" id="bhlToDate" value={toDate} onChange={e => setToDate(e.target.value)} placeholder="To date" />
           </div>
           <div className="form-field">
+            <label htmlFor="bhlClassSection">Class Section</label>
             <select className="form-input" id="bhlClassSection" value={classSectionFilter} onChange={e => setClassSectionFilter(e.target.value)}>
               <option value="">All Class Sections</option>
               {classSections.map(cs => <option key={cs} value={cs}>{cs}</option>)}
             </select>
-            <label htmlFor="bhlClassSection">Class Section</label>
           </div>
           <div className="form-field">
+            <label htmlFor="bhlUserId">Updated By</label>
             <select className="form-input" id="bhlUserId" value={userIdFilter} onChange={e => setUserIdFilter(e.target.value)}>
               <option value="">All Users</option>
               {userIds.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
-            <label htmlFor="bhlUserId">Updated By</label>
           </div>
         </div>
         <div className="form-actions">
@@ -6642,7 +7663,7 @@ const columnLabels = {
     <div className="card p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
-          <i className="uil uil-history text-2xl text-blue-500 mr-2"></i>
+          <i className="uil uil-history text-2xl text-accent mr-2"></i>
           <h2 className="text-xl font-semibold">Attendance Correction Log</h2>
         </div>
         <button onClick={loadLog} className="btn-outline" disabled={isLoading}>
@@ -6653,30 +7674,30 @@ const columnLabels = {
       <div className="form-container mb-6">
         <div className="form-row">
           <div className="form-field">
-            <input type="date" className="form-input" id="aclFromDate" value={fromDate} onChange={e => setFromDate(e.target.value)} placeholder="From date" />
             <label htmlFor="aclFromDate">From Date</label>
+            <input type="date" className="form-input" id="aclFromDate" value={fromDate} onChange={e => setFromDate(e.target.value)} placeholder="From date" />
           </div>
           <div className="form-field">
-            <input type="date" className="form-input" id="aclToDate" value={toDate} onChange={e => setToDate(e.target.value)} placeholder="To date" />
             <label htmlFor="aclToDate">To Date</label>
+            <input type="date" className="form-input" id="aclToDate" value={toDate} onChange={e => setToDate(e.target.value)} placeholder="To date" />
           </div>
           <div className="form-field">
-            <input type="text" className="form-input" id="aclStudent" value={studentFilter} onChange={e => setStudentFilter(e.target.value)} placeholder="Search by Std ID or name" />
             <label htmlFor="aclStudent">Student</label>
+            <input type="text" className="form-input" id="aclStudent" value={studentFilter} onChange={e => setStudentFilter(e.target.value)} placeholder="Search by Std ID or name" />
           </div>
           <div className="form-field">
+            <label htmlFor="aclClassSection">Class Section</label>
             <select className="form-input" id="aclClassSection" value={classSectionFilter} onChange={e => setClassSectionFilter(e.target.value)}>
               <option value="">All Class Sections</option>
               {classSections.map(cs => <option key={cs} value={cs}>{cs}</option>)}
             </select>
-            <label htmlFor="aclClassSection">Class Section</label>
           </div>
           <div className="form-field">
+            <label htmlFor="aclCorrectedBy">Corrected By</label>
             <select className="form-input" id="aclCorrectedBy" value={correctedByFilter} onChange={e => setCorrectedByFilter(e.target.value)}>
               <option value="">All Users</option>
               {correctors.map(u => <option key={u} value={u}>{u}</option>)}
             </select>
-            <label htmlFor="aclCorrectedBy">Corrected By</label>
           </div>
         </div>
         <div className="form-actions">
@@ -6889,6 +7910,24 @@ const availableAssignmentUsers = nonAdminUsers
   .map(u => u.Username)
   .filter(u => u === formData.Username || !assignedAssignmentUsers.has(u));
 
+// Previous Date Permissions: classes assigned to a teacher (Teacher Assignments rows
+// store Class_Section comma-joined). Falls back to all classSections when the teacher
+// has no assignments. The row's own class (on Edit) is always offered too.
+const prevPermClassOptions_ = (username) => {
+  const assigned = [];
+  (data.teacher_assignments || []).forEach(a => {
+    if (!a || String(a.Username || '').trim() !== String(username || '').trim()) return;
+    String(a.Class_Section || '').split(',').forEach(s => {
+      const v = s.trim();
+      if (v && assigned.indexOf(v) === -1) assigned.push(v);
+    });
+  });
+  assigned.sort();
+  const base = assigned.length ? assigned : [...(classSections || [])];
+  const own = formData.Class_Section ? String(formData.Class_Section).trim() : '';
+  return own && base.indexOf(own) === -1 ? [...base, own] : base;
+};
+
 
       const tableConfigs = {
                 user_permissions: {
@@ -6949,6 +7988,7 @@ const availableAssignmentUsers = nonAdminUsers
           fields: [
             { section: 'Date Permissions', fields: [
               { name: 'Username', type: 'select', options: nonAdminUsers.map(u => u.Username), required: true, placeholder: 'Select username' },
+              { name: 'Class_Section', type: 'select', options: prevPermClassOptions_(formData.Username), required: true, placeholder: 'Select class' },
               { name: 'Allowed_Date', type: 'date', required: true, placeholder: 'Select date' },
               { name: 'Day', type: 'text', disabled: true, placeholder: 'Day' },
               { name: 'Password', type: 'text', required: true, placeholder: 'Enter password' },
@@ -7367,6 +8407,9 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
         if (name === 'Allowed_Date' && table === 'previous_date_permissions') {
           setFormData(prev => ({ ...prev, Day: getDayOfWeek(value) }));
         }
+        if (name === 'Username' && table === 'previous_date_permissions') {
+          setFormData(prev => ({ ...prev, Class_Section: '' }));
+        }
       };
 
       const handleMultipleSelect = (e, name) => {
@@ -7388,6 +8431,7 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
                 <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
                   {field.type === 'select' ? (
                     <>
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                       <select
                         name={field.name}
                         value={formData[field.name] || ''}
@@ -7428,10 +8472,10 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
   <option key={option} value={option}>{option}</option>
 ))}
                       </select>
-                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                     </>
                   ) : field.type === 'select-multiple' ? (
                     <>
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                       <select
                         multiple
                         name={field.name}
@@ -7445,7 +8489,6 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
                           <option key={option} value={option}>{option}</option>
                         ))}
                       </select>
-                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                     </>
                   ) : field.type === 'checkbox' ? (
                     <>
@@ -7460,6 +8503,7 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
                     </>
                   ) : (
                     <>
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                     <input
   type={field.type}
   name={field.name}
@@ -7473,7 +8517,6 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
   max={field.name === 'Allowed_Date' ? new Date().toLocaleDateString('en-CA') : undefined}
 />
 
-                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                     </>
                   )}
                   {formErrors[field.name] && (
@@ -7489,7 +8532,7 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
       return (
         <div className="card p-6">
           <div className="flex items-center mb-4">
-            <i className={`uil uil-${table === 'users' ? 'users-alt' : table === 'user_permissions' ? 'lock' : table === 'class_sections' ? 'map' : table === 'previous_date_permissions' ? 'calendar-alt' : table === 'teacher_assignments' ? 'user-check' : 'graduation-cap'} text-2xl text-blue-500 mr-2`}></i>
+            <i className={`uil uil-${table === 'users' ? 'users-alt' : table === 'user_permissions' ? 'lock' : table === 'class_sections' ? 'map' : table === 'previous_date_permissions' ? 'calendar-alt' : table === 'teacher_assignments' ? 'user-check' : 'graduation-cap'} text-2xl text-accent mr-2`}></i>
             <h2 className="text-xl font-semibold">{table.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</h2>
           </div>
           {table === 'class_sections' && (
@@ -7605,6 +8648,7 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
     <form onSubmit={handleAddClassMapping}>
       <div className="form-row">
         <div className="form-field">
+          <label htmlFor="newMappingClass">Class</label>
           <select
             value={newMappingClass}
             onChange={e => setNewMappingClass(e.target.value)}
@@ -7617,9 +8661,9 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
-          <label htmlFor="newMappingClass">Class</label>
         </div>
         <div className="form-field">
+          <label htmlFor="newMappingSections">Sections (comma-separated)</label>
           <input
             type="text"
             value={newMappingSections}
@@ -7629,7 +8673,6 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
             id="newMappingSections"
             required
           />
-          <label htmlFor="newMappingSections">Sections (comma-separated)</label>
         </div>
       </div>
       <div className="form-actions">
@@ -7735,7 +8778,7 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
                       <td>
                         <button
                           onClick={() => handleEditClick(index)}
-                          className="text-blue-500 hover:underline mr-4"
+                          className="link-accent mr-4"
                         >
                           Edit
                         </button>
@@ -7760,20 +8803,20 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
             </div>
           )}
           {showDeleteConfirm && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="card p-6 max-w-sm w-full">
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="card p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
                 <h3 className="text-lg font-semibold mb-4">Confirm Delete</h3>
                 <p className="text-gray-600 dark:text-gray-400 mb-4">Are you sure you want to delete this record?</p>
-                <div className="flex space-x-4">
+                <div className="flex flex-col-reverse sm:flex-row gap-3">
                   <button
                     onClick={confirmDelete}
-                    className="btn-primary"
+                    className="btn-primary w-full sm:w-auto justify-center"
                   >
                     Yes, Delete
                   </button>
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="btn-outline"
+                    className="btn-outline w-full sm:w-auto"
                   >
                     Cancel
                   </button>
