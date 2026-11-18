@@ -1041,6 +1041,12 @@ function formatCategoryString(items) {
         class_terms: [],
         student_data: [],
         student_attendance: [],
+        transfer_certificates: [],
+        hours_setup: [],
+        hour_categories: [],
+        leaving_reasons: [],
+        countries: [],
+        rec_names: [],
         daily_hours: [],
       });
       const [activeTab, setActiveTab] = useState(null);
@@ -1050,6 +1056,10 @@ function formatCategoryString(items) {
       const [classSections, setClassSections] = useState([]);
       const [classes, setClasses] = useState([]);
       const [classSectionMap, setClassSectionMap] = useState({});
+      // v7.10: REC list for the Transfer destination dropdown, and the
+      // certificate currently open in the viewer (null = closed).
+      const [recNames, setRecNames] = useState([]);
+      const [tcView, setTcView] = useState(null);
       const [isLoading, setIsLoading] = useState(false);
       const [isSidebarOpen, setIsSidebarOpen] = useState(true);
       const [isDarkMode, setIsDarkMode] = useState(false);
@@ -1234,6 +1244,76 @@ permissions[user.Username] = {
         })
         .getSheetData('Class_Terms', currentRecId);
     }),
+
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, hours_setup: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          // Hours_Setup sheet may not exist yet.
+          setData(prev => ({ ...prev, hours_setup: [] }));
+          resolve();
+        })
+        .getSheetData('Hours_Setup', currentRecId);
+    }),
+
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, hour_categories: result }));
+          resolve();
+        })
+        .withFailureHandler(err => {
+          // Hour_Categories sheet may not exist yet.
+          setData(prev => ({ ...prev, hour_categories: [] }));
+          resolve();
+        })
+        .getSheetData('Hour_Categories', currentRecId);
+    }),
+
+    // v7.15: managed tables for the Transfer Certificate setup screens.
+    // A missing sheet reads as empty here; it is created + seeded on
+    // first access (popup load or Add).
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, leaving_reasons: result }));
+          resolve();
+        })
+        .withFailureHandler(() => {
+          setData(prev => ({ ...prev, leaving_reasons: [] }));
+          resolve();
+        })
+        .getSheetData('Leaving_Reasons', '');
+    }),
+
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, countries: result }));
+          resolve();
+        })
+        .withFailureHandler(() => {
+          setData(prev => ({ ...prev, countries: [] }));
+          resolve();
+        })
+        .getSheetData('Countries', '');
+    }),
+
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, rec_names: result }));
+          resolve();
+        })
+        .withFailureHandler(() => {
+          setData(prev => ({ ...prev, rec_names: [] }));
+          resolve();
+        })
+        .getSheetData('RECNames', '');
+    }),
     
     new Promise((resolve) => {
       google.script.run
@@ -1246,6 +1326,34 @@ permissions[user.Username] = {
           resolve();
         })
         .getStudentData(currentRecId);
+    }),
+
+    // v7.10: Transfer_Certificates (empty until the first deactivation) and
+    // the REC list for the Transfer destination dropdown.
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setData(prev => ({ ...prev, transfer_certificates: result }));
+          resolve();
+        })
+        .withFailureHandler(() => {
+          setData(prev => ({ ...prev, transfer_certificates: [] }));
+          resolve();
+        })
+        .getTransferCertificates(currentRecId);
+    }),
+
+    new Promise((resolve) => {
+      google.script.run
+        .withSuccessHandler(result => {
+          setRecNames(result || []);
+          resolve();
+        })
+        .withFailureHandler(() => {
+          setRecNames([]);
+          resolve();
+        })
+        .getRecNames();
     }),
     
         new Promise((resolve) => {
@@ -1426,6 +1534,7 @@ permissions[user.Username] = {
           setCanDeleteStudent(false);
           setActiveTab(null);
           setActiveReport(null);
+          setTcView(null);
           setIsLoading(false);
    // Add this line to reset the sidebar on logout:
           setExpandedSections({ reports: false }); 
@@ -1572,7 +1681,7 @@ permissions[user.Username] = {
               <div className="nav-section">
                 <div className="nav-section-title">Class Management</div>
                 <ul>
-                  {['class_sections', 'student_data', 'previous_date_permissions', 'attendance_correction', 'terms', 'class_terms'].map(tab => (
+                  {['class_sections', 'student_data', 'transfer_certificates', 'previous_date_permissions', 'attendance_correction', 'terms', 'class_terms'].map(tab => (
                     userPermissions[username]?.allowedTabs.includes(tab) && (
                       <li key={tab}>
                         <a
@@ -1588,6 +1697,48 @@ permissions[user.Username] = {
                   ))}
                 </ul>
               </div>
+
+{/* Transfer Certificate Setup Section */}
+<div className="nav-section">
+  <div className="nav-section-title">Transfer Certificate Setup</div>
+  <ul>
+    {['leaving_reasons', 'countries', 'rec_names'].map(tab => (
+      userPermissions[username]?.allowedTabs.includes(tab) && (
+        <li key={tab}>
+          <a
+            href="#"
+            onClick={e => { e.preventDefault(); setActiveTab(tab); setActiveReport(null); }}
+            className={`nav-item ${activeTab === tab ? 'active' : ''}`}
+          >
+            <i className="uil uil-file-alt text-lg"></i>
+            {isSidebarOpen && <span>{tab.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>}
+          </a>
+        </li>
+      )
+    ))}
+  </ul>
+</div>
+
+{/* Hours Configuration Section */}
+<div className="nav-section">
+  <div className="nav-section-title">Hours Configuration</div>
+  <ul>
+    {['hours_setup', 'hour_categories'].map(tab => (
+      userPermissions[username]?.allowedTabs.includes(tab) && (
+        <li key={tab}>
+          <a
+            href="#"
+            onClick={e => { e.preventDefault(); setActiveTab(tab); setActiveReport(null); }}
+            className={`nav-item ${activeTab === tab ? 'active' : ''}`}
+          >
+            <i className="uil uil-clock text-lg"></i>
+            {isSidebarOpen && <span>{tab.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>}
+          </a>
+        </li>
+      )
+    ))}
+  </ul>
+</div>
 
 {/* QR Code Management Section */}
 <div className="nav-section">
@@ -1641,7 +1792,7 @@ permissions[user.Username] = {
                     </a>
                    {expandedSections.reports && isSidebarOpen && (
   <div className="sub-nav">
-    {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'batch_hours_log', 'attendance_correction_log'].map(report => {
+    {['student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction_log'].map(report => {
       const allowed = userPermissions[username]?.allowedTabs || [];
       
       // 🔒 THE FIX: Force clean the strings (lowercase, trim spaces) to guarantee a match
@@ -1666,6 +1817,10 @@ permissions[user.Username] = {
             ? 'Monthly Day Wise Report'
             : report === 'access_hours_report'
             ? 'ACCESS Hours Report'
+            : report === 'daily_hours_report'
+            ? 'Daily Hours Report'
+            : report === 'itreb_report'
+            ? 'ITREB Report'
             : report.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
         </a>
       );
@@ -1721,6 +1876,10 @@ permissions[user.Username] = {
                      ? 'Monthly Day Wise Report' 
                       : activeReport === 'access_hours_report'
                       ? 'ACCESS Hours Report'
+                      : activeReport === 'daily_hours_report'
+                      ? 'Daily Hours Report'
+                      : activeReport === 'itreb_report'
+                      ? 'ITREB Report'
                       : activeReport.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()))
                       : activeTab 
                      ? activeTab.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) 
@@ -1803,6 +1962,19 @@ permissions[user.Username] = {
                   </div>
                 )}
 
+                {/* v7.10: Transfer Certificate viewer (opened after a
+                    deactivation, from the Transfer Certificates tab, or
+                    from an inactive student row). */}
+                {tcView && (
+                  <TransferCertificateView
+                    tcNumber={tcView.tcNumber}
+                    onClose={() => setTcView(null)}
+                    setIsLoading={setIsLoading}
+                    setError={setError}
+                    setSuccessMessage={setSuccessMessage}
+                  />
+                )}
+
                 {/* Content */}
 {/* Content */}
 {activeReport ? (
@@ -1863,6 +2035,32 @@ permissions[user.Username] = {
     />
   ) : activeReport === 'access_hours_report' ? (
     <AccessHoursReport
+      data={data}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setError={setError}
+      setSuccessMessage={setSuccessMessage}
+      userPermissions={userPermissions[username]}
+      classes={classes}
+      classSectionMap={classSectionMap}
+      searchQuery={searchQuery}
+      username={username}
+    />
+  ) : activeReport === 'daily_hours_report' ? (
+    <DailyHoursReport
+      data={data}
+      isLoading={isLoading}
+      setIsLoading={setIsLoading}
+      setError={setError}
+      setSuccessMessage={setSuccessMessage}
+      userPermissions={userPermissions[username]}
+      classes={classes}
+      classSectionMap={classSectionMap}
+      searchQuery={searchQuery}
+      username={username}
+    />
+  ) : activeReport === 'itreb_report' ? (
+    <ItrebReport
       data={data}
       isLoading={isLoading}
       setIsLoading={setIsLoading}
@@ -2004,6 +2202,8 @@ activeTab === 'qr_management' ? (
 
       refreshData={refreshData}
       genderOptions={genderOptions}
+      recNames={recNames}
+      onViewTc={(tcNumber) => setTcView({ tcNumber })}
       setSuccessMessage={setSuccessMessage}
       setError={setError}
       username={username}
@@ -2105,7 +2305,11 @@ for (let h = 0; h < 24; h++) {
       ]},
       { section: 'Admin Access', fields: [
        { name: 'allowedTabs', type: 'select-multiple', 
-  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes'], 
+  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'], 
+  optionGroups: [
+    { label: 'Functions', options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'] },
+    { label: 'Reports', options: ['student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report'] },
+  ],
   required: true, 
   placeholder: 'Select allowed tabs', 
   appliesTo: 'admin' 
@@ -2211,7 +2415,8 @@ const editingRow = visibleUsers[editingIndex];
           formData.Class,
           formData.Sections,
           recId || '',
-          editingRow.Sections
+          editingRow.Sections,
+          username
         );
       } else {
         result = await callWithRetry('updateSheetRow', targetTable, rowNumber, dataToSubmit, username);
@@ -2354,7 +2559,13 @@ const editingRow = visibleUsers[editingIndex];
                           id={field.name}
                           required={field.required}
                         >
-                          {field.options.map(option => (
+                          {field.optionGroups ? field.optionGroups.map(group => (
+                            <optgroup key={group.label} label={group.label}>
+                              {group.options.map(option => (
+                                <option key={option} value={option}>{option}</option>
+                              ))}
+                            </optgroup>
+                          )) : field.options.map(option => (
                             <option key={option} value={option}>{option}</option>
                           ))}
                         </select>
@@ -4366,7 +4577,7 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
       printWindow.document.write(result);
       printWindow.document.close();
 
-      await callWithRetry('markStudentsAsPrinted', selectedStudents);
+      await callWithRetry('markStudentsAsPrinted', selectedStudents, username);
 
       setSuccessMessage(`QR codes generated for ${selectedStudents.length} students`);
       setSelectedStudents([]);
@@ -4397,7 +4608,7 @@ function QRManagement({ data, isLoading, setIsLoading, setError, setSuccessMessa
     const printWindow = window.open('', '_blank');
     printWindow.document.write(result);
     printWindow.document.close();
-    await callWithRetry('markStudentsAsPrinted', allIds);
+    await callWithRetry('markStudentsAsPrinted', allIds, username);
     setSuccessMessage(`QR codes generated for ${allIds.length} students`);
     setSelectedStudents([]);
     setSelectAll(false);
@@ -4658,7 +4869,7 @@ function ReserveCodes({ isLoading, setIsLoading, setError, setSuccessMessage, us
       printWindow.document.write(result);
       printWindow.document.close();
 
-      await callWithRetry('markReserveCodesAsPrinted', selectedCodes);
+      await callWithRetry('markReserveCodesAsPrinted', selectedCodes, username);
 
       setSuccessMessage(`QR cards generated for ${selectedCodes.length} reserve codes`);
       setSelectedCodes([]);
@@ -4684,7 +4895,7 @@ const handlePrintAllInView = async () => {
     const printWindow = window.open('', '_blank');
     printWindow.document.write(result);
     printWindow.document.close();
-    await callWithRetry('markReserveCodesAsPrinted', allCodes);
+    await callWithRetry('markReserveCodesAsPrinted', allCodes, username);
     setSuccessMessage(`QR cards generated for ${allCodes.length} reserve codes`);
     setSelectedCodes([]);
     setSelectAll(false);
@@ -5877,11 +6088,18 @@ html += `
         const studentById = {};
         students.forEach(s => { studentById[norm(s.Std_ID)] = s; });
 
-        // Attendance rows, REC-scoped by Std_ID (getStudentAttendance is not REC-filtered).
+        // Attendance rows, REC-scoped by Std_ID and by the student's school
+        // (v7.20 O3: getStudentAttendance is now REC-filtered server-side;
+        // the per-row check below is the second layer, so this function is
+        // also correct on unfiltered input). A blank REC_ID matches any
+        // school (old rows); a missing REC_ID on either side fails open.
         const attByStudent = {};
         (attRows || []).forEach(a => {
           const sid = norm(a.Std_ID);
           if (!studentById[sid]) return;
+          const rowRec = norm(a.REC_ID);
+          const stuRec = norm(studentById[sid].REC_ID);
+          if (rowRec && stuRec && rowRec !== stuRec) return;
           const dt = parseAnyDate(a.Date);
           if (!dt) return;
           if (!attByStudent[sid]) attByStudent[sid] = [];
@@ -5899,8 +6117,15 @@ html += `
           setupDaysBySection[cs][k] = true;
         });
         // Fallback: distinct attendance dates per class-section.
+        // v7.20 (O3): only dates from this roster's schools count — a
+        // same-section date from another school must not create a
+        // working day here. (No REC_ID anywhere fails open.)
+        const rosterRecs = {};
+        students.forEach(s => { const r = norm(s.REC_ID); if (r) rosterRecs[r] = true; });
         const attDaysBySection = {};
         (attRows || []).forEach(a => {
+          const aRec = norm(a.REC_ID);
+          if (aRec && Object.keys(rosterRecs).length && !rosterRecs[aRec]) return;
           const cs = String(a.Class_Section || ((a.Student_Class || '') + '-' + (a.Student_Section || ''))).trim();
           if (!cs) return;
           const dt = parseAnyDate(a.Date);
@@ -6584,6 +6809,566 @@ const accessTag = marking === 'P3' ? 'NOT ACCESS' : 'ACCESS';
                   {trendSummary.classes.map((block, bi) => renderTrendSummaryBlock(block, 'c' + bi))}
                   {trendSummary.groups.map((block, bi) => renderTrendSummaryBlock(block, 'g' + bi))}
                   {renderTrendSummaryBlock(trendSummary.grand, 'grand')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ---------- Daily Hours Report (v6.6) ----------
+    // Term-wise setup hours by class/section, type and category, from
+    // Daily_Hours_Setup. All maths runs server-side in
+    // generateDailyHoursReport (dedupes identical setup rows, links episodic
+    // rows to Episodic_Events, checks each setup day against
+    // Student_Attendance). Admins only — no teacher scoping, all classes
+    // visible, like the portal's other reports.
+    function DailyHoursReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery, username }) {
+      const [selectedTerm, setSelectedTerm] = useState('');
+      const [selectedClass, setSelectedClass] = useState('');
+      const [selectedSection, setSelectedSection] = useState('');
+      const [periodType, setPeriodType] = useState('full');
+      const [selectedMonth, setSelectedMonth] = useState('');
+      const [selectedYear, setSelectedYear] = useState('');
+      const [selectedQuarter, setSelectedQuarter] = useState('Q1');
+      const [report, setReport] = useState(null);
+      const [generated, setGenerated] = useState(false);
+
+      const fmtH = (v) => { const n = Number(v); return Number.isFinite(n) ? (Math.round(n * 100) / 100) : v; };
+      const termOptions = termPickerOptions_(data.terms || []).filter(t => termIsActive_(t.Is_Active));
+
+      // Term is mandatory (v6.7): no auto-default — the picker starts empty
+      // and Generate refuses until a term is picked.
+      const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      // Quarter ends reuse the ACCESS report's definition exactly.
+      const DHR_QUARTERS = { Q1: { month: 11, yearOff: 0 }, Q2: { month: 2, yearOff: 1 }, Q3: { month: 5, yearOff: 1 }, Q4: { month: 8, yearOff: 1 } };
+      // Classes actually in the picked term (Class_Terms rows), falling back
+      // to every class when no term is picked yet.
+      const termClassList = selectedTerm ? termClasses_(data.class_terms || [], selectedTerm) : null;
+      const visibleClasses = (classes || []).filter(c => !termClassList || termClassList.indexOf(c) !== -1);
+      const classOptions = visibleClasses.length ? visibleClasses : (termClassList || []);
+      const sectionOptions = selectedClass ? ((classSectionMap || {})[selectedClass] || []) : [];
+      const termSpan = selectedTerm ? termSpan_(data.class_terms || [], selectedTerm) : null;
+      const termYears = (() => {
+        if (!termSpan) return [];
+        const sY = parseInt(String(termSpan.start).slice(0, 4), 10);
+        const eY = parseInt(String(termSpan.end).slice(0, 4), 10);
+        if (!sY || !eY) return [];
+        const out = [];
+        for (let y = sY; y <= eY; y++) out.push(y);
+        return out;
+      })();
+      const termStartYear = () => {
+        const found = String(selectedTerm || '').match(/(\d{4})/);
+        if (found) return parseInt(found[1], 10);
+        return termYears.length ? termYears[0] : new Date().getFullYear();
+      };
+      const quarterOptions = ['Q1', 'Q2', 'Q3', 'Q4'].map(q => {
+        const def = DHR_QUARTERS[q];
+        const endY = termStartYear() + def.yearOff;
+        return { value: q, label: q + ' — ends ' + MONTH_NAMES[def.month - 1] + ' ' + endY };
+      });
+      const periodValue = () => {
+        if (periodType === 'month') return (selectedYear && selectedMonth) ? selectedYear + '-' + selectedMonth : '';
+        if (periodType === 'qtd') return selectedQuarter;
+        return '';
+      };
+      const filterLabel = () => {
+        const parts = [];
+        if (selectedClass) parts.push(selectedSection ? selectedClass + '-' + selectedSection : selectedClass);
+        if (periodType === 'month' && selectedYear && selectedMonth) parts.push(MONTH_NAMES[parseInt(selectedMonth, 10) - 1] + ' ' + selectedYear);
+        if (periodType === 'qtd') parts.push(selectedQuarter + ' (QTD)');
+        return parts.length ? ' · ' + parts.join(' · ') : '';
+      };
+      const filterSuffix = () => {
+        let s = '';
+        if (selectedClass) s += '_' + selectedClass + (selectedSection ? '-' + selectedSection : '');
+        if (periodType === 'month' && selectedYear && selectedMonth) s += '_' + selectedYear + '-' + selectedMonth;
+        if (periodType === 'qtd') s += '_' + selectedQuarter;
+        return s;
+      };
+
+      const resetResults = () => { setReport(null); setGenerated(false); };
+      const clearForm = () => { setSelectedTerm(''); setSelectedClass(''); setSelectedSection(''); setPeriodType('full'); setSelectedMonth(''); setSelectedYear(''); setSelectedQuarter('Q1'); resetResults(); };
+
+      const generateReport = async (e) => {
+        if (e) e.preventDefault();
+        if (!selectedTerm) { setError('Please select a Term.'); return; }
+        if (periodType === 'month' && (!selectedMonth || !selectedYear)) { setError('Please select a Month and Year.'); return; }
+        setIsLoading(true);
+        setError('');
+        try {
+          // Same recId source as the ACCESS report: the current user's REC_ID.
+          const recId = userPermissions?.REC_ID || '';
+          const result = await callWithRetry('generateDailyHoursReport', selectedTerm, recId, selectedClass, selectedSection, periodType, periodValue());
+          setReport(result || null);
+          setGenerated(true);
+          if (!result || !(result.detail || []).length) {
+            setError('No Daily Hours setup rows found in Term ' + selectedTerm + filterLabel() + '.');
+          }
+        } catch (err) {
+          setError('Failed to generate report: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+
+      // CSV download — same Blob pattern as the ACCESS report's downloadCSV.
+      const downloadCSVFile = (rows, filename) => {
+        if (!rows || !rows.length) { setError('No data to download'); return; }
+        const headers = Object.keys(rows[0]);
+        let csv = headers.join(',') + '\n';
+        rows.forEach(row => {
+          csv += headers.map(h => '"' + String(row[h] ?? '').replace(/"/g, '""') + '"').join(',') + '\n';
+        });
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        setSuccessMessage('CSV downloaded!');
+      };
+
+      const downloadDetailCSV = () => {
+        if (!report) { setError('No data to download'); return; }
+        downloadCSVFile(report.detail, 'daily_hours_detail_' + (report.termId || selectedTerm) + filterSuffix() + '.csv');
+      };
+      const downloadOrphanCSV = () => {
+        if (!report) { setError('No data to download'); return; }
+        downloadCSVFile(report.orphanEvents, 'daily_hours_orphan_events_' + (report.termId || selectedTerm) + filterSuffix() + '.csv');
+      };
+      // Summary CSV: the three summary tables + orphan events as labelled
+      // sections in one file, so every on-screen summary table is covered.
+      const downloadSummaryCSV = () => {
+        if (!report) { setError('No data to download'); return; }
+        const lines = [];
+        const block = (title, rows) => {
+          if (!rows || !rows.length) return;
+          lines.push(title);
+          const headers = Object.keys(rows[0]);
+          lines.push(headers.join(','));
+          rows.forEach(row => {
+            lines.push(headers.map(h => '"' + String(row[h] ?? '').replace(/"/g, '""') + '"').join(','));
+          });
+          lines.push('');
+        };
+        block('Per class-section', report.classSummary);
+        block('Per group', report.groupSummary);
+        block('Hours by category', report.categorySummary);
+        block('Episodic events without a setup row', report.orphanEvents);
+        if (!lines.length) { setError('No data to download'); return; }
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'daily_hours_summary_' + (report.termId || selectedTerm) + filterSuffix() + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        setSuccessMessage('CSV downloaded!');
+      };
+
+      // PNG download. NOTE: the portal's renderAsPNG lives inside
+      // AttendanceReportsPage, so it is not in scope for this component —
+      // this is the same pattern in local form (off-screen table +
+      // html2canvas, scale 3, same title block and caveat footer).
+      const capturePNG = async (innerHtml, filename, title, subtitle) => {
+        setIsLoading(true);
+        const reportDiv = document.createElement('div');
+        reportDiv.setAttribute('data-theme', 'light');
+        reportDiv.style.cssText = 'position:absolute;top:-9999px;left:-9999px;background:white;padding:30px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#1f2937;';
+        const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        let html = `
+          <div style="margin-bottom:24px;text-align:center;">
+            <div style="display:inline-block;padding:6px 14px;background:#eff6ff;color:#1e40af;font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;border-radius:999px;margin-bottom:10px;">${title}</div>
+            <div style="font-size:22px;font-weight:700;color:#111827;margin-bottom:4px;">${title}</div>
+            <div style="font-size:12px;color:#6b7280;">${subtitle || ''} &nbsp;·&nbsp; Generated on ${currentDate}</div>
+          </div>
+        ` + innerHtml;
+        html += REPORT_CAVEAT_HTML;
+        reportDiv.innerHTML = html;
+        document.body.appendChild(reportDiv);
+        await new Promise(r => setTimeout(r, 100));
+        try {
+          const canvas = await html2canvas(reportDiv, { scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false });
+          document.body.removeChild(reportDiv);
+          const link = document.createElement('a');
+          link.download = filename + '.png';
+          link.href = canvas.toDataURL('image/png');
+          link.click();
+          setSuccessMessage('PNG report downloaded!');
+        } catch (err) {
+          document.body.removeChild(reportDiv);
+          setError('Failed to generate PNG: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+      const tableHTML = (heading, rows) => {
+        if (!rows || !rows.length) return '';
+        const headers = Object.keys(rows[0]);
+        let html = heading ? `<div style="font-size:14px;font-weight:700;color:#111827;margin:18px 0 8px;">${heading}</div>` : '';
+        html += `<table style="width:100%;border-collapse:separate;border-spacing:0;font-size:11px;color:#1f2937;">
+          <thead><tr style="background:#f8fafc;">
+            ${headers.map(h => `<th style="padding:10px 12px;text-align:left;font-weight:600;font-size:11px;color:#374151;border-bottom:2px solid #e5e7eb;">${h}</th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${rows.map((row, idx) => `<tr style="background:${idx % 2 === 0 ? '#ffffff' : '#fafbfc'};${String(row.Group || '') === 'Grand Total' ? 'font-weight:700;color:#1e40af;' : ''}">${headers.map(h => `<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;">${row[h] == null || row[h] === '' ? '—' : String(row[h])}</td>`).join('')}</tr>`).join('')}
+          </tbody>
+        </table>`;
+        return html;
+      };
+      const downloadDetailPNG = () => {
+        if (!report || !(report.detail || []).length) { setError('No rows to render.'); return; }
+        capturePNG(tableHTML('', report.detail), 'daily_hours_detail_' + (report.termId || selectedTerm) + filterSuffix(), 'Daily Hours Report — Detail', termSubtitle());
+      };
+      // Summary PNG: all four on-screen summary tables stacked in one image.
+      const downloadSummaryPNG = () => {
+        if (!report) { setError('No rows to render.'); return; }
+        const inner = tableHTML('Per class-section', report.classSummary)
+          + tableHTML('Per group', report.groupSummary)
+          + tableHTML('Hours by category', report.categorySummary)
+          + tableHTML('Episodic events without a setup row', report.orphanEvents);
+        if (!inner) { setError('No rows to render.'); return; }
+        capturePNG(inner, 'daily_hours_summary_' + (report.termId || selectedTerm) + filterSuffix(), 'Daily Hours Report — Summary', termSubtitle());
+      };
+
+      const termSubtitle = () => {
+        const t = termOptions.find(x => String(x.Term_ID).trim() === String(selectedTerm).trim());
+        const name = (t && (t.Term_Name || t.Term_ID)) || selectedTerm;
+        const span = (report && report.termStart && report.termEnd) ? ' · ' + report.termStart + ' to ' + report.termEnd : '';
+        return name + span + filterLabel();
+      };
+
+      // The header search box filters the detail table (same box the other
+      // reports use); summaries always show the full term.
+      const q = String(searchQuery || '').trim().toLowerCase();
+      const detailRows = (report?.detail || []).filter(r => {
+        if (!q) return true;
+        return [r.Date, r.Class_Section, r.Category, r.Teacher_ID, r.Event, r.Type].join(' ').toLowerCase().indexOf(q) !== -1;
+      });
+
+      const th = 'border border-gray-300 dark:border-gray-600 p-2 text-left bg-gray-50 dark:bg-gray-800 font-semibold whitespace-nowrap';
+      const td = 'border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap';
+      const hasReport = generated && report;
+
+      return (
+        <div className="card p-6">
+          <div className="flex items-center mb-4">
+            <i className="uil uil-clock text-2xl text-accent mr-2"></i>
+            <h2 className="text-xl font-semibold">Daily Hours Report</h2>
+          </div>
+
+          <div className="form-container mb-6">
+            <form onSubmit={generateReport}>
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="dhrTerm">Term</label>
+                  <select
+                    className="form-input"
+                    id="dhrTerm"
+                    value={selectedTerm}
+                    onChange={e => { setSelectedTerm(e.target.value); resetResults(); }}
+                  >
+                    <option value="" disabled>Select Term</option>
+                    {termOptions.map(t => <option key={t.Term_ID} value={t.Term_ID}>{t.Term_Name || t.Term_ID}</option>)}
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor="dhrClass">Class</label>
+                  <select
+                    className="form-input"
+                    id="dhrClass"
+                    value={selectedClass}
+                    onChange={e => { setSelectedClass(e.target.value); setSelectedSection(''); resetResults(); }}
+                  >
+                    <option value="">All Classes</option>
+                    {classOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor="dhrSection">Section</label>
+                  <select
+                    className="form-input"
+                    id="dhrSection"
+                    value={selectedSection}
+                    onChange={e => { setSelectedSection(e.target.value); resetResults(); }}
+                    disabled={!selectedClass}
+                  >
+                    <option value="">All Sections</option>
+                    {sectionOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor="dhrPeriod">Period</label>
+                  <select
+                    className="form-input"
+                    id="dhrPeriod"
+                    value={periodType}
+                    onChange={e => { const v = e.target.value; setPeriodType(v); if (v === 'month' && termSpan && !selectedMonth) { setSelectedMonth(String(termSpan.start).slice(5, 7)); setSelectedYear(String(termSpan.start).slice(0, 4)); } resetResults(); }}
+                  >
+                    <option value="full">Full Term</option>
+                    <option value="month">Month</option>
+                    <option value="qtd">Quarter (QTD)</option>
+                  </select>
+                </div>
+                {periodType === 'month' && (
+                  <>
+                    <div className="form-field">
+                      <label htmlFor="dhrMonth">Month</label>
+                      <select
+                        className="form-input"
+                        id="dhrMonth"
+                        value={selectedMonth}
+                        onChange={e => { setSelectedMonth(e.target.value); resetResults(); }}
+                        disabled={!selectedTerm}
+                      >
+                        <option value="" disabled>Select Month</option>
+                        {MONTH_NAMES.map((m, i) => <option key={i + 1} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-field">
+                      <label htmlFor="dhrYear">Year</label>
+                      <select
+                        className="form-input"
+                        id="dhrYear"
+                        value={selectedYear}
+                        onChange={e => { setSelectedYear(e.target.value); resetResults(); }}
+                        disabled={!selectedTerm}
+                      >
+                        <option value="" disabled>Select Year</option>
+                        {termYears.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                      </select>
+                    </div>
+                  </>
+                )}
+                {periodType === 'qtd' && (
+                  <div className="form-field">
+                    <label htmlFor="dhrQuarter">Quarter</label>
+                    <select
+                      className="form-input"
+                      id="dhrQuarter"
+                      value={selectedQuarter}
+                      onChange={e => { setSelectedQuarter(e.target.value); resetResults(); }}
+                      disabled={!selectedTerm}
+                    >
+                      {quarterOptions.map(q => <option key={q.value} value={q.value}>{q.label}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+              <div className="form-actions">
+                <button type="submit" disabled={isLoading} className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
+                  {isLoading ? <><i className="uil uil-spinner text-xl loading-spinner"></i> Generating...</> : 'Generate Report'}
+                </button>
+                <button type="button" onClick={downloadDetailCSV} disabled={!hasReport || !report.detail.length || isLoading} className={`btn-secondary ${!hasReport || !report.detail.length ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <i className="uil uil-file"></i> Detail CSV
+                </button>
+                <button type="button" onClick={downloadSummaryCSV} disabled={!hasReport || isLoading} className={`btn-secondary ${!hasReport ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <i className="uil uil-file"></i> Summary CSV
+                </button>
+                <button type="button" onClick={downloadOrphanCSV} disabled={!hasReport || !report.orphanEvents.length || isLoading} className={`btn-secondary ${!hasReport || !report.orphanEvents.length ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <i className="uil uil-file"></i> Orphans CSV
+                </button>
+                <button type="button" onClick={downloadDetailPNG} disabled={!hasReport || !report.detail.length || isLoading} className={`btn-secondary ${!hasReport || !report.detail.length ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <i className="uil uil-image-v"></i> Detail PNG
+                </button>
+                <button type="button" onClick={downloadSummaryPNG} disabled={!hasReport || isLoading} className={`btn-secondary ${!hasReport ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                  <i className="uil uil-image-v"></i> Summary PNG
+                </button>
+                <button type="button" onClick={clearForm} className="btn-outline">Clear</button>
+              </div>
+            </form>
+          </div>
+
+          <div className="p-2 mb-4 text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded">
+            <strong>How it works:</strong>&nbsp;
+            One row per Daily Hours setup entry in the term, per class-section dates.&nbsp;
+            Identical rows are shown but counted once in the summaries.&nbsp;
+            Use Class / Section / Period to narrow the report — Term is mandatory, and the summaries, orphans and downloads all follow the filters you pick.&nbsp;
+            Episodic rows are linked to their event by date, class and category, and each
+            setup day is checked against Student Attendance (Marked Yes/No).
+          </div>
+
+          {!generated && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">Pick a term and press Generate Report. The report needs a term — with no term picked, no data is shown.</p>
+          )}
+
+          {hasReport && (
+            <div>
+              {(report.skippedClasses || []).length > 0 && (
+                <div className="p-3 mb-4 text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded">
+                  <strong>Note:</strong> no term dates set up for {(report.skippedClasses || []).join(', ')} in Term {report.termId} — their setup rows were skipped, not counted. Add a Class_Terms row for the class to include it.
+                </div>
+              )}
+
+              <h3 className="text-lg font-semibold mb-2">Detail — setup rows in Term {report.termId}{report.termStart ? ' (' + report.termStart + ' to ' + report.termEnd + ')' : ''}{filterLabel()}</h3>
+              {detailRows.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{q ? 'No detail rows match the search.' : 'No setup rows in this term.'}</p>
+              ) : (
+                <div className="overflow-x-auto mb-6">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr>
+                        <th className={th}>Date</th>
+                        <th className={th}>Class_Section</th>
+                        <th className={th}>Category</th>
+                        <th className={th}>Hours</th>
+                        <th className={th}>Type</th>
+                        <th className={th}>Teacher_ID</th>
+                        <th className={th}>Event</th>
+                        <th className={th}>Event Hours</th>
+                        <th className={th}>Marked</th>
+                        <th className={th}>Data Issues</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detailRows.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td className={td}>{row.Date}</td>
+                          <td className={td}>{row.Class_Section}</td>
+                          <td className={td}>{row.Category}</td>
+                          <td className={td + ' text-center'}>{fmtH(row.Hours)}</td>
+                          <td className={td + ' text-center'}>{row.Type}</td>
+                          <td className={td}>{row.Teacher_ID}</td>
+                          <td className={td}>{row.Event || '—'}</td>
+                          <td className={td + ' text-center'}>{row.Event_Hours === '' || row.Event_Hours == null ? '—' : fmtH(row.Event_Hours)}</td>
+                          <td className={td + ' text-center font-bold ' + (String(row.Marked).indexOf('Yes') === 0 ? 'text-green-600' : 'text-red-600')}>{row.Marked}</td>
+                          <td className={td + ' text-red-600'}>{row.Data_Issues || ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <h3 className="text-lg font-semibold mb-2">Summary — per class-section</h3>
+              {(report.classSummary || []).length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">No class summary for this term.</p>
+              ) : (
+                <div className="overflow-x-auto mb-6">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr>
+                        <th className={th}>Class_Section</th>
+                        <th className={th}>Days with setup</th>
+                        <th className={th}>Normal hours</th>
+                        <th className={th}>Episodic hours</th>
+                        <th className={th}>Total hours</th>
+                        <th className={th}>Days marked</th>
+                        <th className={th}>Days not marked</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.classSummary.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td className={td}>{row.Class_Section}</td>
+                          <td className={td + ' text-center'}>{row.Days_Setup}</td>
+                          <td className={td + ' text-center'}>{fmtH(row.Normal_Hours)}</td>
+                          <td className={td + ' text-center'}>{fmtH(row.Episodic_Hours)}</td>
+                          <td className={td + ' text-center font-bold'}>{fmtH(row.Total_Hours)}</td>
+                          <td className={td + ' text-center'}>{row.Days_Marked}</td>
+                          <td className={td + ' text-center'}>{row.Days_Not_Marked}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <h3 className="text-lg font-semibold mb-2">Summary — per group</h3>
+              {(report.groupSummary || []).length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">No group summary for this term.</p>
+              ) : (
+                <div className="overflow-x-auto mb-6">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr>
+                        <th className={th}>Group</th>
+                        <th className={th}>Days with setup</th>
+                        <th className={th}>Normal hours</th>
+                        <th className={th}>Episodic hours</th>
+                        <th className={th}>Total hours</th>
+                        <th className={th}>Days marked</th>
+                        <th className={th}>Days not marked</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.groupSummary.map((row, idx) => (
+                        <tr key={idx} className={'hover:bg-gray-50 dark:hover:bg-gray-800 ' + (row.Group === 'Grand Total' ? 'font-bold bg-gray-50 dark:bg-gray-800' : '')}>
+                          <td className={td}>{row.Group}</td>
+                          <td className={td + ' text-center'}>{row.Days_Setup}</td>
+                          <td className={td + ' text-center'}>{fmtH(row.Normal_Hours)}</td>
+                          <td className={td + ' text-center'}>{fmtH(row.Episodic_Hours)}</td>
+                          <td className={td + ' text-center font-bold'}>{fmtH(row.Total_Hours)}</td>
+                          <td className={td + ' text-center'}>{row.Days_Marked}</td>
+                          <td className={td + ' text-center'}>{row.Days_Not_Marked}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <h3 className="text-lg font-semibold mb-2">Hours by category</h3>
+              {(report.categorySummary || []).length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">No categories for this term.</p>
+              ) : (
+                <div className="overflow-x-auto mb-6">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr>
+                        <th className={th}>Category</th>
+                        <th className={th}>Normal hours</th>
+                        <th className={th}>Episodic hours</th>
+                        <th className={th}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.categorySummary.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td className={td}>{row.Category}</td>
+                          <td className={td + ' text-center'}>{fmtH(row.Normal_Hours)}</td>
+                          <td className={td + ' text-center'}>{fmtH(row.Episodic_Hours)}</td>
+                          <td className={td + ' text-center font-bold'}>{fmtH(row.Total_Hours)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <h3 className="text-lg font-semibold mb-2">Episodic events without a setup row</h3>
+              {(report.orphanEvents || []).length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Every episodic event in this term has a matching setup row.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr>
+                        <th className={th}>Event_Date</th>
+                        <th className={th}>Event_Name</th>
+                        <th className={th}>Category</th>
+                        <th className={th}>Hours</th>
+                        <th className={th}>Class_Sections</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.orphanEvents.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <td className={td}>{row.Event_Date}</td>
+                          <td className={td}>{row.Event_Name}</td>
+                          <td className={td}>{row.Category}</td>
+                          <td className={td + ' text-center'}>{fmtH(row.Hours)}</td>
+                          <td className={td}>{row.Class_Sections}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
@@ -7306,6 +8091,647 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
   );
 }
 
+// ---------- Shared helpers for the ITREB report (v7.1) ----------
+// Per-student ACCESS marking computation, extracted verbatim from
+// AccessHoursReport.buildReportRows (same window, same hours, same
+// thresholds). ITREB aggregates its results by base class + gender.
+// AccessHoursReport keeps its own inline copy (byte-identical), so this
+// helper mirrors it — if the ACCESS thresholds ever change, change both.
+// Returns [{ baseClass, section, gender, marking, actualHours }] for students
+// enrolled in the period. actualHours is the student's earned hours in the
+// period (Present rows only, inside the enrolled window). The marking/window
+// logic is unchanged from AccessHoursReport.buildReportRows.
+function computeAccessStudentMarkings_(students, attRows, classTerms, selectedTerm, months, endKey) {
+  const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
+  const monthKeyOf = (y, m) => y + '-' + String(m).padStart(2, '0');
+  const monthStartDate = (key) => { const p = String(key).split('-'); return new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, 1); };
+  const monthEndDate = (key) => { const p = String(key).split('-'); return new Date(parseInt(p[0], 10), parseInt(p[1], 10), 0); };
+  const monthsInRange = (startKey, endKey) => {
+    const out = [];
+    const sp = String(startKey || '').split('-');
+    let y = parseInt(sp[0], 10), m = parseInt(sp[1], 10);
+    const ep = String(endKey || '').split('-');
+    const ey = parseInt(ep[0], 10), em = parseInt(ep[1], 10);
+    if (!y || !m || !ey || !em) return out;
+    while (y < ey || (y === ey && m <= em)) {
+      out.push(monthKeyOf(y, m));
+      m += 1; if (m > 12) { m = 1; y += 1; }
+    }
+    return out;
+  };
+
+  const studentById = {};
+  (students || []).forEach(s => { studentById[norm(s.Std_ID)] = s; });
+
+  // Attendance rows, REC-scoped by Std_ID and by the student's school
+  // (v7.20 O3 — same second-layer check as buildReportRows).
+  const attByStudent = {};
+  (attRows || []).forEach(a => {
+    const sid = norm(a.Std_ID);
+    if (!studentById[sid]) return;
+    const rowRec = norm(a.REC_ID);
+    const stuRec = norm(studentById[sid].REC_ID);
+    if (rowRec && stuRec && rowRec !== stuRec) return;
+    const dt = parseAnyDate(a.Date);
+    if (!dt) return;
+    if (!attByStudent[sid]) attByStudent[sid] = [];
+    attByStudent[sid].push({ status: String(a.Status || '').toLowerCase().trim(), hours: Number(a.Hours || 0), date: new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()), event: norm(a.Event_Name) });
+  });
+
+  const endMonthEnd = monthEndDate(endKey);
+  const out = [];
+  (students || []).forEach(st => {
+    const cls = norm(st.Student_Class);
+    const sec = norm(st.Student_Section);
+    const cs = cls + '-' + sec;
+    // Class-level span is the fallback; section-level range decides the window.
+    const span = termSpanForClass_(classTerms || [], cls, selectedTerm);
+    const range = termRangeForClass_(classTerms || [], cs, selectedTerm) || span;
+    const doj = parseAnyDate(st.Date_of_Joining);
+    const inactive = parseAnyDate(st.Inactive_Date);
+    let winStart = range ? termParseDate_(range.start) : monthStartDate(months[0]);
+    if (doj) {
+      const dj = new Date(doj.getFullYear(), doj.getMonth(), doj.getDate());
+      if (dj > winStart) winStart = dj;
+    }
+    let winEnd = new Date(endMonthEnd.getFullYear(), endMonthEnd.getMonth(), endMonthEnd.getDate());
+    if (inactive) {
+      const ia = new Date(inactive.getFullYear(), inactive.getMonth(), inactive.getDate());
+      if (ia < winEnd) winEnd = ia;
+    }
+    // Cap at the student's own class-section term end.
+    if (range) {
+      const re = termParseDate_(range.end);
+      if (re && re < winEnd) winEnd = re;
+    }
+    const winStartKey = monthKeyOf(winStart.getFullYear(), winStart.getMonth() + 1);
+    const winEndKey = monthKeyOf(winEnd.getFullYear(), winEnd.getMonth() + 1);
+    const winMonths = monthsInRange(winStartKey, winEndKey).filter(k => months.indexOf(k) !== -1);
+    if (!winMonths.length) return; // joined after the period, or left before it started
+    const m = winMonths.length;
+    const recs = attByStudent[norm(st.Std_ID)] || [];
+    let actualHours = 0;
+    let normalHours = 0;
+    let episodicHours = 0;
+    months.forEach(mk => {
+      if (winMonths.indexOf(mk) === -1) return;
+      const ms = monthStartDate(mk), me = monthEndDate(mk);
+      const lo = ms > winStart ? ms : winStart;
+      const hi = me < winEnd ? me : winEnd;
+      const loStr = termDateKey_(lo), hiStr = termDateKey_(hi);
+      recs.forEach(r => {
+        const k = termDateKey_(r.date);
+        if (k < loStr || k > hiStr) return;
+        // Only Present earns hours — matches the ACCESS report's rule.
+        // Split by event: a blank Event_Name is a normal day; a named event is episodic.
+        if (r.status === 'present') {
+          const h = isNaN(r.hours) ? 0 : r.hours;
+          actualHours += h;
+          if (r.event) episodicHours += h; else normalHours += h;
+        }
+      });
+    });
+    actualHours = Math.round(actualHours * 100) / 100;
+    normalHours = Math.round(normalHours * 100) / 100;
+    episodicHours = Math.round(episodicHours * 100) / 100;
+    let marking;
+    if (actualHours === 0) marking = 'P0';
+    else if (actualHours >= 6.25 * m) marking = 'P3';
+    else if (actualHours >= 2.5 * m) marking = 'P2';
+    else marking = 'P1';
+    out.push({ baseClass: cls, section: sec ? cs : cls, gender: norm(st.Gender), marking: marking, actualHours: actualHours, normalHours: normalHours, episodicHours: episodicHours });
+  });
+  return out;
+}
+
+// Working Days + Average Hour per base class from Daily_Hours_Setup.
+// Working Days = distinct dates in the period with a setup row AND
+// attendance marked that day (any Student_Attendance row for that date
+// and any section of the base class). Setup rows are deduped with the
+// Daily Hours Report's key (Date + Class_Section + Category + Type +
+// Hours + Teacher_ID). Average Hour = the MEAN of Hours across the
+// deduped setup rows on the marked dates only (sum / count — e.g.
+// 1.25, 1.5, 2 -> 1.58). Rounded Average Hour = that mean rounded to
+// the nearest standard session length (ITREB_STANDARD_HOURS) — e.g. a
+// mean of 1.89 shows as 2. Neither is an average of the actual (earned)
+// hours; those are summed separately as Actual Hours.
+// EPISODIC setup rows are EXCLUDED from the mean (a 10-hour Trip would
+// distort it); 'normal' and 'both' rows count. Episodic days still
+// count as Working Days — only the mean excludes them.
+// Returns { [key]: { workingDays, avgHours, roundedAvgHours, setupHours, setupCount } }
+// where key is the base class,
+// or the class-section when bySection is true. A class/section with setup
+// rows in the period but no marked date still appears (0 days, 0 hours).
+// The school's standard session lengths (hours). Average Hour is shown as
+// the nearest of these — e.g. a mean of 1.89 shows as 2. This list is the
+// single place to change them.
+const ITREB_STANDARD_HOURS = [1, 1.25, 1.5, 2, 2.5, 3];
+// Round a computed mean to the nearest standard session length, using the
+// UNROUNDED mean for the distance comparison. An exact tie rounds UP to the
+// higher value; below 1 rounds to 1, above 3 rounds to 3. (Zero setup rows
+// is handled by the caller, which leaves 0 as 0.)
+function roundToStandardHour_(mean) {
+  if (mean == null || isNaN(mean) || mean <= 0) return 0;
+  var best = ITREB_STANDARD_HOURS[0];
+  for (var i = 1; i < ITREB_STANDARD_HOURS.length; i++) {
+    if (Math.abs(mean - ITREB_STANDARD_HOURS[i]) <= Math.abs(mean - best)) best = ITREB_STANDARD_HOURS[i];
+  }
+  return best;
+}
+
+function computeItrebSetupStats_(setupRows, attRows, classTerms, selectedTerm, months, bySection) {
+  const normText = (v) => String(v == null ? '' : v).trim();
+  // Dates arrive in two shapes: setup rows via getSheetData are 'yyyy-MM-dd',
+  // attendance rows via getStudentAttendance are 'yyyy-MMM-dd' — accept both.
+  const normDate = (v) => {
+    const s = String(v == null ? '' : v).trim();
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return m[1] + '-' + m[2] + '-' + m[3];
+    const k = dayKey(v);
+    return /^\d{4}-\d{2}-\d{2}$/.test(k) ? k : '';
+  };
+  // Attendance dates per key (base class, or class-section when bySection is
+  // true — any status, any event).
+  const attDatesByBase = {};
+  // v7.20 (O3): a marked date only counts if it comes from one of the
+  // setup rows' schools — another school's marking on the same date
+  // must not make a setup day a working day here. (No REC_ID anywhere
+  // fails open.)
+  const itrebRecs = {};
+  (setupRows || []).forEach(r => { const sr = normText(r.REC_ID); if (sr) itrebRecs[sr] = true; });
+  (attRows || []).forEach(a => {
+    const d = normDate(a.Date);
+    if (!d) return;
+    const aRec = normText(a.REC_ID);
+    if (aRec && Object.keys(itrebRecs).length && !itrebRecs[aRec]) return;
+    let cs = normText(a.Class_Section);
+    if (!cs) {
+      const c = normText(a.Student_Class), s = normText(a.Student_Section);
+      if (!c) return;
+      cs = s ? c + '-' + s : c;
+    }
+    const b = bySection ? cs : termBaseClassOf_(cs);
+    if (!b) return;
+    if (!attDatesByBase[b]) attDatesByBase[b] = {};
+    attDatesByBase[b][d] = true;
+  });
+  // Per-class-section term range, cached (first matching ACTIVE row wins).
+  const rangeCache = {};
+  const rangeFor = (cs) => {
+    const key = String(cs || '').trim().toLowerCase();
+    if (!(key in rangeCache)) rangeCache[key] = termRangeForClass_(classTerms || [], cs, selectedTerm);
+    return rangeCache[key];
+  };
+  const seen = {};
+  const byBase = {};
+  (setupRows || []).forEach(r => {
+    const date = normDate(r.Date);
+    const cs = normText(r.Class_Section);
+    if (!date || !cs) return;
+    if (months.indexOf(date.slice(0, 7)) === -1) return; // outside the period months
+    const range = rangeFor(cs);
+    if (!range) return; // class-section has no term dates for this term
+    if (date < range.start || date > range.end) return;
+    // The sheet's type column is Attendance_Type; fall back to the older 'Type' column.
+    const typeRaw = normText(r.Attendance_Type) || normText(r.Type) || 'normal';
+    const type = typeRaw.toLowerCase() === 'episodic' ? 'Episodic' : 'Normal';
+    const category = normText(r.Category);
+    const hours = Number(r.Hours || 0);
+    const teacher = normText(r.Teacher_ID);
+    const dupKey = [date, cs.toLowerCase(), category.toLowerCase(), type, hours, teacher.toLowerCase()].join('|');
+    if (seen[dupKey]) return; // duplicate setup row counts once
+    seen[dupKey] = true;
+    const b = bySection ? cs : termBaseClassOf_(cs);
+    if (!b) return;
+    if (!byBase[b]) byBase[b] = { dates: {}, hours: 0, count: 0 };
+    const markedDates = attDatesByBase[b] || {};
+    if (markedDates[date]) {
+      byBase[b].dates[date] = true;
+      // Episodic setup hours are excluded from the mean (they distort it);
+      // the day still counts as a Working Day. 'normal' and 'both' count.
+      if (type !== 'Episodic') {
+        byBase[b].hours += hours;
+        byBase[b].count += 1;
+      }
+    }
+  });
+  const out = {};
+  Object.keys(byBase).forEach(b => {
+    const n = byBase[b].count;
+    out[b] = { workingDays: Object.keys(byBase[b].dates).length, avgHours: n ? Math.round((byBase[b].hours / n) * 100) / 100 : 0, roundedAvgHours: n ? roundToStandardHour_(byBase[b].hours / n) : 0, setupHours: Math.round(byBase[b].hours * 100) / 100, setupCount: n };
+  });
+  return out;
+}
+
+// Gender bucket for the ITREB Boys/Girls split: 'B', 'G', or '' (unknown -> Total only).
+function itrebGenderBucket_(g) {
+  const v = String(g == null ? '' : g).trim().toLowerCase();
+  if (v === 'male' || v === 'm' || v === 'boy' || v === 'boys') return 'B';
+  if (v === 'female' || v === 'f' || v === 'girl' || v === 'girls') return 'G';
+  return '';
+}
+
+    function ItrebReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery, username }) {
+      const [selectedTerm, setSelectedTerm] = useState('');
+      const [periodType, setPeriodType] = useState('monthly');
+      const [selectedMonth, setSelectedMonth] = useState('');
+      const [selectedYear, setSelectedYear] = useState('');
+      const [selectedQuarter, setSelectedQuarter] = useState('Q1');
+      const [breakdown, setBreakdown] = useState('class');
+      const [reportRows, setReportRows] = useState([]);
+      const [reportMeta, setReportMeta] = useState(null);
+      const [generated, setGenerated] = useState(false);
+
+      const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
+      const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      // Quarter ends reuse the ACCESS report's definition exactly.
+      const ITREB_QUARTERS = { Q1: { month: 11, yearOff: 0 }, Q2: { month: 2, yearOff: 1 }, Q3: { month: 5, yearOff: 1 }, Q4: { month: 8, yearOff: 1 } };
+      // 16 classes, NO XII (HRE is the last class).
+      const ITREB_CLASS_ORDER = ['IBT', 'NUR', 'KGI', 'KGII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'];
+      const termOptions = termPickerOptions_(data.terms || []).filter(t => termIsActive_(t.Is_Active));
+
+      const monthKeyOf = (y, m) => y + '-' + String(m).padStart(2, '0');
+      const monthLabelShort = (key) => {
+        const parts = String(key || '').split('-');
+        const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+        if (!y || !m) return String(key || '');
+        return MONTH_SHORT[m - 1] + ' ' + String(y).slice(2);
+      };
+      const monthLabelLong = (key) => {
+        const parts = String(key || '').split('-');
+        const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+        if (!y || !m) return String(key || '');
+        return MONTH_NAMES[m - 1] + ' ' + y;
+      };
+      const monthsInRange = (startKey, endKey) => {
+        const out = [];
+        const sp = String(startKey || '').split('-');
+        let y = parseInt(sp[0], 10), m = parseInt(sp[1], 10);
+        const ep = String(endKey || '').split('-');
+        const ey = parseInt(ep[0], 10), em = parseInt(ep[1], 10);
+        if (!y || !m || !ey || !em) return out;
+        while (y < ey || (y === ey && m <= em)) {
+          out.push(monthKeyOf(y, m));
+          m += 1; if (m > 12) { m = 1; y += 1; }
+        }
+        return out;
+      };
+      const monthEndDate = (key) => { const p = String(key).split('-'); return new Date(parseInt(p[0], 10), parseInt(p[1], 10), 0); };
+
+      // ACTIVE Class_Terms rows of the picked term (data.class_terms is already REC-filtered).
+      const activeTermRows = selectedTerm
+        ? (data.class_terms || []).filter(r => termIsActive_(r.Is_Active) && norm(r.Term_ID).toLowerCase() === norm(selectedTerm).toLowerCase())
+        : [];
+      const termStartYear = () => {
+        const found = String(selectedTerm || '').match(/(\d{4})/);
+        if (found) return parseInt(found[1], 10);
+        const starts = activeTermRows.map(r => termParseDate_(r.Start_Date)).filter(Boolean);
+        if (starts.length) return Math.min.apply(null, starts.map(d => d.getFullYear()));
+        return new Date().getFullYear();
+      };
+      const periodEndKey = () => {
+        if (periodType === 'monthly') return (selectedYear && selectedMonth) ? selectedYear + '-' + selectedMonth : '';
+        const sy = termStartYear();
+        if (periodType === 'quarterly') {
+          const q = ITREB_QUARTERS[selectedQuarter] || ITREB_QUARTERS.Q1;
+          return monthKeyOf(sy + q.yearOff, q.month);
+        }
+        // Yearly: latest End_Date among the term's Class_Terms rows (fallback Aug of start year + 1).
+        const ends = activeTermRows.map(r => termParseDate_(r.End_Date)).filter(Boolean);
+        if (ends.length) {
+          const mx = new Date(Math.max.apply(null, ends.map(d => d.getTime())));
+          return monthKeyOf(mx.getFullYear(), mx.getMonth() + 1);
+        }
+        return monthKeyOf(sy + 1, 8);
+      };
+      const reportStartKey = () => {
+        const starts = activeTermRows.map(r => termParseDate_(r.Start_Date)).filter(Boolean);
+        if (!starts.length) return '';
+        const mn = new Date(Math.min.apply(null, starts.map(d => d.getTime())));
+        return monthKeyOf(mn.getFullYear(), mn.getMonth() + 1);
+      };
+      const termSpan = selectedTerm ? termSpan_(data.class_terms || [], selectedTerm) : null;
+      const termYears = (() => {
+        if (!termSpan) return [];
+        const sY = parseInt(String(termSpan.start).slice(0, 4), 10);
+        const eY = parseInt(String(termSpan.end).slice(0, 4), 10);
+        if (!sY || !eY) return [];
+        const out = [];
+        for (let y = sY; y <= eY; y++) out.push(y);
+        return out;
+      })();
+      const quarterOptions = ['Q1', 'Q2', 'Q3', 'Q4'].map(q => {
+        const def = ITREB_QUARTERS[q];
+        return { value: q, label: q + ' — ends ' + MONTH_NAMES[def.month - 1] + ' ' + (termStartYear() + def.yearOff) };
+      });
+      const periodLabel = () => {
+        if (!reportMeta) return '';
+        if (periodType === 'monthly') return monthLabelLong(reportMeta.endKey);
+        if (periodType === 'quarterly') return selectedQuarter + ' (QTD) — ' + monthLabelShort(reportMeta.startKey) + ' to ' + monthLabelLong(reportMeta.endKey);
+        return 'Full year — ' + monthLabelShort(reportMeta.startKey) + ' to ' + monthLabelLong(reportMeta.endKey);
+      };
+      const resetResults = () => { setReportRows([]); setReportMeta(null); setGenerated(false); };
+      const clearForm = () => { setSelectedTerm(''); setPeriodType('monthly'); setSelectedMonth(''); setSelectedYear(''); setSelectedQuarter('Q1'); setBreakdown('class'); resetResults(); };
+
+      const generateReport = async (e) => {
+        if (e) e.preventDefault();
+        // Term is mandatory (Daily Hours v6.7 pattern): no auto-default — the picker starts empty.
+        if (!selectedTerm) { setError('Please select a Term.'); return; }
+        if (periodType === 'monthly' && (!selectedMonth || !selectedYear)) { setError('Please select a Month and Year.'); return; }
+        const endKey = periodEndKey();
+        const startKey = reportStartKey();
+        if (!startKey) { setError('No term dates set up for Term ' + selectedTerm + '. Add Class_Terms rows first.'); return; }
+        if (!endKey || endKey < startKey) { setError('The period ends before the term starts.'); return; }
+        setIsLoading(true);
+        setError('');
+        try {
+          const recId = userPermissions?.REC_ID || '';
+          const startDate = startKey + '-01';
+          const endDate = termDateKey_(monthEndDate(endKey));
+          const [attRows, setupRows] = await Promise.all([
+            callWithRetry('getStudentAttendance', { startDate, endDate, statusFilter: 'All', username }),
+            callWithRetry('getSheetData', 'Daily_Hours_Setup', recId)
+          ]);
+          const months = monthsInRange(startKey, endKey);
+          // P0–P3: same ACCESS hours bands, same per-student computation.
+          const markings = computeAccessStudentMarkings_((data.student_data || []), attRows || [], data.class_terms || [], selectedTerm, months, endKey);
+          const setupStats = computeItrebSetupStats_(setupRows || [], attRows || [], data.class_terms || [], selectedTerm, months, breakdown === 'section');
+          const emptyCounts = () => ({ actualHours: 0, normalHours: 0, episodicHours: 0, enrolled: { B: 0, G: 0, T: 0 }, P0: { B: 0, G: 0, T: 0 }, P1: { B: 0, G: 0, T: 0 }, P2: { B: 0, G: 0, T: 0 }, P3: { B: 0, G: 0, T: 0 } });
+          const byClass = {};
+          markings.forEach(s => {
+            const key = breakdown === 'section' ? s.section : s.baseClass;
+            if (!byClass[key]) byClass[key] = emptyCounts();
+            const b = byClass[key];
+            const g = itrebGenderBucket_(s.gender);
+            b.actualHours = Math.round((b.actualHours + (s.actualHours || 0)) * 100) / 100;
+            b.normalHours = Math.round((b.normalHours + (s.normalHours || 0)) * 100) / 100;
+            b.episodicHours = Math.round((b.episodicHours + (s.episodicHours || 0)) * 100) / 100;
+            b.enrolled.T += 1; if (g) b.enrolled[g] += 1;
+            b[s.marking].T += 1; if (g) b[s.marking][g] += 1;
+          });
+          Object.keys(setupStats).forEach(c => { if (!byClass[c]) byClass[c] = emptyCounts(); });
+          const ordered = breakdown === 'section'
+            ? Object.keys(byClass).sort((a, b) => {
+                const baseOf = (k) => termBaseClassOf_(k) || k;
+                const ai = ITREB_CLASS_ORDER.indexOf(baseOf(a)), bi = ITREB_CLASS_ORDER.indexOf(baseOf(b));
+                const ao = ai === -1 ? 999 : ai, bo = bi === -1 ? 999 : bi;
+                if (ao !== bo) return ao - bo;
+                return a < b ? -1 : a > b ? 1 : 0;
+              })
+            : ITREB_CLASS_ORDER.filter(c => byClass[c])
+              .concat(Object.keys(byClass).filter(c => ITREB_CLASS_ORDER.indexOf(c) === -1).sort());
+          const rows = ordered.map(c => {
+            const st = setupStats[c] || { workingDays: 0, avgHours: 0, roundedAvgHours: 0, setupHours: 0, setupCount: 0 };
+            const b = byClass[c];
+            return { Class: c, workingDays: st.workingDays, avgHours: st.avgHours, roundedAvgHours: st.roundedAvgHours, setupHours: st.setupHours || 0, setupCount: st.setupCount || 0, actualHours: b.actualHours, normalHours: b.normalHours, episodicHours: b.episodicHours, enrolled: b.enrolled, P0: b.P0, P1: b.P1, P2: b.P2, P3: b.P3 };
+          });
+          setReportRows(rows);
+          setReportMeta({ termId: selectedTerm, startKey, endKey, breakdown });
+          setGenerated(true);
+          if (!rows.length) setError('No students or setup rows in this period.');
+        } catch (err) {
+          setError('Failed to generate report: ' + err.message);
+        }
+        setIsLoading(false);
+      };
+
+      // Total row (sums all class rows).
+      const totalRow = (() => {
+        const t = { Class: 'Total', workingDays: 0, avgHours: 0, roundedAvgHours: 0, setupHours: 0, setupCount: 0, actualHours: 0, normalHours: 0, episodicHours: 0, enrolled: { B: 0, G: 0, T: 0 }, P0: { B: 0, G: 0, T: 0 }, P1: { B: 0, G: 0, T: 0 }, P2: { B: 0, G: 0, T: 0 }, P3: { B: 0, G: 0, T: 0 } };
+        reportRows.forEach(r => {
+          t.workingDays += r.workingDays; t.setupHours = Math.round((t.setupHours + (r.setupHours || 0)) * 100) / 100; t.setupCount += r.setupCount || 0; t.actualHours = Math.round((t.actualHours + (r.actualHours || 0)) * 100) / 100; t.normalHours = Math.round((t.normalHours + (r.normalHours || 0)) * 100) / 100; t.episodicHours = Math.round((t.episodicHours + (r.episodicHours || 0)) * 100) / 100;
+          ['enrolled', 'P0', 'P1', 'P2', 'P3'].forEach(k => { t[k].B += r[k].B; t[k].G += r[k].G; t[k].T += r[k].T; });
+        });
+        // Total Average Hour is the overall mean across ALL deduped setup rows
+        // (total setup hours / total rows) — not the sum of the per-row means.
+        // Rounded Average Hour is that same overall mean rounded to the
+        // nearest standard session length.
+        t.avgHours = t.setupCount ? Math.round((t.setupHours / t.setupCount) * 100) / 100 : 0;
+        t.roundedAvgHours = t.setupCount ? roundToStandardHour_(t.setupHours / t.setupCount) : 0;
+        return t;
+      })();
+
+      const downloadCSV = () => {
+        if (!reportRows.length) { setError('No data to download'); return; }
+        const headers = ['Class', 'Working Days', 'Average Hour', 'Rounded Average Hour', 'Actual Hours', 'Normal Hours', 'Episodic Hours', 'Enrolled Boys', 'Enrolled Girls', 'Enrolled Total', 'P0 Boys', 'P0 Girls', 'P0 Total', 'P1 Boys', 'P1 Girls', 'P1 Total', 'P2 Boys', 'P2 Girls', 'P2 Total', 'P3 Boys', 'P3 Girls', 'P3 Total'];
+        let csv = headers.join(',') + '\n';
+        const pushRow = (r) => {
+          const line = [r.Class, r.workingDays, r.avgHours, r.roundedAvgHours, r.actualHours, r.normalHours, r.episodicHours, r.enrolled.B, r.enrolled.G, r.enrolled.T, r.P0.B, r.P0.G, r.P0.T, r.P1.B, r.P1.G, r.P1.T, r.P2.B, r.P2.G, r.P2.T, r.P3.B, r.P3.G, r.P3.T];
+          csv += line.map(v => '"' + String(v ?? '').replace(/"/g, '""') + '"').join(',') + '\n';
+        };
+        reportRows.forEach(pushRow);
+        pushRow(totalRow);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'itreb_report_' + (reportMeta.termId || '') + '_' + (reportMeta.endKey || '') + (reportMeta.breakdown === 'section' ? '_section' : '') + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        setSuccessMessage('CSV downloaded!');
+      };
+
+      const filteredRows = searchQuery
+        ? reportRows.filter(item => String(item.Class || '').toLowerCase().includes(searchQuery.toLowerCase()))
+        : reportRows;
+      const thFixed = 'border border-gray-300 dark:border-gray-600 p-2 bg-gray-100 dark:bg-gray-700';
+      const thGroup = 'border border-gray-300 dark:border-gray-600 p-2 text-center bg-blue-100 dark:bg-blue-900';
+      const tdCenter = 'border border-gray-300 dark:border-gray-600 p-2 text-center';
+      const rowCells = (r) => ([r.enrolled.B, r.enrolled.G, r.enrolled.T, r.P0.B, r.P0.G, r.P0.T, r.P1.B, r.P1.G, r.P1.T, r.P2.B, r.P2.G, r.P2.T, r.P3.B, r.P3.G, r.P3.T].map((v, i) => (
+        <td key={i} className={tdCenter}>{v}</td>
+      )));
+
+      return (
+        <div className="card p-6">
+          <div className="flex items-center mb-4">
+            <i className="uil uil-clock text-2xl text-accent mr-2"></i>
+            <h2 className="text-xl font-semibold">ITREB Report</h2>
+          </div>
+
+          <div className="form-container mb-6">
+            <form onSubmit={generateReport}>
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="itrebTerm">Term</label>
+                  <select
+                    className="form-input"
+                    id="itrebTerm"
+                    value={selectedTerm}
+                    onChange={e => { setSelectedTerm(e.target.value); resetResults(); }}
+                  >
+                    <option value="" disabled>Select Term</option>
+                    {termOptions.map(t => <option key={t.Term_ID} value={t.Term_ID}>{t.Term_Name || t.Term_ID}</option>)}
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor="itrebPeriod">Period</label>
+                  <select
+                    className="form-input"
+                    id="itrebPeriod"
+                    value={periodType}
+                    onChange={e => { const v = e.target.value; setPeriodType(v); if (v === 'monthly' && termSpan && !selectedMonth) { setSelectedMonth(String(termSpan.start).slice(5, 7)); setSelectedYear(String(termSpan.start).slice(0, 4)); } resetResults(); }}
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly (QTD)</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label htmlFor="itrebBreakdown">Breakdown</label>
+                  <select
+                    className="form-input"
+                    id="itrebBreakdown"
+                    value={breakdown}
+                    onChange={e => { setBreakdown(e.target.value); resetResults(); }}
+                  >
+                    <option value="class">Class</option>
+                    <option value="section">Section</option>
+                  </select>
+                </div>
+                {periodType === 'monthly' && (
+                  <>
+                    <div className="form-field">
+                      <label htmlFor="itrebMonth">Month</label>
+                      <select
+                        className="form-input"
+                        id="itrebMonth"
+                        value={selectedMonth}
+                        onChange={e => { setSelectedMonth(e.target.value); resetResults(); }}
+                        disabled={!selectedTerm}
+                      >
+                        <option value="" disabled>Select Month</option>
+                        {MONTH_NAMES.map((m, i) => <option key={i + 1} value={String(i + 1).padStart(2, '0')}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-field">
+                      <label htmlFor="itrebYear">Year</label>
+                      <select
+                        className="form-input"
+                        id="itrebYear"
+                        value={selectedYear}
+                        onChange={e => { setSelectedYear(e.target.value); resetResults(); }}
+                        disabled={!selectedTerm}
+                      >
+                        <option value="" disabled>Select Year</option>
+                        {termYears.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                      </select>
+                    </div>
+                  </>
+                )}
+                {periodType === 'quarterly' && (
+                  <div className="form-field">
+                    <label htmlFor="itrebQuarter">Quarter</label>
+                    <select
+                      className="form-input"
+                      id="itrebQuarter"
+                      value={selectedQuarter}
+                      onChange={e => { setSelectedQuarter(e.target.value); resetResults(); }}
+                      disabled={!selectedTerm}
+                    >
+                      {quarterOptions.map(q => <option key={q.value} value={q.value}>{q.label}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+              <div className="form-actions">
+                <button type="submit" disabled={isLoading} className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>
+                  {isLoading ? <><i className="uil uil-spinner text-xl loading-spinner"></i> Generating...</> : 'Generate Report'}
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadCSV}
+                  disabled={reportRows.length === 0 || isLoading}
+                  className={`btn-secondary ${reportRows.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <i className="uil uil-file-csv"></i> CSV
+                </button>
+                <button type="button" onClick={clearForm} className="btn-outline">Clear</button>
+              </div>
+            </form>
+          </div>
+
+          <div className="p-2 mb-4 text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded">
+            <strong>How it works:</strong>&nbsp;
+            Term is mandatory. P0–P3 use the same ACCESS hours bands: Required = 6.25h × enrolled months (from term start or joining date, whichever is later).&nbsp;
+            <span className="text-red-600 font-bold">P0</span> = 0h&nbsp;·&nbsp;
+            <span className="text-orange-600 font-bold">P1</span> = below 2.5h × months&nbsp;·&nbsp;
+            <span className="text-blue-600 font-bold">P2</span> = 2.5h to 6.25h × months&nbsp;·&nbsp;
+            <span className="text-green-600 font-bold">P3</span> = 6.25h × months or more.&nbsp;
+            Only Present days earn hours. Working Days = distinct dates in the period with a setup row and attendance marked that day.&nbsp;
+            Average Hour = the mean of the NORMAL setup hours held on those marked days (e.g. 1.89); Rounded Average Hour = that mean rounded to the nearest standard session length (1, 1.25, 1.5, 2, 2.5, 3) — e.g. 1.89 shows as 2; episodic setup hours are excluded, they would distort the mean. Actual Hours = the hours students actually earned (Present days only), split into Normal Hours (no event) and Episodic Hours (attendance under an event).&nbsp;
+            Breakdown Class shows one row per class; Section shows one row per class-section. Boys/Girls come from the gender in Student_Data; a blank gender counts in Total only.&nbsp;
+            All figures are cumulative from the term start to the end of the picked month / quarter / year.
+          </div>
+
+          {isLoading ? (
+            <p className="text-gray-500">Loading data...</p>
+          ) : !generated ? (
+            <p className="text-gray-500">Select a Term and period, then Generate Report.</p>
+          ) : filteredRows.length === 0 ? (
+            <p className="text-gray-500">No data available for the selected filters.</p>
+          ) : (
+            <div>
+              <div className="mb-3 text-sm text-gray-700 dark:text-gray-300">
+                <strong>{periodLabel()}</strong> &nbsp;·&nbsp; Term {reportMeta ? reportMeta.termId : ''} &nbsp;·&nbsp; {reportMeta && reportMeta.breakdown === 'section' ? 'Section-wise' : 'Class-wise'} &nbsp;·&nbsp; Cumulative {reportMeta ? monthLabelShort(reportMeta.startKey) : ''} to {reportMeta ? monthLabelLong(reportMeta.endKey) : ''}
+              </div>
+              <div className="table-container max-h-[600px] overflow-auto mb-6">
+                <table className="min-w-max border-collapse border border-gray-300 dark:border-gray-600">
+                  <thead className="sticky-header">
+                    <tr>
+                      <th rowSpan="2" className={thFixed + ' text-left'}>Class</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Working Days</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Average Hour</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Rounded Average Hour</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Actual Hours</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Normal Hours</th>
+                      <th rowSpan="2" className={thFixed + ' text-center'}>Episodic Hours</th>
+                      <th colSpan="3" className={thGroup}>Enrolled</th>
+                      <th colSpan="3" className={thGroup}>P0</th>
+                      <th colSpan="3" className={thGroup}>P1</th>
+                      <th colSpan="3" className={thGroup}>P2</th>
+                      <th colSpan="3" className={thGroup}>P3</th>
+                    </tr>
+                    <tr>
+                      {['Boys', 'Girls', 'Total', 'Boys', 'Girls', 'Total', 'Boys', 'Girls', 'Total', 'Boys', 'Girls', 'Total', 'Boys', 'Girls', 'Total', 'Boys', 'Girls', 'Total'].map((h, i) => (
+                        <th key={i} className={thGroup + ' text-xs'}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRows.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap font-semibold">{row.Class}</td>
+                        <td className={tdCenter}>{row.workingDays}</td>
+                        <td className={tdCenter}>{row.avgHours}</td>
+                        <td className={tdCenter}>{row.roundedAvgHours}</td>
+                        <td className={tdCenter}>{row.actualHours}</td>
+                        <td className={tdCenter}>{row.normalHours}</td>
+                        <td className={tdCenter}>{row.episodicHours}</td>
+                        {rowCells(row)}
+                      </tr>
+                    ))}
+                    <tr className="font-bold bg-gray-100 dark:bg-gray-700">
+                      <td className="border border-gray-300 dark:border-gray-600 p-2 whitespace-nowrap">{totalRow.Class}</td>
+                      <td className={tdCenter}>{totalRow.workingDays}</td>
+                      <td className={tdCenter}>{totalRow.avgHours}</td>
+                      <td className={tdCenter}>{totalRow.roundedAvgHours}</td>
+                      <td className={tdCenter}>{totalRow.actualHours}</td>
+                      <td className={tdCenter}>{totalRow.normalHours}</td>
+                      <td className={tdCenter}>{totalRow.episodicHours}</td>
+                      {rowCells(totalRow)}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
 function BatchHoursLog({ isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, username }) {
   const [logData, setLogData] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -7753,7 +9179,305 @@ const columnLabels = {
   );
 }
 
-  function TableManager({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, genderOptions, setSuccessMessage, setError, username, userPermissions, recId }) {
+
+// ============ TRANSFER CERTIFICATE (v7.10, v7.11, v7.14, v7.15) ============
+// One HTML layout shared by the on-screen view, the Print window and the
+// PNG download, mirroring the sample certificate
+// (TC___2029_Affan_Madad_Ali_Khawaja.pdf). Data comes from
+// getTransferCertificateData — the TC row is a snapshot, so re-printing
+// never changes even if the student row is edited later.
+const TC_ERROR_REASONS = ['Wrong enrolment', 'Duplicate'];
+// v7.15: the four Annexure 5B documents. 'Progress File' stored on old
+// rows reads as 'Progress Card' on the certificate.
+const TC_DOCS = ['Evaluation Card', 'Progress Card', 'Curriculum Set', 'Activity Book'];
+// v7.15: leaving reasons + countries come from the managed tables
+// (Leaving_Reasons / Countries sheets) — no hard-coded list any more.
+// A reason's Category drives which fields the popup shows.
+const LEAVING_REASON_CATEGORIES = ['Moving', 'Moving-Abroad', 'Temporary', 'Medical', 'Left REC'];
+const TC_CONTACT_RELATIONS = ['Father', 'Mother', 'Guardian'];
+const TC_PHONE_RE = /^03\d{9}$/;
+
+// First word = First Name, last word = Last Name, the rest = Middle Name.
+// A single-word name goes in First Name and the rest stay blank.
+function tcSplitName_(full) {
+  const parts = String(full || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return { first: parts[0] || '', middle: '', last: '' };
+  if (parts.length === 2) return { first: parts[0], middle: '', last: parts[1] };
+  return { first: parts[0], middle: parts.slice(1, -1).join(' '), last: parts[parts.length - 1] };
+}
+
+function tcLongDate_(v) {
+  if (!v) return '';
+  const d = parseAnyDate(v);
+  if (!d) return String(v);
+  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function tcShortDate_(v) {
+  if (!v) return '';
+  const d = parseAnyDate(v);
+  if (!d) return String(v);
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function tcEscape_(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// v7.19: group consecutive months sharing one term label into a single run,
+// so the term name prints once per range instead of under every month.
+// Months with no label form a blank run of their own. Used by the printed
+// certificate and by the Deactivate popup preview, from the same att array.
+function tcTermGroups_(att) {
+  const runs = [];
+  (att || []).forEach(function (m) {
+    const label = String((m && m.termLabel) || '');
+    const last = runs[runs.length - 1];
+    if (last && last.label === label) last.count++;
+    else runs.push({ label: label, count: 1 });
+  });
+  return runs;
+}
+
+// v7.15: what the Transfer Certificates tab shows after the reason — the
+// REC name for a picked REC code (a typed name is already stored as-is),
+// or 'Country — City' for a Migration.
+function tcTabDestination_(item, recNames) {
+  if (String(item.Destination_Type || '') === 'REC' && item.Destination) {
+    const found = (recNames || []).find(r => String(r.REC_Code) === String(item.Destination));
+    if (found) return found.REC_Name;
+  }
+  return item.Destination || '';
+}
+
+function tcCertificateHTML_(cert) {
+  const tc = cert.tc || {};
+  const name = tcSplitName_(tc.Student_Name);
+  const isError = String(tc.Type || '') === 'Error';
+  // 'Progress File' stored on old rows reads as 'Progress Card'.
+  const docs = String(tc.Documents_Issued || '').split(',').map(function (s) {
+    const t = s.trim();
+    return t === 'Progress File' ? 'Progress Card' : t;
+  }).filter(Boolean);
+  const docMark = function (label) { return docs.indexOf(label) !== -1 ? 'Y' : '—'; };
+  const att = cert.attendance || [];
+  const esc = tcEscape_;
+  const cell = function (v) { return esc(v == null ? '' : v); };
+  const leavingReason = isError
+    ? 'Error — ' + (tc.Error_Reason || '') + (tc.Duplicate_Of_Std_ID ? ' (duplicate of Std_ID ' + tc.Duplicate_Of_Std_ID + ')' : '')
+    : (tc.Leaving_Reason || '');
+  // Error rows explain themselves in Justification; it prints in the
+  // Remarks block when no separate Remarks were recorded.
+  const remarks = isError
+    ? ((tc.Justification || '') + (tc.Remarks ? (tc.Justification ? ' — ' : '') + tc.Remarks : ''))
+    : (tc.Remarks || '');
+  // v7.15: the shifting block shows only for a Shifting / Temporary
+  // reason (Category from the server; old rows fall back to REC + address).
+  const reasonCat = String(cert.reasonCategory || '');
+  const showShifting = !isError && (reasonCat === 'Moving' || reasonCat === 'Temporary' ||
+    (reasonCat === '' && String(tc.Destination_Type || '') === 'REC' && String(tc.New_Address || '').trim() !== ''));
+  const primRel = String(tc.Primary_Contact_Relation || '').trim();
+  const secRel = String(tc.Secondary_Contact_Relation || '').trim();
+  const primLabel = primRel ? primRel + ' Contact No.' : 'Contact No.';
+  const secLabel = secRel ? secRel + ' Contact No.' : 'Contact No.';
+  const issuedFor = cert.destinationName || '';
+  const issuedForSuffix = String(tc.Destination_Type || '') === 'REC' && issuedFor ? ' Religious Education Centre' : '';
+  const totalWorking = att.reduce(function (a, m) { return a + (Number(m.workingDays) || 0); }, 0);
+  const totalPresent = att.reduce(function (a, m) { return a + (Number(m.daysPresent) || 0); }, 0);
+  const fieldRow = function (label, value) {
+    return '<tr><td style="width:200px;text-align:right;font-weight:600;font-size:13px;color:#374151;padding:7px 14px 7px 0;vertical-align:top;">' + esc(label) + '</td>' +
+      '<td style="font-size:13px;color:#111827;padding:7px 0;border-bottom:1px solid #e5e7eb;vertical-align:top;">' + cell(value) + '</td></tr>';
+  };
+  const numCell = function (v) { return '<td style="text-align:center;font-size:12px;padding:6px 4px;border:1px solid #d1d5db;">' + (v ? esc(v) : '') + '</td>'; };
+  const totalCell = function (v) { return '<td style="text-align:center;font-size:12px;font-weight:700;padding:6px 4px;border:1px solid #d1d5db;">' + esc(v) + '</td>'; };
+  let html =
+    '<div style="max-width:880px;margin:0 auto;color:#111827;font-family:Arial,Helvetica,sans-serif;">' +
+    '<div style="text-align:center;margin-top:10px;">' +
+    '<div style="font-size:14px;letter-spacing:2px;">THE SHIA IMAMI ISMAILI</div>' +
+    '<div style="font-size:14px;letter-spacing:2px;">TARIQAH &amp; RELIGIOUS EDUCATION BOARD</div>' +
+    '<div style="font-size:12px;letter-spacing:2px;">FOR SOUTHERN REGION</div>' +
+    '<div style="font-size:20px;font-weight:700;margin-top:14px;letter-spacing:1px;">TRANSFER CERTIFICATE</div>' +
+    (isError ? '<div style="font-size:12px;color:#991b1b;margin-top:4px;">ERROR RECORD — NO CERTIFICATE NUMBER</div>' : '') +
+    '</div>' +
+    '<table style="width:100%;border-collapse:collapse;margin-top:18px;"><tr>' +
+    '<td style="width:33%;font-size:11px;color:#6b7280;">Student Registration Number</td>' +
+    '<td style="width:34%;text-align:center;font-size:11px;color:#6b7280;">Date of Issue</td>' +
+    '<td style="width:33%;text-align:right;font-size:11px;color:#6b7280;">Transfer Certificate Number</td>' +
+    '</tr><tr>' +
+    '<td style="font-size:15px;font-weight:700;">' + esc(cert.registrationNumber || '') + '</td>' +
+    '<td style="text-align:center;font-size:15px;">' + esc(tcShortDate_(tc.Issue_Date)) + '</td>' +
+    '<td style="text-align:right;font-size:15px;font-weight:700;">' + esc(isError ? '' : (tc.TC_Number || '—')) + '</td>' +
+    '</tr></table>' +
+    '<table style="width:100%;border-collapse:collapse;margin-top:14px;">' +
+    fieldRow('Issued From', (cert.recName || '') + (cert.recName ? ' Religious Education Centre' : '') + (cert.lb ? ' (' + cert.lb + ')' : '')) +
+    fieldRow('Issued For', issuedFor + issuedForSuffix) +
+    fieldRow('Expected Date of Joining', tcShortDate_(tc.Expected_Joining_Date)) +
+    '<tr><td style="width:200px;text-align:right;font-weight:600;font-size:13px;color:#374151;padding:7px 14px 7px 0;vertical-align:top;">Name of Student</td>' +
+    '<td style="font-size:14px;padding:7px 0;border-bottom:1px solid #e5e7eb;"><span style="display:inline-block;width:33%;">' + cell(name.first) + '</span><span style="display:inline-block;width:33%;">' + cell(name.middle) + '</span><span style="display:inline-block;width:33%;">' + cell(name.last) + '</span><div style="font-size:11px;color:#6b7280;margin-top:2px;"><span style="display:inline-block;width:33%;">First Name</span><span style="display:inline-block;width:33%;">Middle Father\'s Name</span><span style="display:inline-block;width:33%;">Last (Surname)</span></div></td></tr>' +
+    '<tr><td style="width:200px;text-align:right;font-weight:600;font-size:13px;color:#374151;padding:7px 14px 7px 0;vertical-align:top;">Date of Birth</td>' +
+    '<td style="font-size:13px;padding:7px 0;border-bottom:1px solid #e5e7eb;vertical-align:top;"><span style="display:inline-block;width:46%;">' + cell(tcLongDate_(tc.Date_of_Birth)) + '</span><span style="display:inline-block;width:18%;font-weight:600;color:#374151;">Phone No.</span><span style="display:inline-block;width:36%;">' + cell(tc.Phone || '') + '</span></td></tr>' +
+    fieldRow('Unique ID', cert.uniqueId || '') +
+    fieldRow('Current Address', tc.Address || '') +
+    '<tr><td style="width:200px;text-align:right;font-weight:600;font-size:13px;color:#374151;padding:7px 14px 7px 0;vertical-align:top;">Class Studying in REC</td>' +
+    '<td style="font-size:13px;padding:7px 0;border-bottom:1px solid #e5e7eb;vertical-align:top;"><span style="display:inline-block;width:46%;">' + cell(tc.Class_Studying || '') + '</span><span style="display:inline-block;width:22%;font-weight:600;color:#374151;">Last Class Passed</span><span style="display:inline-block;width:32%;">' + cell(tc.Last_Class_Passed || '') + '</span></td></tr>' +
+    fieldRow('Reason for leaving', leavingReason) +
+    ((String(tc.Justification || '').trim() && !isError) ? fieldRow('Reason Details', tc.Justification) : '') +
+    '</table>';
+  if (showShifting) {
+    html +=
+      '<div style="font-size:13px;margin:16px 0 6px;">In case of shifting, please mention complete new residence address along with contact number of parents</div>' +
+      '<table style="width:100%;border-collapse:collapse;"><thead><tr>' +
+      '<th style="text-align:left;font-size:12px;padding:6px 8px;border:1px solid #d1d5db;background:#f8fafc;">New Resident Address</th>' +
+      '<th style="text-align:left;font-size:12px;padding:6px 8px;border:1px solid #d1d5db;background:#f8fafc;">' + esc(primLabel) + '</th>' +
+      '<th style="text-align:left;font-size:12px;padding:6px 8px;border:1px solid #d1d5db;background:#f8fafc;">' + esc(secLabel) + '</th>' +
+      '</tr></thead><tbody><tr>' +
+      '<td style="font-size:13px;padding:8px;border:1px solid #d1d5db;">' + cell(tc.New_Address || '') + '</td>' +
+      '<td style="font-size:13px;padding:8px;border:1px solid #d1d5db;">' + cell(tc.Phone || '') + '</td>' +
+      '<td style="font-size:13px;padding:8px;border:1px solid #d1d5db;">' + cell(tc.Secondary_Contact_No || '') + '</td>' +
+      '</tr></tbody></table>';
+  }
+  html +=
+    '<table style="width:100%;border-collapse:collapse;margin-top:16px;"><tr>' +
+    '<td style="font-size:13px;padding:7px 0;border-bottom:1px solid #e5e7eb;"><b>Remarks:</b> ' + cell(remarks) + '</td>' +
+    '</tr></table>' +
+    '<div style="font-size:14px;font-weight:700;margin:18px 0 8px;">Attendance History' + (cert.termId ? ' — ' + esc(cert.termId) : '') + '</div>' +
+    '<div style="font-size:13px;margin-bottom:6px;">Last Day of attendance: <b>' + esc(tcShortDate_(cert.lastDayOfAttendance)) + '</b></div>' +
+    '<table style="width:100%;border-collapse:collapse;"><thead>' +
+    '<tr><th style="text-align:left;font-size:12px;padding:6px 8px;border:1px solid #d1d5db;background:#f8fafc;"></th>' +
+    tcTermGroups_(att).map(function (run) { return '<th colspan="' + run.count + '" style="text-align:center;font-size:12px;font-weight:700;padding:6px 4px;border:1px solid #d1d5db;background:#f8fafc;">' + esc(run.label) + '</th>'; }).join('') +
+    '<th style="text-align:center;font-size:12px;padding:6px 4px;border:1px solid #d1d5db;background:#f8fafc;"></th></tr>' +
+    '<tr><th style="text-align:left;font-size:12px;padding:6px 8px;border:1px solid #d1d5db;background:#f8fafc;">Month</th>' +
+    att.map(function (m) { return '<th style="text-align:center;font-size:12px;padding:6px 4px;border:1px solid #d1d5db;background:#f8fafc;">' + esc(m.month) + '</th>'; }).join('') +
+    '<th style="text-align:center;font-size:12px;padding:6px 4px;border:1px solid #d1d5db;background:#f8fafc;">Total</th>' +
+    '</tr></thead><tbody><tr><td style="font-size:12px;font-weight:600;padding:6px 8px;border:1px solid #d1d5db;">Working Days</td>' +
+    att.map(function (m) { return numCell(m.workingDays); }).join('') +
+    totalCell(totalWorking) +
+    '</tr><tr><td style="font-size:12px;font-weight:600;padding:6px 8px;border:1px solid #d1d5db;">Days of Present</td>' +
+    att.map(function (m) { return numCell(m.daysPresent); }).join('') +
+    totalCell(totalPresent) +
+    '</tr></tbody></table>' +
+    '<div style="font-size:13px;margin-top:18px;">Documents issued with Transfer Certificate to Parent/Guardian by REC</div>' +
+    '<table style="width:100%;border-collapse:collapse;margin-top:6px;">' +
+    '<tr><td style="width:210px;text-align:right;font-size:13px;padding:5px 14px 5px 0;">Evaluation Card</td><td style="font-size:13px;font-weight:700;padding:5px 0;">' + docMark('Evaluation Card') + '</td><td style="width:210px;text-align:right;font-size:13px;padding:5px 14px 5px 0;">Progress Card</td><td style="font-size:13px;font-weight:700;padding:5px 0;">' + docMark('Progress Card') + '</td></tr>' +
+    '</table>' +
+    '<div style="font-size:13px;margin-top:10px;">Student has:</div>' +
+    '<table style="width:100%;border-collapse:collapse;margin-top:6px;">' +
+    '<tr><td style="width:210px;text-align:right;font-size:13px;padding:5px 14px 5px 0;">Curriculum Set</td><td style="font-size:13px;font-weight:700;padding:5px 0;">' + docMark('Curriculum Set') + '</td><td style="width:210px;text-align:right;font-size:13px;padding:5px 14px 5px 0;">Activity Book</td><td style="font-size:13px;font-weight:700;padding:5px 0;">' + docMark('Activity Book') + '</td></tr>' +
+    '</table>' +
+    '<div style="text-align:right;font-size:13px;font-weight:600;margin-top:22px;">REC Seal/Stamp</div>' +
+    '<table style="width:100%;margin-top:44px;"><tr>' +
+    '<td style="width:33%;text-align:center;font-size:13px;border-top:1px solid #111827;padding-top:6px;">Class Teacher</td>' +
+    '<td style="width:34%;text-align:center;font-size:13px;border-top:1px solid #111827;padding-top:6px;">Incharge</td>' +
+    '<td style="width:33%;text-align:center;font-size:13px;border-top:1px solid #111827;padding-top:6px;">Member Access</td>' +
+    '</tr></table>' +
+    '</div>';
+  return html;
+}
+
+function TransferCertificateView({ tcNumber, onClose, setIsLoading, setError, setSuccessMessage }) {
+  const [cert, setCert] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const certRef = React.useRef(null);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    callWithRetry('getTransferCertificateData', tcNumber)
+      .then(result => { if (!cancelled) setCert(result); })
+      .catch(err => { if (!cancelled) setError('Could not load the transfer certificate: ' + err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [tcNumber]);
+  useEffect(() => {
+    if (certRef.current && cert) certRef.current.innerHTML = tcCertificateHTML_(cert);
+  }, [cert]);
+  const printCert = () => {
+    if (!cert) return;
+    const w = window.open('', '_blank');
+    if (!w) { setError('Please allow pop-ups to print the certificate.'); return; }
+    const title = 'Transfer Certificate ' + (cert.tc.TC_Number || cert.tc.Std_ID || '');
+    w.document.write('<!DOCTYPE html><html><head><title>' + tcEscape_(title) + '</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111827;margin:20px;} @media print { body { margin: 0; } }</style></head><body>' + tcCertificateHTML_(cert) + '</body></html>');
+    w.document.close();
+    w.focus();
+    w.print();
+  };
+  // PNG download — same off-screen div + html2canvas pattern as the reports.
+  const downloadPNG = async () => {
+    if (!cert) return;
+    setIsLoading(true);
+    const div = document.createElement('div');
+    div.setAttribute('data-theme', 'light');
+    div.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:1000px;background:white;padding:40px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#111827;';
+    div.innerHTML = tcCertificateHTML_(cert);
+    document.body.appendChild(div);
+    await new Promise(r => setTimeout(r, 100));
+    try {
+      const canvas = await html2canvas(div, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      document.body.removeChild(div);
+      const a = document.createElement('a');
+      a.download = 'transfer_certificate_' + (cert.tc.TC_Number || cert.tc.Std_ID || 'record') + '.png';
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+      setSuccessMessage('Certificate PNG downloaded!');
+    } catch (err) {
+      document.body.removeChild(div);
+      setError('Failed to generate PNG: ' + err.message);
+    }
+    setIsLoading(false);
+  };
+  // PDF download — same capture as the PNG, then placed on one A4 page.
+  const downloadPDF = async () => {
+    if (!cert) return;
+    if (!window.jspdf || !window.jspdf.jsPDF) { setError('PDF library could not be loaded — please use Print instead.'); return; }
+    setIsLoading(true);
+    const div = document.createElement('div');
+    div.setAttribute('data-theme', 'light');
+    div.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:1000px;background:white;padding:40px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#111827;';
+    div.innerHTML = tcCertificateHTML_(cert);
+    document.body.appendChild(div);
+    await new Promise(r => setTimeout(r, 100));
+    try {
+      const canvas = await html2canvas(div, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+      document.body.removeChild(div);
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageW = 210, pageH = 297, margin = 10;
+      let imgW = pageW - margin * 2;
+      let imgH = canvas.height * imgW / canvas.width;
+      if (imgH > pageH - margin * 2) { imgH = pageH - margin * 2; imgW = canvas.width * imgH / canvas.height; }
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', (pageW - imgW) / 2, margin, imgW, imgH);
+      pdf.save('transfer_certificate_' + (cert.tc.TC_Number || cert.tc.Std_ID || 'record') + '.pdf');
+      setSuccessMessage('Certificate PDF downloaded!');
+    } catch (err) {
+      document.body.removeChild(div);
+      setError('Failed to generate PDF: ' + err.message);
+    }
+    setIsLoading(false);
+  };
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center z-50 p-4 overflow-y-auto">
+      <div className="card p-6 max-w-4xl w-full my-8">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <h3 className="text-lg font-semibold">Transfer Certificate{cert && cert.tc.TC_Number ? ' — ' + cert.tc.TC_Number : ''}</h3>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={printCert} disabled={!cert || loading} className="btn-primary">Print</button>
+            <button onClick={downloadPNG} disabled={!cert || loading} className="btn-secondary">Download PNG</button>
+            <button onClick={downloadPDF} disabled={!cert || loading} className="btn-secondary">Download PDF</button>
+            <button onClick={onClose} className="btn-outline">Close</button>
+          </div>
+        </div>
+        {loading ? (
+          <p className="text-gray-500">Loading certificate…</p>
+        ) : !cert ? (
+          <p className="text-gray-500">Certificate could not be loaded.</p>
+        ) : (
+          <div ref={certRef} className="bg-white text-gray-900 p-2 overflow-x-auto"></div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+  function TableManager({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, genderOptions, recNames, onViewTc, setSuccessMessage, setError, username, userPermissions, recId }) {
       const [isAdding, setIsAdding] = useState(false);
       const [editingIndex, setEditingIndex] = useState(null);
       const [formData, setFormData] = useState({});
@@ -7763,6 +9487,81 @@ const columnLabels = {
       const [deleteParams, setDeleteParams] = useState({ table: '', index: null, rowNumber: null });
       const [subTab, setSubTab] = useState('class_mappings');
       const [message, setMessage] = useState('');
+      // v7.10: Transfer Certificate details for a new deactivation, and the
+      // TC created by the last successful deactivation (for View/Print).
+      const [tcData, setTcData] = useState({});
+      const [lastTc, setLastTc] = useState(null);
+      // v7.15: managed lists for the Deactivate popup (active rows only).
+      // Loaded on mount and again each time the popup opens.
+      const [leavingReasons, setLeavingReasons] = useState([]);
+      const [countries, setCountries] = useState([]);
+      const loadTcLists = () => {
+        callWithRetry('getLeavingReasons', username).then(r => { if (Array.isArray(r)) setLeavingReasons(r); }).catch(() => {});
+        callWithRetry('getCountries', username).then(r => { if (Array.isArray(r)) setCountries(r); }).catch(() => {});
+      };
+      useEffect(() => { loadTcLists(); }, []);
+      // v7.11: Deactivate popup (row being deactivated), Reactivate confirm
+      // (row being reactivated), and the re-joining lookup on Add.
+      const [deactivateRow, setDeactivateRow] = useState(null);
+      const [reactivateRow, setReactivateRow] = useState(null);
+      // v7.18: attendance preview for the Deactivate popup — loaded
+      // automatically when the popup opens, so the admin sees what will
+      // print before saving. Advisory only; a failed load never blocks
+      // the deactivation.
+      const [tcPreview, setTcPreview] = useState(null);
+      const [tcPreviewState, setTcPreviewState] = useState('idle');
+      useEffect(() => {
+        if (!deactivateRow) { setTcPreview(null); setTcPreviewState('idle'); return; }
+        let cancelled = false;
+        setTcPreview(null);
+        setTcPreviewState('loading');
+        callWithRetry('getTcAttendancePreview', deactivateRow.Std_ID, deactivateRow.REC_ID, username)
+          .then(r => {
+            if (cancelled) return;
+            if (r && r.success && Array.isArray(r.attendance)) { setTcPreview(r); setTcPreviewState('ready'); }
+            else { setTcPreviewState('failed'); }
+          })
+          .catch(() => { if (!cancelled) setTcPreviewState('failed'); });
+        return () => { cancelled = true; };
+      }, [deactivateRow]);
+      const [prevSearch, setPrevSearch] = useState('');
+      const [prevSearchDob, setPrevSearchDob] = useState('');
+      const [prevResults, setPrevResults] = useState([]);
+      const [prevSearching, setPrevSearching] = useState(false);
+      const [prevSelected, setPrevSelected] = useState(null);
+      // v7.16: the Reactivate button hides only when ANY certificate row
+      // (Transfer or Error) actually exists for the student in the loaded
+      // Transfer Certificates list. A student marked Inactive with no TC row
+      // (the rare failed-append case) can be reactivated — the server allows
+      // it too. If the list has not loaded yet, fall back to the
+      // Inactive_Type mark (the server refuses a wrong click with a plain
+      // message): only a pre-TC inactive student (no Inactive_Type) is
+      // offered Reactivate.
+      const hasAnyTcRow = (row) => {
+        const tcRows = data && data.transfer_certificates;
+        if (!tcRows) return null;
+        const gid = String(row && row.Global_ID || '').trim();
+        const sid = String(row && row.Std_ID || '').trim();
+        const rid = String(row && row.REC_ID || '').trim();
+        return tcRows.some(function (tc) {
+          if (gid && String(tc.Global_ID || '').trim()) return String(tc.Global_ID || '').trim() === gid;
+          return String(tc.Std_ID || '').trim() === sid && String(tc.REC_ID || '').trim() === rid;
+        });
+      };
+      const canReactivateRow = (row) => {
+        if (String(row && row.Status || '') !== 'Inactive') return false;
+        const known = hasAnyTcRow(row);
+        if (known === true) return false;
+        if (known === false) return true;
+        return String(row && row.Inactive_Type || '').trim() === '';
+      };
+      // v7.16: a student with ANY certificate record (Transfer or Error)
+      // is frozen — the table hides Edit and Delete for them (View TC
+      // stays). Pre-TC inactive students keep Edit/Delete. hasAnyTcRow
+      // returns null before the list loads, so an unknown row is NOT
+      // frozen here — the server refuses a wrong click with a plain
+      // message instead.
+      const isFrozenRow = (row) => hasAnyTcRow(row) === true;
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
       // ✅ Master class list — used for the dropdown
@@ -7815,7 +9614,8 @@ const handleAddClassMapping = async (e) => {
       'addClassMappingWithSections',
       newMappingClass,
       sections.join(','),
-      recId || ''
+      recId || '',
+      username
     );
     if (result.success) {
       setSuccessMessage(result.message);
@@ -7836,6 +9636,14 @@ const handleAddClassMapping = async (e) => {
         setFormData({});
         setFormErrors({});
         setMessage('');
+        setTcData({});
+        setLastTc(null);
+        setDeactivateRow(null);
+        setReactivateRow(null);
+        setPrevSearch('');
+        setPrevSearchDob('');
+        setPrevResults([]);
+        setPrevSelected(null);
         setIsAdding(false);
         setEditingIndex(null);
         setIsStdIdEditable(table === 'student_data' ? false : false);
@@ -8028,6 +9836,61 @@ const prevPermClassOptions_ = (username) => {
             ]}
           ],
         },
+        hours_setup: {
+          fields: [
+            { section: 'Hours Setup', fields: [
+              { name: 'Hours', type: 'text', required: true, placeholder: 'e.g. 2 or custom' },
+              { name: 'Attendance_Type', type: 'select', options: ['normal', 'episodic', 'both'], required: true, placeholder: 'Select type' },
+              { name: 'Max_Custom', type: 'number', required: false, placeholder: 'Max custom hours (only when Hours is custom)' },
+              { name: 'Is_Active', type: 'select', options: ['TRUE', 'FALSE'], required: true, placeholder: 'Select status' },
+              { name: 'REC_ID', type: 'text', disabled: true, placeholder: 'School ID (auto-populated)' },
+            ]}
+          ],
+        },
+        hour_categories: {
+          fields: [
+            { section: 'Hour Category', fields: [
+              { name: 'Category_ID', type: 'text', required: true, placeholder: 'e.g. SFC' },
+              { name: 'Category_Name', type: 'text', required: true, placeholder: 'e.g. SFC' },
+              { name: 'Is_Active', type: 'select', options: ['TRUE', 'FALSE'], required: true, placeholder: 'Select status' },
+              { name: 'Attendance_Type', type: 'select', options: ['normal', 'episodic', 'both'], required: true, placeholder: 'Select type' },
+              { name: 'Applicable_Classes', type: 'select-multiple', options: MASTER_CLASSES, required: false, placeholder: 'Select classes (empty = all classes)' },
+              { name: 'REC_ID', type: 'text', disabled: true, placeholder: 'School ID (auto-populated)' },
+            ]}
+          ],
+        },
+        leaving_reasons: {
+          fields: [
+            { section: 'Leaving Reason', fields: [
+              { name: 'Reason', type: 'text', required: true, placeholder: 'e.g. Shifting' },
+              { name: 'Category', type: 'select', options: LEAVING_REASON_CATEGORIES, required: true, placeholder: 'Select category' },
+              { name: 'Requires_Destination', type: 'text', disabled: true, placeholder: 'Set from Category' },
+              { name: 'Requires_Justification', type: 'text', disabled: true, placeholder: 'Set from Category' },
+              { name: 'Is_Active', type: 'select', options: ['TRUE', 'FALSE'], required: true, placeholder: 'Select status' },
+            ]}
+          ],
+        },
+        countries: {
+          fields: [
+            { section: 'Country', fields: [
+              { name: 'Country', type: 'text', required: true, placeholder: 'e.g. Canada' },
+              { name: 'Is_Active', type: 'select', options: ['TRUE', 'FALSE'], required: true, placeholder: 'Select status' },
+            ]}
+          ],
+        },
+        rec_names: {
+          fields: [
+            { section: 'REC', fields: [
+              { name: 'S.#', type: 'text', disabled: true, placeholder: 'Auto' },
+              { name: 'LB Code', type: 'text', required: true, placeholder: 'e.g. 1100' },
+              { name: 'LB', type: 'text', required: true, placeholder: 'e.g. Garden' },
+              { name: 'REC Code', type: 'text', required: true, placeholder: 'e.g. 1114' },
+              { name: 'REC Name', type: 'text', required: true, placeholder: 'e.g. Darkhana' },
+              { name: 'LB_REC', type: 'text', disabled: true, placeholder: '—' },
+              { name: 'Is_Active', type: 'select', options: ['TRUE', 'FALSE'], required: true, placeholder: 'Select status' },
+            ]}
+          ],
+        },
    student_data: {
   fields: [
     { section: 'Student Information', fields: [
@@ -8036,12 +9899,21 @@ const prevPermClassOptions_ = (username) => {
       { name: 'Student_Name', type: 'text', required: true, placeholder: 'Student Full Name' },
       { name: 'Gender', type: 'select', options: genderOptions, required: true, placeholder: 'Select Gender' },
       { name: 'Date_of_Joining', type: 'date', required: true, placeholder: 'Date of Joining' },
+      // v7.14: Date of Birth is now on the Add/Edit form too — optional,
+      // validated as a real date only when given (see validateStudentForm).
+      { name: 'Date_of_Birth', type: 'date', required: false, placeholder: 'Date of Birth (optional)' },
       { name: 'Unique_ID', type: 'text', required: true, placeholder: 'Enter B.Form Last Six Digits without Dash' },  // ← MOVED HERE
     ]},
     { section: 'Class Information', fields: [
       { name: 'Student_Class', type: 'select', options: classes, required: true, placeholder: 'Select Class' },
       { name: 'Student_Section', type: 'select', options: [], required: true, placeholder: 'Select Section' },
-      { name: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true, placeholder: 'Select Status' },
+      // v7.11: Status is display-only on Edit (deactivation moved to the
+      // Deactivate popup) and hidden on Add (always Active — see
+      // renderFormFields). v7.14: Date_of_Birth is on this form now
+      // (optional); Father_Name is gone everywhere — the sample
+      // certificate has no Father Name field. Address and Phone live
+      // only in the Deactivate popup.
+      { name: 'Status', type: 'select', options: ['Active', 'Inactive'], required: true, placeholder: 'Select Status', disabled: editingIndex !== null },
     ]},
     { section: 'Audit Information (Read Only)', fields: [
       { name: 'Inactive_Date', type: 'text', disabled: true, placeholder: 'Auto-populated when inactive' },
@@ -8050,6 +9922,21 @@ const prevPermClassOptions_ = (username) => {
       { name: 'Last_Modified_Date', type: 'text', disabled: true, placeholder: 'Auto-populated on update' },
       { name: 'Last_Modified_By', type: 'text', disabled: true, placeholder: 'Auto-populated on update' },
       { name: 'REC_ID', type: 'text', disabled: true, placeholder: 'School ID' },
+    ]}
+  ],
+},
+   transfer_certificates: {
+  fields: [
+    { section: 'Transfer Certificates', fields: [
+      { name: 'TC_Number', type: 'text', disabled: true, placeholder: 'TC number (transfers only)' },
+      { name: 'Type', type: 'text', disabled: true, placeholder: 'Transfer or Error' },
+      { name: 'Student_Name', type: 'text', disabled: true, placeholder: 'Student name' },
+      { name: 'Std_ID', type: 'text', disabled: true, placeholder: 'Student ID' },
+      { name: 'Global_ID', type: 'text', disabled: true, placeholder: 'Global ID' },
+      { name: 'Class', type: 'text', disabled: true, placeholder: 'Class' },
+      { name: 'Leaving_Reason', type: 'text', disabled: true, placeholder: 'Leaving reason / destination' },
+      { name: 'Issue_Date', type: 'text', disabled: true, placeholder: 'Issue date' },
+      { name: 'Issued_By', type: 'text', disabled: true, placeholder: 'Issued by' },
     ]}
   ],
 },
@@ -8083,6 +9970,65 @@ const prevPermClassOptions_ = (username) => {
   if (formData.Unique_ID && !/^\d{6}$/.test(formData.Unique_ID)) {
     errors.Unique_ID = 'Unique_ID must be exactly 6 digits';
   }
+  // v7.7: Student_Class must be one of the mapped classes. The row's own
+  // stored class is always allowed on Edit (grandfathering), so an unchanged
+  // edit can never be blocked by a missing mapping row.
+  const clsVal = String(formData.Student_Class || '').trim();
+  const ownCls = editingIndex !== null && filteredData[editingIndex] ? String(filteredData[editingIndex].Student_Class || '').trim() : '';
+  if (clsVal && clsVal !== ownCls && Array.isArray(classes) && classes.length > 0 && !classes.includes(clsVal)) {
+    errors.Student_Class = `Unknown class "${clsVal}". Choose from: ${classes.join(', ')}`;
+  }
+  // v7.7: Student_Section must be one of the mapped sections for the class,
+  // or the row's own stored section on Edit (grandfathering).
+  const secVal = String(formData.Student_Section || '').trim();
+  const mappedSecs = (classSectionMap && clsVal) ? (classSectionMap[clsVal] || []) : [];
+  const ownSec = editingIndex !== null && filteredData[editingIndex] ? String(filteredData[editingIndex].Student_Section || '').trim() : '';
+  if (secVal && secVal !== ownSec) {
+    if (mappedSecs.length > 0) {
+      if (!mappedSecs.includes(secVal)) {
+        errors.Student_Section = `Section must be one of ${mappedSecs.join(', ')} for class ${clsVal}.`;
+      }
+    } else if (editingIndex !== null && ownSec) {
+      errors.Student_Section = `Section "${secVal}" is not set up for class ${clsVal}. The stored section is ${ownSec}.`;
+    }
+  }
+  // v7.7: Gender must be one of the offered options, or the row's own stored
+  // Gender on Edit (grandfathering — old rows may hold other values).
+  const genVal = String(formData.Gender || '').trim();
+  const ownGen = editingIndex !== null && filteredData[editingIndex] ? String(filteredData[editingIndex].Gender || '').trim() : '';
+  if (genVal && Array.isArray(genderOptions) && genderOptions.length > 0 && !genderOptions.includes(genVal) && genVal !== ownGen) {
+    errors.Gender = `Gender must be one of ${genderOptions.join(', ')}.`;
+  }
+  // v7.7: Date_of_Joining must be a real calendar date (yyyy-MM-dd).
+  const dojVal = String(formData.Date_of_Joining || '').trim();
+  if (dojVal) {
+    const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dojVal);
+    let realDate = false;
+    if (dm) {
+      const dd = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]));
+      realDate = dd.getFullYear() === Number(dm[1]) && dd.getMonth() === Number(dm[2]) - 1 && dd.getDate() === Number(dm[3]);
+    }
+    if (!realDate) {
+      errors.Date_of_Joining = 'Date of Joining must be a real date (yyyy-MM-dd).';
+    }
+  }
+  // v7.14: Date_of_Birth is optional — a real date only when given.
+  const dobVal = String(formData.Date_of_Birth || '').trim();
+  if (dobVal) {
+    const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dobVal);
+    let dobReal = false;
+    if (dm) {
+      const dd = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]));
+      dobReal = dd.getFullYear() === Number(dm[1]) && dd.getMonth() === Number(dm[2]) - 1 && dd.getDate() === Number(dm[3]);
+    }
+    if (!dobReal) {
+      errors.Date_of_Birth = 'Date of Birth must be a real date (yyyy-MM-dd).';
+    }
+  }
+  // v7.11: deactivation no longer happens in this form (no Status change,
+  // no TC identity fields here), so the v7.10 deactivation checks moved to
+  // validateDeactivate() for the Deactivate popup. The server still
+  // enforces the same rules on the deactivation path.
   setFormErrors(errors);
   return Object.keys(errors).length === 0;
 };
@@ -8104,6 +10050,28 @@ const prevPermClassOptions_ = (username) => {
             }
           });
         });
+        // Hours config tables (v6.9): Hours must be a number or 'custom'; Max_Custom is
+        // required (positive) only when Hours is 'custom'.
+        // v7.0: every Applicable_Class must be in MASTER_CLASSES.
+        if (table === 'hour_categories' && Array.isArray(formData.Applicable_Classes)) {
+          const bad = formData.Applicable_Classes.find(c => !MASTER_CLASSES.includes(c));
+          if (bad) errors.Applicable_Classes = `Unknown class "${bad}". Choose from: ${MASTER_CLASSES.join(', ')}`;
+        }
+        if (table === 'rec_names' && formData['REC Code'] && !/^\d+$/.test(String(formData['REC Code']).trim())) {
+          errors['REC Code'] = 'REC Code must be numeric';
+        }
+        if (table === 'hours_setup') {
+          const hRaw = String(formData.Hours == null ? '' : formData.Hours).trim();
+          if (hRaw && hRaw.toLowerCase() !== 'custom' && (isNaN(Number(hRaw)) || Number(hRaw) <= 0)) {
+            errors.Hours = 'Hours must be a number greater than 0, or "custom"';
+          }
+          if (hRaw.toLowerCase() === 'custom') {
+            const mc = formData.Max_Custom;
+            if (mc === undefined || mc === null || String(mc).trim() === '' || isNaN(Number(mc)) || Number(mc) <= 0) {
+              errors.Max_Custom = 'Max_Custom is required and must be a positive number when Hours is "custom"';
+            }
+          }
+        }
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
       };
@@ -8115,16 +10083,46 @@ const prevPermClassOptions_ = (username) => {
   // Get REC_ID from user permissions
   const recId = userPermissions[username]?.REC_ID || '';
   
+  // v7.7: send the row's original Std_ID so the server can tell if the
+  // record changed since this edit was opened.
+  const originalStdId = editingIndex !== null ? filteredData[editingIndex].Std_ID : '';
+  // v7.9: send the row as opened so the server can tell if someone else
+  // changed it since this edit was opened (concurrent-edit check).
+  const openedRow = editingIndex !== null ? filteredData[editingIndex] : null;
+
   const studentData = {
+    _originalStdId: originalStdId,
+    ...(openedRow ? { _openedRow: {
+      Std_ID: openedRow.Std_ID,
+      Student_Name: openedRow.Student_Name,
+      Student_Class: openedRow.Student_Class,
+      Student_Section: openedRow.Student_Section,
+      Status: openedRow.Status,
+      Barcode_ID: openedRow.Barcode_ID,
+      Gender: openedRow.Gender,
+      Date_of_Joining: openedRow.Date_of_Joining,
+      Unique_ID: openedRow.Unique_ID,
+    } } : {}),
     Std_ID: formData.Std_ID,
     Student_Name: formData.Student_Name,
     Student_Class: formData.Student_Class,
     Student_Section: formData.Student_Section,
-    Status: formData.Status || 'Active',
+    // v7.11: Status can no longer change here — on Edit it is the stored
+    // status (display-only), on Add it is always Active. Deactivation goes
+    // through the Deactivate popup (handleDeactivateSubmit).
+    Status: editingIndex !== null ? (formData.Status || 'Active') : 'Active',
     Barcode_ID: formData.Barcode_ID || '',
     Gender: formData.Gender,
     Date_of_Joining: formData.Date_of_Joining || '',
+    // v7.14: Date of Birth from the Add/Edit form (optional; a blank
+    // keeps the stored value on Edit — the server never clears it here).
+    Date_of_Birth: formData.Date_of_Birth || '',
     Unique_ID: formData.Unique_ID || '',
+    // v7.11: re-joining link, Add only — the server validates the old row
+    // and reuses its Global_ID. The TC identity fields are no longer sent
+    // from this form (they live only in the Deactivate popup); the server
+    // keeps the stored values.
+    ...(editingIndex === null && prevSelected ? { _previousStdId: prevSelected.Std_ID, _previousRecId: prevSelected.REC_ID } : {}),
   };
   
   setIsLoading(true);
@@ -8133,7 +10131,6 @@ const prevPermClassOptions_ = (username) => {
   
   if (editingIndex !== null) {
     const rowNumber = filteredData[editingIndex]._rowNumber;
-    const originalStdId = filteredData[editingIndex].Std_ID;
     try {
       // For edit, pass recId too
       const result = await callWithRetry('updateSheetRow', 'Student_Data', rowNumber, studentData, username);
@@ -8149,7 +10146,14 @@ const prevPermClassOptions_ = (username) => {
         setEditingIndex(null);
         setIsStdIdEditable(false);
         setFormErrors({});
+        setTcData({});
         setError('');
+        // v7.10: a deactivation returns its TC record — keep it for View/Print
+        // and add it to the Transfer Certificates list.
+        if (result.tc) {
+          setLastTc(result.tc);
+          setData(prev => ({ ...prev, transfer_certificates: [...(prev.transfer_certificates || []), result.tc] }));
+        }
       } else {
         // 🔒 SIRN change blocked (attendance already marked) — revert value AND re-lock the field
         if ((result.message || '').includes('attendance records already exist')) {
@@ -8176,7 +10180,17 @@ const prevPermClassOptions_ = (username) => {
         setFormData({});
         setIsAdding(false);
         setFormErrors({});
+        setTcData({});
+        setPrevSearch('');
+        setPrevSearchDob('');
+        setPrevResults([]);
+        setPrevSelected(null);
         setError('');
+        // v7.10: a student added as Inactive returns its TC record too.
+        if (result.tc) {
+          setLastTc(result.tc);
+          setData(prev => ({ ...prev, transfer_certificates: [...(prev.transfer_certificates || []), result.tc] }));
+        }
       } else {
         setError(result.message || 'Add failed');
       }
@@ -8214,6 +10228,11 @@ if (table === 'class_terms' && Array.isArray(formData.Class_Section)) {
   dataToSubmit.Class_Section = picked.length === 1 ? picked[0] : '{' + picked.join(',') + '}';
 }
 
+if (table === 'hour_categories' && Array.isArray(formData.Applicable_Classes)) {
+  const picked = formData.Applicable_Classes;
+  dataToSubmit.Applicable_Classes = picked.length === 0 ? '' : picked.length === 1 ? picked[0] : '{' + picked.join(',') + '}';
+}
+
 
   if (recId) dataToSubmit.REC_ID = recId;
 
@@ -8246,7 +10265,8 @@ if (table === 'class_terms' && Array.isArray(formData.Class_Section)) {
           formData.Class,
           formData.Sections,
           recId || '',
-          editingRow.Sections
+          editingRow.Sections,
+          username
         );
       } else {
         result = await callWithRetry('updateSheetRow', targetTable, rowNumber, dataToSubmit, username);
@@ -8331,11 +10351,21 @@ if (table === 'class_terms' && Array.isArray(formData.Class_Section)) {
           newFormData.Class_Section = item.Class_Section ? String(item.Class_Section).replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
 
         }
+        if (table === 'hour_categories') {
+          // v7.0: Applicable_Classes stored as '{a,b,c}' / bare / blank — parse back to an array for the multi-select.
+          newFormData.Applicable_Classes = item.Applicable_Classes ? String(item.Applicable_Classes).replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean) : [];
+        }
 
 
                 if (table === 'student_data') {
           newFormData.Date_of_Joining = parseDDMMMYYYYToDate(item.Date_of_Joining);
+          // v7.14: Date of Birth is on the Add/Edit form now — convert
+          // the stored dd-MMM-yyyy value for the date input, like Joining.
+          newFormData.Date_of_Birth = parseDDMMMYYYYToDate(item.Date_of_Birth);
         }
+        // v7.10: fresh deactivation details on every edit; the last TC banner clears too.
+        setTcData({});
+        setLastTc(null);
         if (table === 'user_permissions') {
           Object.keys(newFormData).forEach(key => {
             if (key !== 'Username' && key !== 'REC_ID' && key !== '_rowNumber') {
@@ -8371,7 +10401,7 @@ if (table === 'class_terms' && Array.isArray(formData.Class_Section)) {
         return;
       }
       setIsLoading(true);
-      const result = await callWithRetry('deleteClassMappingWithSections', cls, recId || '');
+      const result = await callWithRetry('deleteClassMappingWithSections', cls, recId || '', username);
       setIsLoading(false);
       if (result.success) {
         setSuccessMessage(result.message);
@@ -8417,6 +10447,540 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
         setFormData(prev => ({ ...prev, [name]: options }));
       };
 
+      // v7.11: deactivation no longer happens in the Edit form — it has its
+      // own popup (see handleDeactivateSubmit). v7.14: Last Class Passed /
+      // Class Studying are derived server-side from the student's class,
+      // so renderTcSection() no longer asks for them.
+
+      const handleTcChange = (e) => {
+        const { name, value, type, checked } = e.target;
+        if (name === 'Type') {
+          setTcData(prev => ({ ...prev, Type: value, Leaving_Reason: '', Country: '', City: '', Destination_Type: '', Destination: '', Destination_REC_Name: '', Expected_Joining_Date: '', Documents_Issued: [], Error_Reason: '', Duplicate_Of_Std_ID: '', Justification: '', New_Address: '' }));
+          return;
+        }
+        // v7.15: a new reason clears every category-dependent field, so a
+        // value from another category can never leak into the payload.
+        if (name === 'Leaving_Reason') {
+          setTcData(prev => ({ ...prev, Leaving_Reason: value, Country: '', City: '', Destination: '', Destination_REC_Name: '', New_Address: '', Justification: '' }));
+          return;
+        }
+        if (name === 'Documents_Issued') {
+          setTcData(prev => {
+            const cur = Array.isArray(prev.Documents_Issued) ? prev.Documents_Issued.slice() : [];
+            if (checked && cur.indexOf(value) === -1) cur.push(value);
+            if (!checked) { const ix = cur.indexOf(value); if (ix !== -1) cur.splice(ix, 1); }
+            return { ...prev, Documents_Issued: cur };
+          });
+          return;
+        }
+        setTcData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+      };
+
+      // v7.15: the chosen reason's Category drives the popup fields, and
+      // the previous class for the read-only Last Class Passed display.
+      const tcReasonCategory_ = (() => {
+        const row = (leavingReasons || []).find(r => String(r.Reason || '') === String(tcData.Leaving_Reason || ''));
+        return row ? String(row.Category || '') : '';
+      })();
+      const tcPrevClass_ = (cls) => {
+        const i = MASTER_CLASSES.indexOf(String(cls || '').trim());
+        return i > 0 ? MASTER_CLASSES[i - 1] : '';
+      };
+
+      const renderTcSection = () => (
+        <div className="form-section">
+          <div className="form-section-title">
+            <i className="uil uil-file-alt"></i>
+            Deactivation — Transfer Certificate
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">A reason is required to deactivate a student. A Transfer creates a Transfer Certificate; an Error records the correction instead. The certificate is a snapshot — it will not change if the student row is edited later. Identity (name, Date of Birth, address, phone) comes from the student record; only what the record is missing is asked here.</p>
+          <div className="form-row">
+            <div className="form-field">
+              <label htmlFor="tcType">Deactivation Type</label>
+              <select name="Type" value={tcData.Type || ''} onChange={handleTcChange} className="form-input" id="tcType">
+                <option value="" disabled>Select type</option>
+                <option value="Transfer">Transfer</option>
+                <option value="Error">Error</option>
+              </select>
+              {formErrors._tcType && (<p className="form-error">{formErrors._tcType}</p>)}
+            </div>
+          </div>
+          {tcData.Type === 'Transfer' && (
+            <div>
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="tcLeavingReason">Leaving Reason</label>
+                  <select name="Leaving_Reason" value={tcData.Leaving_Reason || ''} onChange={handleTcChange} className="form-input" id="tcLeavingReason">
+                    <option value="" disabled>Select reason</option>
+                    {leavingReasons.map(r => (<option key={r.Reason} value={r.Reason}>{r.Reason}</option>))}
+                  </select>
+                  {formErrors._tcLeavingReason && (<p className="form-error">{formErrors._tcLeavingReason}</p>)}
+                </div>
+                <div className="form-field">
+                  <label>Last Class Passed / Class Studying</label>
+                  <input type="text" value={(tcPrevClass_(deactivateRow && deactivateRow.Student_Class) || '—') + '  /  ' + (deactivateRow && deactivateRow.Student_Class || '')} disabled className="form-input" />
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Worked out from the student's class — not asked here.</p>
+                </div>
+              </div>
+              {tcReasonCategory_ === 'Moving' || tcReasonCategory_ === 'Temporary' ? (
+                <div>
+                  <div className="form-row">
+                    <div className="form-field">
+                      <label htmlFor="tcCountry">Country</label>
+                      <input type="text" value="Pakistan" disabled className="form-input" id="tcCountry" />
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Shifting within Pakistan — the destination REC list is Pakistani RECs.</p>
+                    </div>
+                    <div className="form-field">
+                      <label htmlFor="tcCity">City (new area)</label>
+                      <input type="text" name="City" value={tcData.City || ''} onChange={handleTcChange} placeholder="City the family is moving to" className="form-input" id="tcCity" />
+                      {formErrors._tcCity && (<p className="form-error">{formErrors._tcCity}</p>)}
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <div className="form-field">
+                      <label htmlFor="tcDestination">Destination REC</label>
+                      <select name="Destination" value={tcData.Destination || ''} onChange={handleTcChange} className="form-input" id="tcDestination">
+                        <option value="" disabled>Select REC</option>
+                        {(recNames || []).map(r => (<option key={r.REC_Code} value={r.REC_Code}>{r.REC_Code} — {r.REC_Name}{r.LB ? ' (' + r.LB + ')' : ''}</option>))}
+                        <option value="__NOT_IN_LIST__">REC not in list — type the name below</option>
+                      </select>
+                      {formErrors._tcDestination && (<p className="form-error">{formErrors._tcDestination}</p>)}
+                    </div>
+                    {tcData.Destination === '__NOT_IN_LIST__' && (
+                      <div className="form-field">
+                        <label htmlFor="tcDestinationRecName">REC name (not in list)</label>
+                        <input type="text" name="Destination_REC_Name" value={tcData.Destination_REC_Name || ''} onChange={handleTcChange} placeholder="Name of the REC" className="form-input" id="tcDestinationRecName" />
+                        {formErrors._tcDestinationRecName && (<p className="form-error">{formErrors._tcDestinationRecName}</p>)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="form-row">
+                    <div className="form-field">
+                      <label htmlFor="tcNewAddress">New Address</label>
+                      <input type="text" name="New_Address" value={tcData.New_Address || ''} onChange={handleTcChange} placeholder="New resident address" className="form-input" id="tcNewAddress" />
+                      {formErrors._tcNewAddress && (<p className="form-error">{formErrors._tcNewAddress}</p>)}
+                    </div>
+                  </div>
+                </div>
+              ) : tcReasonCategory_ === 'Moving-Abroad' ? (
+                <div>
+                  <div className="form-row">
+                    <div className="form-field">
+                      <label htmlFor="tcCountry">Country</label>
+                      <select name="Country" value={tcData.Country || ''} onChange={handleTcChange} className="form-input" id="tcCountry">
+                        <option value="" disabled>Select country</option>
+                        {countries.filter(c => String(c.Country || '').trim() !== 'Pakistan').map(c => (<option key={c.Country} value={c.Country}>{c.Country}</option>))}
+                      </select>
+                      {formErrors._tcCountry && (<p className="form-error">{formErrors._tcCountry}</p>)}
+                    </div>
+                    <div className="form-field">
+                      <label htmlFor="tcCity">City</label>
+                      <input type="text" name="City" value={tcData.City || ''} onChange={handleTcChange} placeholder="City abroad" className="form-input" id="tcCity" />
+                      {formErrors._tcCity && (<p className="form-error">{formErrors._tcCity}</p>)}
+                    </div>
+                  </div>
+                </div>
+              ) : (tcReasonCategory_ === 'Medical' || tcReasonCategory_ === 'Left REC') ? (
+                <div>
+                  <div className="form-row">
+                    <div className="form-field">
+                      <label htmlFor="tcJustification">{tcData.Leaving_Reason === 'Other (Please Specify)' ? 'Please specify the reason' : 'Justification'}</label>
+                      <input type="text" name="Justification" value={tcData.Justification || ''} onChange={handleTcChange} placeholder={tcData.Leaving_Reason === 'Other (Please Specify)' ? 'Specify the reason for leaving' : 'The reason in detail'} className="form-input" id="tcJustification" />
+                      {formErrors._tcJustification && (<p className="form-error">{formErrors._tcJustification}</p>)}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="tcExpectedJoining">Expected Date of Joining</label>
+                  <input type="date" name="Expected_Joining_Date" value={tcData.Expected_Joining_Date || ''} onChange={handleTcChange} className="form-input" id="tcExpectedJoining" />
+                  {formErrors._tcExpectedJoining && (<p className="form-error">{formErrors._tcExpectedJoining}</p>)}
+                </div>
+              </div>
+              <div className="form-section">
+                <div className="form-section-title">Contacts (print on the certificate)</div>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">No parent details are stored in the system — enter the contacts fresh. One contact is mandatory; a second is optional. The primary number prints next to Date of Birth on the certificate.</p>
+                <div className="form-row">
+                  <div className="form-field">
+                    <label htmlFor="tcPhone">Primary Contact No.</label>
+                    <input type="tel" name="Phone" value={formData.Phone || ''} onChange={handleInputChange} placeholder="03XXXXXXXXX" maxLength="11" className="form-input" id="tcPhone" />
+                    {formErrors.Phone && (<p className="form-error">{formErrors.Phone}</p>)}
+                  </div>
+                  <div className="form-field">
+                    <label htmlFor="tcPrimRel">Belongs To</label>
+                    <select name="Primary_Contact_Relation" value={formData.Primary_Contact_Relation || ''} onChange={handleInputChange} className="form-input" id="tcPrimRel">
+                      <option value="" disabled>Select</option>
+                      {TC_CONTACT_RELATIONS.map(r => (<option key={r} value={r}>{r}</option>))}
+                    </select>
+                    {formErrors._tcPrimRel && (<p className="form-error">{formErrors._tcPrimRel}</p>)}
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-field">
+                    <label htmlFor="tcSecPhone">Secondary Contact No. (optional)</label>
+                    <input type="tel" name="Secondary_Phone" value={formData.Secondary_Phone || ''} onChange={handleInputChange} placeholder="03XXXXXXXXX" maxLength="11" className="form-input" id="tcSecPhone" />
+                    {formErrors._tcSecPhone && (<p className="form-error">{formErrors._tcSecPhone}</p>)}
+                  </div>
+                  <div className="form-field">
+                    <label htmlFor="tcSecRel">Belongs To</label>
+                    <select name="Secondary_Contact_Relation" value={formData.Secondary_Contact_Relation || ''} onChange={handleInputChange} className="form-input" id="tcSecRel">
+                      <option value="" disabled>Select</option>
+                      {TC_CONTACT_RELATIONS.map(r => (<option key={r} value={r}>{r}</option>))}
+                    </select>
+                    {formErrors._tcSecRel && (<p className="form-error">{formErrors._tcSecRel}</p>)}
+                  </div>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-field">
+                  <label>Documents Issued</label>
+                  <div>
+                    {TC_DOCS.map(d => (
+                      <label key={d} style={{ display: 'inline-block', marginRight: '16px' }}>
+                        <input type="checkbox" name="Documents_Issued" value={d} checked={(tcData.Documents_Issued || []).indexOf(d) !== -1} onChange={handleTcChange} /> {d}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="tcRemarks">Remarks</label>
+                  <input type="text" name="Remarks" value={tcData.Remarks || ''} onChange={handleTcChange} placeholder="Optional — prints on the REC / Remarks line" className="form-input" id="tcRemarks" />
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Address (above, in this popup) is required for a Transfer — it prints on the certificate. Date of Birth is taken from the student record, and is asked here only when the record has none.</p>
+            </div>
+          )}
+          {tcData.Type === 'Error' && (
+            <div>
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="tcErrorReason">Error Reason</label>
+                  <select name="Error_Reason" value={tcData.Error_Reason || ''} onChange={handleTcChange} className="form-input" id="tcErrorReason">
+                    <option value="" disabled>Select error reason</option>
+                    {TC_ERROR_REASONS.map(r => (<option key={r} value={r}>{r}</option>))}
+                  </select>
+                  {formErrors._tcErrorReason && (<p className="form-error">{formErrors._tcErrorReason}</p>)}
+                </div>
+                {tcData.Error_Reason === 'Duplicate' && (
+                  <div className="form-field">
+                    <label htmlFor="tcDuplicateOf">Duplicate Of Std_ID</label>
+                    <input type="text" name="Duplicate_Of_Std_ID" value={tcData.Duplicate_Of_Std_ID || ''} onChange={handleTcChange} placeholder="Std_ID of the original record" className="form-input" id="tcDuplicateOf" />
+                    {formErrors._tcDuplicateOf && (<p className="form-error">{formErrors._tcDuplicateOf}</p>)}
+                  </div>
+                )}
+              </div>
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="tcJustification">Justification</label>
+                  <input type="text" name="Justification" value={tcData.Justification || ''} onChange={handleTcChange} placeholder="Why is this an error?" className="form-input" id="tcJustification" />
+                  {formErrors._tcJustification && (<p className="form-error">{formErrors._tcJustification}</p>)}
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-gray-400">An Error deactivation creates no certificate number — it is kept as a correction record.</p>
+            </div>
+          )}
+        </div>
+      );
+
+      // v7.11: "Previously enrolled?" — optional lookup on Add. Non-blocking:
+      // the admin may ignore it and add a fresh student. A digits-only query
+      // searches by Std_ID; anything else searches by name (DOB narrows).
+      const handlePrevSearch = async () => {
+        const q = String(prevSearch || '').trim();
+        if (!q) { setPrevResults([]); return; }
+        setPrevSearching(true);
+        try {
+          const query = /^\d+$/.test(q)
+            ? { Std_ID: q }
+            : { Student_Name: q, ...(prevSearchDob ? { Date_of_Birth: prevSearchDob } : {}) };
+          const result = await callWithRetry('findPreviousStudent', query, username);
+          if (result && result.success === false) { setError(result.message || 'Lookup failed'); setPrevResults([]); }
+          else if (Array.isArray(result)) { setPrevResults(result); if (result.length === 0) setError('No previously enrolled student matches that search.'); }
+          else setPrevResults([]);
+        } catch (err) {
+          setError('Lookup failed: ' + err.message);
+        }
+        setPrevSearching(false);
+      };
+
+      const renderPrevLookup = () => (
+        <div className="form-section">
+          <div className="form-section-title">
+            <i className="uil uil-search"></i>
+            Previously enrolled? (optional)
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">If this child was enrolled before — at this school or another — look them up and link the old record. The new enrolment keeps the old Global ID. You can skip this and add a fresh student.</p>
+          {prevSelected ? (
+            <div className="notification success mb-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <span>Linked to previous enrolment: {prevSelected.Student_Name} (Std_ID {prevSelected.Std_ID}, {prevSelected.REC_Name || prevSelected.REC_ID}) — Global ID {prevSelected.Global_ID || '(none yet)'}</span>
+                <button type="button" onClick={() => setPrevSelected(null)} className="btn-outline">Remove link</button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="form-row">
+                <div className="form-field">
+                  <label htmlFor="prevSearch">Previous Std_ID or name</label>
+                  <input type="text" value={prevSearch} onChange={e => setPrevSearch(e.target.value)} placeholder="Std_ID or student name" className="form-input" id="prevSearch" />
+                </div>
+                <div className="form-field">
+                  <label htmlFor="prevSearchDob">Date of Birth (optional, narrows a name search)</label>
+                  <input type="date" value={prevSearchDob} onChange={e => setPrevSearchDob(e.target.value)} className="form-input" id="prevSearchDob" />
+                </div>
+              </div>
+              <div className="form-actions">
+                <button type="button" onClick={handlePrevSearch} disabled={prevSearching || !String(prevSearch || '').trim()} className="btn-outline">{prevSearching ? 'Searching...' : 'Search previous enrolments'}</button>
+              </div>
+              {prevResults.length > 0 && (
+                <div className="mt-4">
+                  {prevResults.map(r => (
+                    <div key={r.Std_ID + '-' + r.REC_ID} className="flex flex-wrap items-center gap-3 mb-2">
+                      <span>{r.Student_Name} — Std_ID {r.Std_ID}, {r.REC_Name || r.REC_ID}, Inactive {r.Inactive_Date || ''}{r.Inactive_Type ? ' (' + r.Inactive_Type + ')' : ''}{r.Global_ID ? ', ' + r.Global_ID : ''}</span>
+                      <button type="button" onClick={() => { setPrevSelected(r); setPrevResults([]); }} className="btn-outline">Link this student</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+
+      // v7.11: DEACTIVATE popup — opens for an Active row, reuses the v7.10
+      // deactivation form (renderTcSection) plus the identity fields, and
+      // submits through the same server path as the old Edit deactivation.
+      const openDeactivate = (item) => {
+        setDeactivateRow(item);
+        setTcData({});
+        setLastTc(null);
+        setFormErrors({});
+        setError('');
+        setFormData({
+          Date_of_Birth: parseDDMMMYYYYToDate(item.Date_of_Birth),
+          Address: item.Address || '',
+          Phone: item.Phone || '',
+          // v7.15: contacts saved from an earlier TC prefill the popup.
+          Primary_Contact_Relation: item.Primary_Contact_Relation || '',
+          Secondary_Phone: item.Secondary_Phone || '',
+          Secondary_Contact_Relation: item.Secondary_Contact_Relation || ''
+        });
+        // v7.15: reload the managed lists so a reason/country switched
+        // off or on just now is current in this popup.
+        loadTcLists();
+      };
+
+      const validateDeactivate = () => {
+        const errors = {};
+        if (!tcData.Type || (tcData.Type !== 'Transfer' && tcData.Type !== 'Error')) {
+          errors._tcType = 'Choose Transfer or Error — a reason is required to deactivate a student.';
+        } else if (tcData.Type === 'Transfer') {
+          if (!tcData.Leaving_Reason) errors._tcLeavingReason = 'Leaving Reason is required.';
+          else if (Array.isArray(leavingReasons) && leavingReasons.length > 0 && !leavingReasons.some(r => String(r.Reason || '') === String(tcData.Leaving_Reason))) {
+            errors._tcLeavingReason = 'This leaving reason is no longer active. Pick another reason.';
+          }
+          const cat = tcReasonCategory_;
+          if (cat === 'Moving' || cat === 'Temporary') {
+            if (!String(tcData.City || '').trim()) errors._tcCity = 'City is required.';
+            if (!tcData.Destination) errors._tcDestination = 'Destination REC is required.';
+            else if (tcData.Destination === '__NOT_IN_LIST__' && !String(tcData.Destination_REC_Name || '').trim()) errors._tcDestinationRecName = 'Type the REC name.';
+            else if (tcData.Destination !== '__NOT_IN_LIST__' && Array.isArray(recNames) && recNames.length > 0 && !recNames.some(r => String(r.REC_Code) === String(tcData.Destination))) {
+              errors._tcDestination = 'Choose a REC from the list.';
+            }
+            if (!String(tcData.New_Address || '').trim()) errors._tcNewAddress = 'New Address is required.';
+          } else if (cat === 'Moving-Abroad') {
+            if (!tcData.Country) errors._tcCountry = 'Country is required.';
+            else if (String(tcData.Country) === 'Pakistan') errors._tcCountry = 'Country must not be Pakistan for Migration.';
+            if (!String(tcData.City || '').trim()) errors._tcCity = 'City is required.';
+          } else if (cat === 'Medical' || cat === 'Left REC') {
+            if (!String(tcData.Justification || '').trim()) errors._tcJustification = tcData.Leaving_Reason === 'Other (Please Specify)' ? 'Please specify the reason for leaving.' : 'Justification is required.';
+          }
+          if (tcData.Expected_Joining_Date) {
+            const em = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(tcData.Expected_Joining_Date).trim());
+            let expReal = false;
+            if (em) {
+              const ed = new Date(Number(em[1]), Number(em[2]) - 1, Number(em[3]));
+              expReal = ed.getFullYear() === Number(em[1]) && ed.getMonth() === Number(em[2]) - 1 && ed.getDate() === Number(em[3]);
+            }
+            if (!expReal) errors._tcExpectedJoining = 'Expected Date of Joining must be a real date (yyyy-MM-dd).';
+          }
+          // v7.14: Date of Birth is required ONLY when the student row
+          // has none — otherwise it is shown read-only in the popup and
+          // comes from the row. A value that is given must be a real date.
+          const storedDob = String(deactivateRow && deactivateRow.Date_of_Birth || '').trim();
+          const dobVal = String(formData.Date_of_Birth || '').trim();
+          if (!storedDob && !dobVal) errors.Date_of_Birth = 'Date of Birth is required for a Transfer.';
+          else if (dobVal) {
+            const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dobVal);
+            let dobReal = false;
+            if (dm) {
+              const dd = new Date(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]));
+              dobReal = dd.getFullYear() === Number(dm[1]) && dd.getMonth() === Number(dm[2]) - 1 && dd.getDate() === Number(dm[3]);
+            }
+            if (!dobReal) errors.Date_of_Birth = 'Date of Birth must be a real date (yyyy-MM-dd).';
+          }
+          if (!String(formData.Address || '').trim()) errors.Address = 'Address is required for a Transfer.';
+          // v7.15: contacts — primary number + relation mandatory, exactly
+          // 11 digits starting with 03; a secondary number needs its relation.
+          const phoneVal = String(formData.Phone || '').trim();
+          if (!phoneVal) errors.Phone = 'Primary Contact No. is required for a Transfer.';
+          else if (!TC_PHONE_RE.test(phoneVal)) errors.Phone = 'Primary Contact No. must be exactly 11 digits starting with 03 (e.g. 03XXXXXXXXX).';
+          if (!formData.Primary_Contact_Relation) errors._tcPrimRel = 'Choose who the primary contact belongs to.';
+          const secVal = String(formData.Secondary_Phone || '').trim();
+          if (secVal) {
+            if (!TC_PHONE_RE.test(secVal)) errors._tcSecPhone = 'Secondary Contact No. must be exactly 11 digits starting with 03 (e.g. 03XXXXXXXXX).';
+            if (!formData.Secondary_Contact_Relation) errors._tcSecRel = 'Choose who the secondary contact belongs to.';
+          }
+        } else {
+          if (!tcData.Error_Reason) errors._tcErrorReason = 'Error Reason is required.';
+          if (tcData.Error_Reason === 'Duplicate' && !String(tcData.Duplicate_Of_Std_ID || '').trim()) errors._tcDuplicateOf = 'Duplicate Of Std_ID is required.';
+          if (!String(tcData.Justification || '').trim()) errors._tcJustification = 'Justification is required.';
+        }
+        setFormErrors(errors);
+        return Object.keys(errors).length === 0;
+      };
+
+      const handleDeactivateSubmit = async (e) => {
+        if (e) e.preventDefault();
+        if (!deactivateRow || !validateDeactivate()) return;
+        const row = deactivateRow;
+        const studentData = {
+          _originalStdId: row.Std_ID,
+          _openedRow: {
+            Std_ID: row.Std_ID,
+            Student_Name: row.Student_Name,
+            Student_Class: row.Student_Class,
+            Student_Section: row.Student_Section,
+            Status: row.Status,
+            Barcode_ID: row.Barcode_ID,
+            Gender: row.Gender,
+            Date_of_Joining: row.Date_of_Joining,
+            Unique_ID: row.Unique_ID
+          },
+          Std_ID: row.Std_ID,
+          Student_Name: row.Student_Name,
+          Student_Class: row.Student_Class,
+          Student_Section: row.Student_Section,
+          Status: 'Inactive',
+          Barcode_ID: row.Barcode_ID || '',
+          Gender: row.Gender,
+          Date_of_Joining: row.Date_of_Joining || '',
+          Unique_ID: row.Unique_ID || '',
+          _tcPayload: {
+            Type: tcData.Type,
+            Leaving_Reason: tcData.Leaving_Reason || '',
+            // v7.15: reason-driven destination. Destination_Type is
+            // derived server-side too; the value sent here is a hint.
+            Country: tcReasonCategory_ === 'Moving' || tcReasonCategory_ === 'Temporary' ? 'Pakistan' : (tcData.Country || ''),
+            City: tcData.City || '',
+            Destination_Type: tcReasonCategory_ === 'Moving' || tcReasonCategory_ === 'Temporary' ? 'REC' : tcReasonCategory_ === 'Moving-Abroad' ? 'Out of Country' : 'None',
+            Destination: tcData.Destination === '__NOT_IN_LIST__' ? '' : (tcData.Destination || ''),
+            Destination_REC_Name: tcData.Destination === '__NOT_IN_LIST__' ? (tcData.Destination_REC_Name || '') : '',
+            Expected_Joining_Date: tcData.Expected_Joining_Date || '',
+            Documents_Issued: tcData.Documents_Issued || [],
+            Remarks: tcData.Remarks || '',
+            New_Address: tcData.New_Address || '',
+            Error_Reason: tcData.Error_Reason || '',
+            Duplicate_Of_Std_ID: tcData.Duplicate_Of_Std_ID || '',
+            Justification: tcData.Justification || '',
+            Date_of_Birth: formData.Date_of_Birth || '',
+            Address: formData.Address || '',
+            Phone: formData.Phone || '',
+            Primary_Contact_Relation: formData.Primary_Contact_Relation || '',
+            Secondary_Contact_No: formData.Secondary_Phone || '',
+            Secondary_Contact_Relation: formData.Secondary_Contact_Relation || ''
+          }
+        };
+        setIsLoading(true);
+        setError('');
+        try {
+          const result = await callWithRetry('updateSheetRow', 'Student_Data', row._rowNumber, studentData, username);
+          if (result.success) {
+            setSuccessMessage(result.message);
+            setData(prev => ({
+              ...prev,
+              student_data: prev.student_data.map((item) => item._rowNumber === row._rowNumber ? { ...item, ...result.data } : item),
+            }));
+            setDeactivateRow(null);
+            setTcData({});
+            setFormData({});
+            setFormErrors({});
+            if (result.tc) {
+              setLastTc(result.tc);
+              setData(prev => ({ ...prev, transfer_certificates: [...(prev.transfer_certificates || []), result.tc] }));
+            }
+          } else {
+            setFormErrors({ general: result.message || 'Deactivation failed' });
+          }
+        } catch (err) {
+          setFormErrors({ general: 'Deactivation failed after retries: ' + err.message });
+        }
+        setIsLoading(false);
+      };
+
+      // v7.11: REACTIVATE — confirm dialog, then the same updateSheetRow path
+      // with Status 'Active'. The server refuses a student with any
+      // certificate record even if this button is bypassed (see hasAnyTc_
+      // in Code.gs).
+      const handleReactivateConfirm = async () => {
+        if (!reactivateRow) return;
+        const row = reactivateRow;
+        setIsLoading(true);
+        setError('');
+        try {
+          const result = await callWithRetry('updateSheetRow', 'Student_Data', row._rowNumber, {
+            _originalStdId: row.Std_ID,
+            _openedRow: {
+              Std_ID: row.Std_ID,
+              Student_Name: row.Student_Name,
+              Student_Class: row.Student_Class,
+              Student_Section: row.Student_Section,
+              Status: row.Status,
+              Barcode_ID: row.Barcode_ID,
+              Gender: row.Gender,
+              Date_of_Joining: row.Date_of_Joining,
+              Unique_ID: row.Unique_ID
+            },
+            Std_ID: row.Std_ID,
+            Student_Name: row.Student_Name,
+            Student_Class: row.Student_Class,
+            Student_Section: row.Student_Section,
+            Status: 'Active',
+            Barcode_ID: row.Barcode_ID || '',
+            Gender: row.Gender,
+            Date_of_Joining: row.Date_of_Joining || '',
+            Unique_ID: row.Unique_ID || ''
+          }, username);
+          if (result.success) {
+            setSuccessMessage(result.message);
+            setData(prev => ({
+              ...prev,
+              student_data: prev.student_data.map((item) => item._rowNumber === row._rowNumber ? { ...item, ...result.data } : item),
+            }));
+            setReactivateRow(null);
+          } else {
+            setError(result.message || 'Reactivation failed');
+            setReactivateRow(null);
+          }
+        } catch (err) {
+          setError('Reactivation failed after retries: ' + err.message);
+          setReactivateRow(null);
+        }
+        setIsLoading(false);
+      };
+
+      // Hours config tables (v6.9, v7.0): on Edit only Is_Active and
+      // Applicable_Classes can change — every other field is locked.
+      // v7.15: managed tables — only Is_Active may change once added.
+      // Defined here (not inside renderFormFields) so the edit banner
+      // below can use them too.
+      const hoursConfigLocked = editingIndex !== null && (table === 'hours_setup' || table === 'hour_categories');
+      const managedTableLocked = editingIndex !== null && (table === 'leaving_reasons' || table === 'countries' || table === 'rec_names');
+      const rowLocked = hoursConfigLocked || managedTableLocked;
+
       const renderFormFields = () => {
         const config = table === 'class_sections' ? tableConfigs[subTab] : tableConfigs[table];
         
@@ -8427,7 +10991,7 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
               {section.section}
             </div>
               <div className={`form-row ${section.fields.every(f => f.type === 'checkbox') ? 'checkbox-row' : ''}`}>
-              {section.fields.map(field => (
+              {section.fields.filter(field => !(table === 'student_data' && isAdding && field.name === 'Status')).map(field => (
                 <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
                   {field.type === 'select' ? (
                     <>
@@ -8438,7 +11002,7 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
                         onChange={handleInputChange}
                         className="form-input"
                         id={field.name}
-                        disabled={field.disabled || (field.superadminOnly && !isSuperadmin)}
+                        disabled={field.disabled || (field.superadminOnly && !isSuperadmin) || (rowLocked && field.name !== 'Is_Active' && !(hoursConfigLocked && field.name === 'Applicable_Classes'))}
                         required={field.required}
                       >
                         <option value="" disabled>{field.placeholder}</option>
@@ -8465,7 +11029,15 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
 
   // Existing dynamic options for Student form
   if (field.name === 'Student_Section') {
-    return classSectionMap[formData.Student_Class] || [];
+    const secs = (classSectionMap[formData.Student_Class] || []).slice();
+    // v7.7: on Edit always include the row's own stored section, even if it
+    // is not in the class mapping — otherwise the form shows the wrong
+    // (first) section and picking it never registers as a change.
+    if (editingIndex !== null && filteredData[editingIndex]) {
+      const own = String(filteredData[editingIndex].Student_Section || '').trim();
+      if (own && !secs.includes(own)) secs.push(own);
+    }
+    return secs;
   }
   return field.options || [];
 })().map(option => (
@@ -8483,9 +11055,16 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
                         onChange={e => handleMultipleSelect(e, field.name)}
                         className="form-input"
                         id={field.name}
+                        disabled={field.disabled || (rowLocked && field.name !== 'Is_Active' && !(hoursConfigLocked && field.name === 'Applicable_Classes'))}
                         required={field.required}
                       >
-                        {field.options.map(option => (
+                        {field.optionGroups ? field.optionGroups.map(group => (
+                          <optgroup key={group.label} label={group.label}>
+                            {group.options.map(option => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </optgroup>
+                        )) : field.options.map(option => (
                           <option key={option} value={option}>{option}</option>
                         ))}
                       </select>
@@ -8512,7 +11091,7 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
   placeholder={field.placeholder}
   className="form-input"
   id={field.name}
-  disabled={field.disabled}
+  disabled={field.disabled || (rowLocked && field.name !== 'Is_Active' && !(hoursConfigLocked && field.name === 'Applicable_Classes'))}
   required={field.required}
   max={field.name === 'Allowed_Date' ? new Date().toLocaleDateString('en-CA') : undefined}
 />
@@ -8554,8 +11133,23 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
           {(isAdding || editingIndex !== null) && (
             <div className="form-container mb-6">
               <h3 className="text-lg font-semibold mb-4">{editingIndex !== null ? 'Edit' : 'Add'} {table === 'class_sections' ? subTab.replace('_', ' ') : table.replace('_', ' ')}</h3>
+              {hoursConfigLocked && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Rows cannot be amended once added — only Active/Inactive and Applicable Classes can change.</p>
+              )}
+              {managedTableLocked && (
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Rows cannot be amended once added — only Active/Inactive can change.</p>
+              )}
               <form onSubmit={table === 'student_data' ? handleStudentSubmit : handleSubmit}>
                 {renderFormFields()}
+                {table === 'student_data' && isAdding && renderPrevLookup()}
+                {lastTc && (
+                  <div className="notification success mb-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span>{lastTc.Type === 'Transfer' ? 'Transfer certificate ' + (lastTc.TC_Number || '') + ' created.' : 'Error deactivation recorded. The student record is now locked.'}</span>
+                      <button type="button" onClick={() => onViewTc && onViewTc(lastTc.TC_Number || ('row:' + lastTc._rowNumber))} className="btn-primary">View / Print TC</button>
+                    </div>
+                  </div>
+                )}
                 {formErrors.general && (
                   <p className={`${formErrors.general.includes('successfully') ? 'form-message' : 'form-error'}`}>{formErrors.general}</p>
                 )}
@@ -8597,8 +11191,14 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
           )}
           {!isAdding && editingIndex === null && (
   <div className="flex flex-wrap gap-2 mb-6">
+    {(table === 'hours_setup' || table === 'hour_categories' || table === 'leaving_reasons' || table === 'countries' || table === 'rec_names') && (
+      <p className="text-sm text-gray-600 dark:text-gray-400 w-full">Rows cannot be deleted — set Is_Active to FALSE to deactivate a row.</p>
+    )}
     {/* Existing Add button (for all tables EXCEPT class_mappings) */}
-    {!(table === 'class_sections' && subTab === 'class_mappings') && (
+    {table === 'transfer_certificates' && (
+      <p className="text-sm text-gray-600 dark:text-gray-400 w-full">Transfer certificates are created when a student is deactivated — they cannot be added, edited or deleted here.</p>
+    )}
+    {table !== 'transfer_certificates' && !(table === 'class_sections' && subTab === 'class_mappings') && (
       <button
         onClick={async () => {
           setIsAdding(true);
@@ -8609,6 +11209,8 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
               if (f.type === 'checkbox') defaults[f.name] = false;
             }));
           }
+          // Hours config tables (v6.9) and managed tables (v7.15): new rows start Active.
+          if (table === 'hours_setup' || table === 'hour_categories' || table === 'leaving_reasons' || table === 'countries' || table === 'rec_names') defaults.Is_Active = 'TRUE';
           if (table === 'student_data') {
             const barcodeField = tableConfigs.student_data.fields
               .flatMap(s => s.fields)
@@ -8618,6 +11220,10 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
           setFormData(defaults);
           setIsStdIdEditable(table === 'student_data');
           if (table === 'student_data') {
+            setPrevSearch('');
+            setPrevSearchDob('');
+            setPrevResults([]);
+            setPrevSelected(null);
             try {
               const reserveResult = await callWithRetry('getSheetData', 'Reserve_Codes', recId);
               const unused = reserveResult.find(r => r.Status === 'Unused');
@@ -8770,18 +11376,57 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
                             field.name === 'Class' ? String(item.Class_Section || '').split('-')[0] || '' :
                             field.name === 'Section' ? String(item.Class_Section || '').split('-').slice(1).join('-') || '' :
                             (item[field.name] || '')
+                          ) : table === 'transfer_certificates' && field.name === 'Leaving_Reason' ? (
+                            (item.Leaving_Reason || item.Error_Reason || '') + (tcTabDestination_(item, recNames) ? ' — ' + tcTabDestination_(item, recNames) : '')
                           ) : (
                             (item[field.name] || '')
                           )}
                         </td>
                       ))}
                       <td>
-                        <button
-                          onClick={() => handleEditClick(index)}
-                          className="link-accent mr-4"
-                        >
-                          Edit
-                        </button>
+                        {table === 'transfer_certificates' ? (
+                          <button
+                            onClick={() => onViewTc && onViewTc(item.TC_Number || ('row:' + item._rowNumber))}
+                            className="link-accent mr-4"
+                          >
+                            Reprint
+                          </button>
+                        ) : !(table === 'student_data' && isFrozenRow(item)) ? (
+                          <button
+                            onClick={() => handleEditClick(index)}
+                            className="link-accent mr-4"
+                          >
+                            Edit
+                          </button>
+                        ) : null}
+                        {table === 'student_data' && item.Status === 'Inactive' && (() => {
+                          const tcRow = (data.transfer_certificates || []).find(r => String(r.Std_ID || '') === String(item.Std_ID || '') && String(r.REC_ID || '') === String(item.REC_ID || ''));
+                          return tcRow ? (
+                            <button
+                              onClick={() => onViewTc && onViewTc(tcRow.TC_Number || ('row:' + tcRow._rowNumber))}
+                              className="link-accent mr-4"
+                            >
+                              View TC
+                            </button>
+                          ) : null;
+                        })()}
+                        {table === 'student_data' && item.Status === 'Active' && (
+                          <button
+                            onClick={() => openDeactivate(item)}
+                            className="link-accent mr-4"
+                          >
+                            Deactivate
+                          </button>
+                        )}
+                        {table === 'student_data' && canReactivateRow(item) && (
+                          <button
+                            onClick={() => setReactivateRow(item)}
+                            className="link-accent mr-4"
+                          >
+                            Reactivate
+                          </button>
+                        )}
+                        {table !== 'transfer_certificates' && !(table === 'hours_setup' || table === 'hour_categories' || table === 'leaving_reasons' || table === 'countries' || table === 'rec_names') && !(table === 'student_data' && isFrozenRow(item)) && (
                         <button
                           onClick={() => {
                             if (table === 'student_data' && !canDeleteStudent) {
@@ -8795,11 +11440,101 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
                         >
                           Delete
                         </button>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {deactivateRow && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="card p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                <h3 className="text-lg font-semibold mb-2">Deactivate {deactivateRow.Student_Name} (Std_ID {deactivateRow.Std_ID})</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">The student will become Inactive. A reason is required — a Transfer creates a Transfer Certificate; an Error records the correction instead. Once a certificate record is issued — Transfer or Error — the student record is locked — it can no longer be edited, deleted or reactivated from the portal.</p>
+                <form onSubmit={handleDeactivateSubmit}>
+                  <div className="form-section">
+                    <div className="form-section-title">
+                      <i className="uil uil-user"></i>
+                      Identity (prints on the certificate)
+                    </div>
+                    <div className="form-row">
+                      <div className="form-field">
+                        <label htmlFor="deactDob">Date of Birth{String(deactivateRow.Date_of_Birth || '').trim() ? ' (from student record)' : ''}</label>
+                        <input type="date" name="Date_of_Birth" value={formData.Date_of_Birth || ''} onChange={handleInputChange} className="form-input" id="deactDob" disabled={!!String(deactivateRow.Date_of_Birth || '').trim()} />
+                        {formErrors.Date_of_Birth && (<p className="form-error">{formErrors.Date_of_Birth}</p>)}
+                        {String(deactivateRow.Date_of_Birth || '').trim() ? (<p className="text-sm text-gray-600 dark:text-gray-400">Taken from the student record — add or correct it on the student form first if it is wrong.</p>) : (<p className="text-sm text-gray-600 dark:text-gray-400">The record has no Date of Birth — enter it here; it will be saved to the student record.</p>)}
+                      </div>
+                    </div>
+                    <div className="form-row">
+                      <div className="form-field">
+                        <label htmlFor="deactAddress">Current Address</label>
+                        <input type="text" name="Address" value={formData.Address || ''} onChange={handleInputChange} placeholder="Address" className="form-input" id="deactAddress" />
+                        {formErrors.Address && (<p className="form-error">{formErrors.Address}</p>)}
+                      </div>
+                    </div>
+                  </div>
+                  {renderTcSection()}
+                  {formErrors.general && (<p className="form-error">{formErrors.general}</p>)}
+                  {tcPreviewState === 'loading' && (<p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Loading attendance…</p>)}
+                  {tcPreviewState === 'failed' && (<p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Attendance preview could not be loaded.</p>)}
+                  {tcPreviewState === 'ready' && tcPreview && (
+                    <div className="mb-4">
+                      <h4 className="text-base font-semibold mb-2">Attendance that will print on the certificate</h4>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Last Day of attendance: <b>{tcPreview.lastDayOfAttendance ? tcShortDate_(tcPreview.lastDayOfAttendance) : '—'}</b></p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-sm">
+                          <thead>
+                            <tr>
+                              <th className="border border-gray-300 dark:border-gray-600 p-2 text-left"></th>
+                              {tcTermGroups_(tcPreview.attendance).map((run, i) => (
+                                <th key={'term-' + i} colSpan={run.count} className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{run.label}</th>
+                              ))}
+                              <th className="border border-gray-300 dark:border-gray-600 p-2 text-center font-semibold"></th>
+                            </tr>
+                            <tr>
+                              <th className="border border-gray-300 dark:border-gray-600 p-2 text-left">Month</th>
+                              {tcPreview.attendance.map(m => (
+                                <th key={m.monthKey} className="border border-gray-300 dark:border-gray-600 p-2 text-center font-semibold">{m.month}</th>
+                              ))}
+                              <th className="border border-gray-300 dark:border-gray-600 p-2 text-center font-semibold">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td className="border border-gray-300 dark:border-gray-600 p-2 font-semibold">Working Days</td>
+                              {tcPreview.attendance.map(m => (<td key={m.monthKey} className="border border-gray-300 dark:border-gray-600 p-2 text-center">{m.workingDays ? m.workingDays : ''}</td>))}
+                              <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{tcPreview.totalWorking}</td>
+                            </tr>
+                            <tr>
+                              <td className="border border-gray-300 dark:border-gray-600 p-2 font-semibold">Days of Present</td>
+                              {tcPreview.attendance.map(m => (<td key={m.monthKey} className="border border-gray-300 dark:border-gray-600 p-2 text-center">{m.daysPresent ? m.daysPresent : ''}</td>))}
+                              <td className="border border-gray-300 dark:border-gray-600 p-2 text-center font-bold">{tcPreview.totalPresent}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                  <div className="form-actions">
+                    <button type="submit" disabled={isLoading} className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}>{isLoading ? 'Saving...' : 'Deactivate student'}</button>
+                    <button type="button" onClick={() => { setDeactivateRow(null); setTcData({}); setFormData({}); setFormErrors({}); }} className="btn-outline">Cancel</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+          {reactivateRow && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="card p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+                <h3 className="text-lg font-semibold mb-4">Reactivate student?</h3>
+                <p className="text-gray-600 dark:text-gray-400 mb-4">Reactivate {reactivateRow.Student_Name} (Std_ID {reactivateRow.Std_ID})? The Inactive reason and date will be cleared. The old Transfer Certificate / error record stays as history.</p>
+                <div className="flex flex-col-reverse sm:flex-row gap-3">
+                  <button onClick={handleReactivateConfirm} disabled={isLoading} className="btn-primary w-full sm:w-auto justify-center">{isLoading ? 'Saving...' : 'Yes, Reactivate'}</button>
+                  <button onClick={() => setReactivateRow(null)} className="btn-outline w-full sm:w-auto">Cancel</button>
+                </div>
+              </div>
             </div>
           )}
           {showDeleteConfirm && (
