@@ -97,7 +97,8 @@ const ADMIN_USER_TYPES = ['admin', 'superadmin'];
 const ALLOWED_USER_TYPES = ['admin', 'teacher', 'superadmin'];
 // The 24 tab keys the portal UI offers in the allowedTabs picker
 // (HTML v7.7, UserManagement 'Admin Access' section, flat options list).
-const ALLOWED_TABS = ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'];
+// v7.23: 'outage_permissions' added for the Outage Permissions tab (see grantOutagePermissions).
+const ALLOWED_TABS = ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'outage_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'];
 const ADMIN_ONLY_MSG = 'Only an admin can make this change.';
 
 // Look up a caller by username in the Users sheet. Returns
@@ -1893,6 +1894,196 @@ function prevPermDuplicateExists_(sheet, headers, rowData, excludeRow) {
 }
 
 
+// ============ OUTAGE PERMISSIONS (v7.23) ============
+// After an outage day, a designated admin grants previous-date access in
+// bulk from the portal's Outage Permissions tab: ONE date, several
+// teachers, several class sections, one shared password, and a
+// 24/48/72-hour window. This function writes ORDINARY
+// Previous_Date_Permissions rows -- one per teacher x class -- in exactly
+// the shape the single-row Add writes, so the marking app honours them
+// unchanged. A (teacher, class) pair is written only when the class is
+// among that teacher's Teacher_Assignments at the caller's school and no
+// LIVE permission already covers it; every skip is reported back in its
+// own bucket so the portal can show the admin exactly what happened.
+function grantOutagePermissions(payload, currentUsername) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) throw new Error('No active spreadsheet found');
+
+    // Gate: admin/superadmin only -- the same gate as every other write.
+    const gate = requireAdminCaller_(ss, currentUsername);
+    if (!gate.ok) return gate.error;
+    const caller = gate.caller;
+
+    // The caller's school comes from their own Users row. A caller with no
+    // school cannot grant for anyone (standing rule, same as addStudent).
+    const callerRec = String(caller.recId || '').trim();
+    if (!callerRec) {
+      return { success: false, message: 'Your user account has no school (REC_ID) assigned, so you cannot grant outage permissions.' };
+    }
+
+    // Designated-person check: a superadmin may always grant; anyone else
+    // must carry the outage_permissions tab in their own allowedTabs.
+    if (caller.userType !== 'superadmin') {
+      const usersSheet0 = ss.getSheetByName('Users');
+      const uData0 = usersSheet0 ? usersSheet0.getDataRange().getValues() : [];
+      const uHead0 = uData0[0] || [];
+      const tabsCol = uHead0.indexOf('allowedTabs');
+      let designated = false;
+      for (let i = 1; i < uData0.length; i++) {
+        if (String(uData0[i][0] || '').trim() === caller.username) {
+          const rawTabs = tabsCol !== -1 ? uData0[i][tabsCol] : '';
+          const tabList = Array.isArray(rawTabs)
+            ? rawTabs.map(function (x) { return String(x || '').trim(); })
+            : String(rawTabs || '').split(',').map(function (x) { return x.trim(); });
+          designated = tabList.indexOf('outage_permissions') !== -1;
+          break;
+        }
+      }
+      if (!designated) {
+        return { success: false, message: 'You are not designated to grant outage permissions. Please ask an admin to add the Outage Permissions tab to your allowed tabs.' };
+      }
+    }
+
+    payload = payload || {};
+
+    // Date: required, a real date, not in the future, at most 7 days back.
+    // Today IS allowed -- an admin may prepare in the evening for the
+    // next morning.
+    const dateRaw = String(payload.date || '').trim();
+    if (!dateRaw) return { success: false, message: 'Please select the outage date.' };
+    const parts = dateRaw.split('-');
+    if (parts.length !== 3) return { success: false, message: 'The outage date is not a valid date.' };
+    const dy = parseInt(parts[0], 10);
+    const dm = parseInt(parts[1], 10);
+    const dd = parseInt(parts[2], 10);
+    const allowed = new Date(dy, dm - 1, dd);
+    if (isNaN(allowed.getTime()) || allowed.getFullYear() !== dy || allowed.getMonth() !== dm - 1 || allowed.getDate() !== dd) {
+      return { success: false, message: 'The outage date is not a valid date.' };
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (allowed.getTime() > today.getTime()) {
+      return { success: false, message: 'The outage date cannot be in the future.' };
+    }
+    const earliest = new Date(today);
+    earliest.setDate(earliest.getDate() - 7);
+    if (allowed.getTime() < earliest.getTime()) {
+      return { success: false, message: 'The outage date cannot be more than 7 days back.' };
+    }
+    const pad2 = function (n) { return ('0' + n).slice(-2); };
+    const allowedStr = dy + '-' + pad2(dm) + '-' + pad2(dd);
+    const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][allowed.getDay()];
+
+    // Selections: at least one teacher and one class section.
+    const dedupe = function (arr) {
+      const out = [];
+      (Array.isArray(arr) ? arr : []).forEach(function (x) {
+        const v = String(x || '').trim();
+        if (v && out.indexOf(v) === -1) out.push(v);
+      });
+      return out;
+    };
+    const usernames = dedupe(payload.usernames);
+    if (!usernames.length) return { success: false, message: 'Please select at least one teacher.' };
+    const classSections = dedupe(payload.classSections);
+    if (!classSections.length) return { success: false, message: 'Please select at least one class section.' };
+
+    // One shared password, stored on every row exactly as the single-row
+    // Add stores it.
+    const password = String(payload.password || '').trim();
+    if (!password) return { success: false, message: 'Please enter the password the teachers will type for this date.' };
+
+    // Window + type. The type normalisation mirrors
+    // stampPrevPermTimestamps_ (Both / Normal / Episodic).
+    let hours = parseInt(payload.hours, 10);
+    if ([24, 48, 72].indexOf(hours) === -1) hours = 48;
+    const typeRaw = String(payload.attendanceType || 'Both').trim().toLowerCase();
+    const attendanceType = typeRaw === 'episodic' ? 'Episodic' : typeRaw === 'normal' ? 'Normal' : 'Both';
+
+    const sheet = ss.getSheetByName(PREV_PERM_SHEET);
+    if (!sheet) throw new Error(PREV_PERM_SHEET + ' sheet not found');
+    ensurePrevPermColumns_(sheet);
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+    // Teachers of the caller's school: Users rows with UserType 'teacher'
+    // whose REC_ID is the caller's school.
+    const usersSheet = ss.getSheetByName('Users');
+    const uData = usersSheet ? usersSheet.getDataRange().getValues() : [];
+    const uHead = uData[0] || [];
+    const uTypeCol = uHead.indexOf('UserType');
+    const uRecCol = uHead.indexOf('REC_ID');
+    const teacherSet = {};
+    for (let i = 1; i < uData.length; i++) {
+      const uname = String(uData[i][0] || '').trim();
+      if (!uname) continue;
+      const utype = uTypeCol !== -1 ? String(uData[i][uTypeCol] || '').trim() : '';
+      const urec = uRecCol !== -1 ? String(uData[i][uRecCol] || '').trim() : '';
+      if (utype === 'teacher' && urec === callerRec) teacherSet[uname] = true;
+    }
+
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + hours * 60 * 60 * 1000);
+
+    const createdPairs = [];
+    const skippedDuplicate = [];
+    const skippedNotAssigned = [];
+    const skippedUnknownUser = [];
+
+    usernames.forEach(function (uname) {
+      if (!teacherSet[uname]) { skippedUnknownUser.push(uname); return; }
+      const assigned = getAssignedClassesForTeacher_(ss, uname, callerRec);
+      classSections.forEach(function (cs) {
+        const pair = uname + ' \u00B7 ' + cs;
+        if (assigned.indexOf(cs) === -1) { skippedNotAssigned.push(pair); return; }
+        if (prevPermDuplicateExists_(sheet, headers, { Username: uname, Allowed_Date: allowedStr, Class_Section: cs }, 0)) {
+          skippedDuplicate.push(pair);
+          return;
+        }
+        const rowData = {
+          Username: uname,
+          Allowed_Date: allowedStr,
+          Day: dayName,
+          Password: password,
+          Attendance_Type: attendanceType,
+          Class_Section: cs,
+          Granted_At: now,
+          Expires_At: expiresAt,
+          REC_ID: callerRec
+        };
+        const newRow = headers.map(function (header) {
+          const v = rowData[String(header).trim()];
+          return v !== undefined && v !== null ? v : '';
+        });
+        sheet.appendRow(newRow);
+        createdPairs.push(pair);
+      });
+    });
+    SpreadsheetApp.flush();
+
+    const summary = [];
+    summary.push('Created ' + createdPairs.length + ' permission' + (createdPairs.length === 1 ? '' : 's') + '.');
+    if (skippedDuplicate.length) summary.push('Skipped ' + skippedDuplicate.length + ' \u2014 already had access for this date.');
+    if (skippedNotAssigned.length) summary.push('Skipped ' + skippedNotAssigned.length + ' \u2014 class not assigned to that teacher.');
+    if (skippedUnknownUser.length) summary.push('Skipped ' + skippedUnknownUser.length + ' \u2014 teacher not found at your school.');
+
+    return {
+      success: true,
+      created: createdPairs.length,
+      createdPairs: createdPairs,
+      skippedDuplicate: skippedDuplicate,
+      skippedNotAssigned: skippedNotAssigned,
+      skippedUnknownUser: skippedUnknownUser,
+      message: summary.join(' ')
+    };
+  } catch (e) {
+    Logger.log('Error in grantOutagePermissions: ' + e.message);
+    return { success: false, message: 'Failed to grant outage permissions: ' + e.message };
+  }
+}
+
+
+
 function sanitizeRowForClient_(row) {
   const tz = Session.getScriptTimeZone() || 'Asia/Karachi';
   Object.keys(row).forEach(function (k) {
@@ -2630,7 +2821,10 @@ if (sheetName.toLowerCase() === 'users' && ['allowedTabs', 'AllowedDays'].includ
   return value ? value.toString() : '';
 }
 
-      if (sheetName === 'Users' && ['canQueryAttendance', 'canDownload'].includes(header)) {
+      // v7.21: all six admin rights are stored as 'Yes'/'No', never
+      // blank. (The old check used exact-case 'Users' while the client
+      // sends 'users', so it never ran, and it covered only two rights.)
+      if (sheetName.toLowerCase() === 'users' && ['student_delete', 'canDeleteUsers', 'canQueryAttendance', 'canDownload', 'canAmendSIRN', 'canCorrectAttendance'].includes(header)) {
         return value === 'Yes' ? 'Yes' : 'No';
       }
       
@@ -3592,6 +3786,22 @@ if (String(sheetName || '').trim().toLowerCase() === 'users') {
     const oldVal = String(existingRow[idx] ?? '');
     const newVal = String(rowData[colName] ?? '');
 
+    // v7.22: for the two rights, compare EFFECTIVE states, not raw
+    // strings -- blank and 'No' both mean the right is off, so a
+    // blank -> 'No' save (what Edit sends since HTML v7.23) is not a
+    // change; switching a right OFF is allowed for any admin; only
+    // switching one ON (off -> 'Yes') stays superadmin-only.
+    // UserType / REC_ID keep the exact comparison below.
+    if (colName === 'student_delete' || colName === 'canDeleteUsers') {
+      const oldEff = oldVal.trim() === 'Yes' ? 'Yes' : 'No';
+      const newEff = newVal.trim() === 'Yes' ? 'Yes' : 'No';
+      if (oldEff === newEff || oldEff === 'Yes') continue;
+      return {
+        success: false,
+        message: 'Only superadmin can change "' + colName + '".'
+      };
+    }
+
     if (oldVal !== newVal) {
       return {
         success: false,
@@ -3635,7 +3845,10 @@ if (String(sheetName || '').trim().toLowerCase() === 'users') {
   return value ? value.toString() : '';
 }
 
-      if (sheetName === 'Users' && ['canQueryAttendance', 'canDownload'].includes(header)) {
+      // v7.21: all six admin rights are stored as 'Yes'/'No', never
+      // blank. (The old check used exact-case 'Users' while the client
+      // sends 'users', so it never ran, and it covered only two rights.)
+      if (sheetName.toLowerCase() === 'users' && ['student_delete', 'canDeleteUsers', 'canQueryAttendance', 'canDownload', 'canAmendSIRN', 'canCorrectAttendance'].includes(header)) {
         return value === 'Yes' ? 'Yes' : 'No';
       }
       return value !== undefined && value !== null ? value : '';

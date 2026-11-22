@@ -592,6 +592,188 @@
       border-top: 1px solid var(--border-color);
     }
 
+    /* v7.21: Add/Edit forms open as modal popups (Students, Users, User
+       Permissions, Teacher Assignments, Previous Date Permissions). The
+       modal body scrolls internally; header and footer stay put. */
+    .form-modal-card {
+      display: flex;
+      flex-direction: column;
+      max-height: 85vh;
+      width: 100%;
+    }
+    .form-modal-form {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+    .form-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding-bottom: 0.75rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color);
+      flex: none;
+    }
+    .form-modal-body {
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+      padding-right: 0.25rem;
+    }
+    .form-modal-footer {
+      flex: none;
+      border-top: 1px solid var(--border-color);
+      padding-top: 0.75rem;
+      margin-top: 1rem;
+    }
+    .form-modal-footer .form-actions {
+      margin-top: 0;
+      position: static;
+      border-top: none;
+      padding-top: 0;
+    }
+    /* Required toggle fields keep the red asterisk the dropdown had. */
+    .form-field.toggle-required > label::after {
+      content: ' *';
+      color: var(--error-color);
+    }
+
+    /* v7.21: toggle switch for single yes/no fields. The control stays a
+       real checkbox input, so form values and payloads are unchanged. */
+    .toggle-field {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+    }
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 42px;
+      height: 24px;
+      flex: none;
+    }
+    .form-field .toggle-switch input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+      padding: 0;
+      border: none;
+    }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      border-radius: 9999px;
+      background: #cbd5e1;
+      transition: var(--transition);
+      cursor: pointer;
+    }
+    body.dark .toggle-slider {
+      background: #4b5563;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ffffff;
+      top: 3px;
+      left: 3px;
+      transition: var(--transition);
+      box-shadow: var(--shadow-sm);
+    }
+    .toggle-switch input:checked + .toggle-slider {
+      background: var(--primary-color);
+    }
+    .toggle-switch input:checked + .toggle-slider::before {
+      transform: translateX(18px);
+    }
+    .toggle-switch input:disabled + .toggle-slider {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .toggle-switch input:focus-visible + .toggle-slider {
+      box-shadow: 0 0 0 3px var(--primary-ring);
+    }
+    .toggle-state {
+      font-size: 0.875rem;
+      color: var(--text-color);
+    }
+
+    /* v7.21: day-of-week chips (multi-select). */
+    .day-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .day-chip {
+      padding: 0.375rem 0.875rem;
+      border-radius: 9999px;
+      border: 1px solid var(--border-color);
+      background: var(--panel-color);
+      color: var(--text-color);
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: var(--transition);
+    }
+    .day-chip:hover {
+      background: var(--hover-color);
+    }
+    .day-chip.selected {
+      background: var(--primary-color);
+      border-color: var(--primary-color);
+      color: #ffffff;
+    }
+
+    /* v7.21: checkbox grid for multi-selects (allowed tabs, class sections). */
+    .checkbox-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 0.375rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 0.75rem;
+      max-height: 220px;
+      overflow-y: auto;
+      background: var(--panel-color);
+    }
+    .checkbox-grid-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.8125rem;
+      color: var(--text-color);
+      cursor: pointer;
+      padding: 0.25rem 0.375rem;
+      border-radius: var(--radius-sm);
+    }
+    .checkbox-grid-item:hover {
+      background: var(--hover-color);
+    }
+    .checkbox-grid-item input {
+      width: auto;
+      padding: 0;
+      flex: none;
+      accent-color: var(--primary-color);
+    }
+    .checkbox-grid-group {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-light);
+      margin: 0.5rem 0 0.25rem;
+    }
+    .multi-select-count {
+      font-size: 0.75rem;
+      color: var(--text-light);
+      margin-top: 0.375rem;
+    }
     .user-card {
       background: var(--panel-color);
       border-radius: var(--radius-lg);
@@ -1174,6 +1356,17 @@ permissions[user.Username] = {
         .withSuccessHandler(result => {
           setData(prev => ({ ...prev, class_mappings: result }));
           const classList = [...new Set(result.map(item => item.Class).filter(Boolean))];
+          // v7.22: show the classes in the master class order (the
+          // order classes run), not in mapping-sheet row order. Stable
+          // sort: a class outside the master list keeps its relative
+          // order after the known ones. Display order only — the class
+          // values themselves are unchanged.
+          const masterClassOrder = ['IBT', 'NUR', 'KGI', 'KGII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'];
+          classList.sort((a, b) => {
+            const ra = masterClassOrder.indexOf(a);
+            const rb = masterClassOrder.indexOf(b);
+            return (ra === -1 ? masterClassOrder.length : ra) - (rb === -1 ? masterClassOrder.length : rb);
+          });
           const classMap = {};
           result.forEach(item => {
             if (item.Class && item.Sections) {
@@ -1681,7 +1874,7 @@ permissions[user.Username] = {
               <div className="nav-section">
                 <div className="nav-section-title">Class Management</div>
                 <ul>
-                  {['class_sections', 'student_data', 'transfer_certificates', 'previous_date_permissions', 'attendance_correction', 'terms', 'class_terms'].map(tab => (
+                  {['class_sections', 'student_data', 'transfer_certificates', 'previous_date_permissions', 'outage_permissions', 'attendance_correction', 'terms', 'class_terms'].map(tab => (
                     userPermissions[username]?.allowedTabs.includes(tab) && (
                       <li key={tab}>
                         <a
@@ -2157,6 +2350,32 @@ activeTab === 'qr_management' ? (
         </div>
       </div>
     )
+  ) : activeTab === 'outage_permissions' ? (
+    // v7.26: Outage Permissions -- a dedicated bulk-grant screen, shown
+    // only to users whose allowedTabs include the tab (the server gate in
+    // grantOutagePermissions is the real enforcement).
+    userPermissions[username]?.allowedTabs?.includes('outage_permissions') ? (
+      <OutagePermissions
+        isLoading={isLoading}
+        setIsLoading={setIsLoading}
+        setError={setError}
+        setSuccessMessage={setSuccessMessage}
+        userPermissions={userPermissions}
+        username={username}
+        users={data.users}
+        classSections={classSections}
+      />
+    ) : (
+      <div className="card p-6">
+        <div className="text-center py-8">
+          <i className="uil uil-lock text-5xl text-red-500 mb-4"></i>
+          <h3 className="text-xl font-semibold mb-2">Access Denied</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            You do not have permission to access Outage Permissions.
+          </p>
+        </div>
+      </div>
+    )
   ) : activeTab === 'users' ? (
     <UserManagement
       table={activeTab}
@@ -2238,6 +2457,16 @@ function UserManagement({ table, data, users, classSections, classes, classSecti
       const [deleteParams, setDeleteParams] = useState({ table: '', index: null, rowNumber: null });
       const [message, setMessage] = useState('');
       const [activeView, setActiveView] = useState('cards'); // 'cards' or 'table'
+      // v7.21: the Add/Edit form is a modal popup now. formSnapshot keeps
+      // the values as opened, so a backdrop click, Escape or Cancel can
+      // ask before discarding typed changes.
+      const [formSnapshot, setFormSnapshot] = useState(null);
+      // v7.24: the row exactly as stored in the sheet, kept at Edit-open
+      // (before the v7.23 split / rights normalization), so Update can tell
+      // a true no-change save from one that still has to write 'No's over
+      // blank stored rights.
+      const [openedRawRow, setOpenedRawRow] = useState(null);
+      const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
 
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -2254,7 +2483,82 @@ for (let h = 0; h < 24; h++) {
         setMessage('');
         setIsAdding(false);
         setEditingIndex(null);
+        setFormSnapshot(null);
+        setOpenedRawRow(null);
+        setShowDiscardConfirm(false);
       };
+      const formIsDirty = () => formSnapshot !== null && JSON.stringify(formData) !== JSON.stringify(formSnapshot);
+      const requestCloseForm = () => {
+        if (formIsDirty()) { setShowDiscardConfirm(true); return; }
+        clearForm();
+      };
+      useEffect(() => {
+        if (!(isAdding || editingIndex !== null)) return;
+        const onKey = (e) => { if (e.key === 'Escape') requestCloseForm(); };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+      }, [isAdding, editingIndex, formData, formSnapshot]);
+
+      // v7.21: toggle switches write the same string values the old
+      // dropdowns wrote ('Active'/'Inactive' for Status, 'Yes'/'No' for
+      // the permission flags), so payloads are unchanged.
+      const isToggleField = (field) => field.name === 'Status' || (field.type === 'select' && Array.isArray(field.options) && field.options.length === 2 && field.options[0] === 'Yes' && field.options[1] === 'No');
+      const toggleOnValue = (field) => field.name === 'Status' ? 'Active' : 'Yes';
+      const toggleOffValue = (field) => field.name === 'Status' ? 'Inactive' : 'No';
+      const handleToggleValue = (field) => (e) => {
+        setFormData(prev => ({ ...prev, [field.name]: e.target.checked ? toggleOnValue(field) : toggleOffValue(field) }));
+        setFormErrors(prev => ({ ...prev, [field.name]: '' }));
+      };
+      // v7.21: checkbox grids and day chips write the same arrays the old
+      // multi-selects wrote, in the same option order (group order for
+      // grouped options), so payloads are unchanged.
+      const handleMultiToggle = (field, value) => {
+        const canonical = field.optionGroups ? field.optionGroups.flatMap(g => g.options) : field.options;
+        setFormData(prev => {
+          const cur = Array.isArray(prev[field.name]) ? prev[field.name] : [];
+          const next = cur.indexOf(value) !== -1 ? cur.filter(v => v !== value) : [...cur, value];
+          return { ...prev, [field.name]: canonical.filter(o => next.indexOf(o) !== -1) };
+        });
+        setFormErrors(prev => ({ ...prev, [field.name]: '' }));
+      };
+
+      // v7.22: the allowedTabs grid shows "key | Display Name" so an
+      // admin can recognise each tab. The display names are the
+      // sidebar's own labels for the same keys, verbatim; a key with no
+      // sidebar label falls back to the sidebar's humanising
+      // (underscores to spaces, title case). Display only — the saved
+      // values stay the keys.
+      const tabDisplayNames = {
+        users: 'Users',
+        user_permissions: 'User Permissions',
+        teacher_assignments: 'Teacher Assignments',
+        class_sections: 'Class Sections',
+        student_data: 'Student Data',
+        transfer_certificates: 'Transfer Certificates',
+        previous_date_permissions: 'Previous Date Permissions',
+        outage_permissions: 'Outage Permissions',
+        attendance_correction: 'Attendance Correction',
+        terms: 'Terms',
+        class_terms: 'Class Terms',
+        leaving_reasons: 'Leaving Reasons',
+        countries: 'Countries',
+        rec_names: 'Rec Names',
+        hours_setup: 'Hours Setup',
+        hour_categories: 'Hour Categories',
+        qr_management: 'QR Code Management',
+        reserve_codes: 'Reserve Codes',
+        student_attendance: 'Student Attendance Raw Report',
+        student_reports: 'Student Class Wise Report',
+        audit_reports: 'Audit Reports',
+        attendance_reports: 'Attendance Reports',
+        monthly_bar_report: 'Monthly Day Wise Report',
+        access_hours_report: 'ACCESS Hours Report',
+        daily_hours_report: 'Daily Hours Report',
+        itreb_report: 'ITREB Report',
+        batch_hours_log: 'Batch Hours Log',
+        attendance_correction_log: 'Attendance Correction Log'
+      };
+      const tabDisplayLabel = (key) => tabDisplayNames[key] || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
       const formatTimeDisplay = (timeValue) => {
         if (!timeValue) return 'Not set';
@@ -2305,9 +2609,9 @@ for (let h = 0; h < 24; h++) {
       ]},
       { section: 'Admin Access', fields: [
        { name: 'allowedTabs', type: 'select-multiple', 
-  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'], 
+  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'outage_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'], 
   optionGroups: [
-    { label: 'Functions', options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'] },
+    { label: 'Functions', options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'outage_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'] },
     { label: 'Reports', options: ['student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report'] },
   ],
   required: true, 
@@ -2356,9 +2660,51 @@ for (let h = 0; h < 24; h++) {
 
 const handleSubmit = async (e) => {
   e.preventDefault();
+  // v7.24: on Edit, when the form is untouched since it was opened AND
+  // the stored row already carries every right as 'Yes'/'No', Update has
+  // nothing to do -- say so and close, with no server call and no row
+  // rewrite. The rights comparison runs against the raw stored row
+  // (openedRawRow), not the normalized form values, so a record whose
+  // stored rights are still blank saves for real (the v7.23 cleanup)
+  // even when nothing was typed.
+  if (editingIndex !== null && openedRawRow !== null && !formIsDirty() &&
+    ['student_delete', 'canDeleteUsers', 'canQueryAttendance', 'canDownload', 'canAmendSIRN', 'canCorrectAttendance'].every(k =>
+      String(openedRawRow[k] == null ? '' : openedRawRow[k]) === String(formData[k] == null ? '' : formData[k]))) {
+    setSuccessMessage('No changes to save.');
+    clearForm();
+    return;
+  }
   if (!validateForm()) return;
   const targetTable = table === 'class_sections' ? subTab : table;
   const dataToSubmit = { ...formData };
+
+  // v7.22 (Add only): never send the other user type's values. If the
+  // type was flipped back and forth while filling the form, stale hidden
+  // values must not reach the backend. handleInputChange already clears
+  // them when the type changes — this is the safety net.
+  if (editingIndex === null && dataToSubmit.UserType === 'teacher') {
+    delete dataToSubmit.allowedTabs;
+    delete dataToSubmit.student_delete;
+    delete dataToSubmit.canDeleteUsers;
+    delete dataToSubmit.canQueryAttendance;
+    delete dataToSubmit.canDownload;
+    delete dataToSubmit.canAmendSIRN;
+    delete dataToSubmit.canCorrectAttendance;
+  }
+  if (editingIndex === null && dataToSubmit.UserType === 'admin') {
+    delete dataToSubmit.AllowedDays;
+    delete dataToSubmit.StartTime;
+    delete dataToSubmit.EndTime;
+    delete dataToSubmit.DaySchedule;
+  }
+
+  // v7.23: an admin/superadmin save always passes every right as 'Yes'
+  // or 'No' -- a right that is not granted is 'No', never blank/absent.
+  if (dataToSubmit.UserType === 'admin' || dataToSubmit.UserType === 'superadmin') {
+    ['student_delete', 'canDeleteUsers', 'canQueryAttendance', 'canDownload', 'canAmendSIRN', 'canCorrectAttendance'].forEach(k => {
+      dataToSubmit[k] = dataToSubmit[k] === 'Yes' ? 'Yes' : 'No';
+    });
+  }
 
   if (table === 'class_sections' && subTab === 'class_mappings') {
     dataToSubmit.Sections = formData.Sections;
@@ -2426,6 +2772,7 @@ const editingRow = visibleUsers[editingIndex];
         setSuccessMessage(result.message || 'Record updated successfully');
         setFormData({});
         setEditingIndex(null);
+        setOpenedRawRow(null);
         setFormErrors({});
         setError('');
        refreshData();
@@ -2465,9 +2812,21 @@ const editingRow = visibleUsers[editingIndex];
         setIsAdding(false);
                 const item = visibleUsers[index];
         const newFormData = { ...item };
-        newFormData.allowedTabs = item.allowedTabs ? item.allowedTabs.split(',') : [];
-        newFormData.AllowedDays = item.AllowedDays ? item.AllowedDays.split(',') : [];
+        // v7.23: allowedTabs/AllowedDays may already be lists (a user added
+        // in this same session, whose returned row is the form object) --
+        // keep a list as-is, split text on ',', blank/absent becomes [].
+        newFormData.allowedTabs = Array.isArray(item.allowedTabs) ? item.allowedTabs : (item.allowedTabs ? item.allowedTabs.split(',') : []);
+        newFormData.AllowedDays = Array.isArray(item.AllowedDays) ? item.AllowedDays : (item.AllowedDays ? item.AllowedDays.split(',') : []);
+        // v7.23: a previous entry may hold a right as blank -- open it as
+        // 'No', so the form always carries 'Yes'/'No' for all six rights.
+        ['student_delete', 'canDeleteUsers', 'canQueryAttendance', 'canDownload', 'canAmendSIRN', 'canCorrectAttendance'].forEach(k => {
+          newFormData[k] = newFormData[k] === 'Yes' ? 'Yes' : 'No';
+        });
         setFormData(newFormData);
+        setFormSnapshot(JSON.parse(JSON.stringify(newFormData)));
+        // v7.24: keep the row as stored, for the no-changes check in
+        // handleSubmit.
+        setOpenedRawRow(item);
       };
 
 
@@ -2493,8 +2852,26 @@ const editingRow = visibleUsers[editingIndex];
   setFormData(prev => {
     const next = { ...prev, [name]: type === 'checkbox' ? checked : value };
     if (name === 'UserType' && value === 'teacher') {
+      // v7.22: switching to teacher clears the admin-only values, so a
+      // hidden admin field can never ride along to the backend.
+      delete next.allowedTabs;
+      delete next.student_delete;
+      delete next.canDeleteUsers;
+      delete next.canQueryAttendance;
+      delete next.canDownload;
+      delete next.canAmendSIRN;
+      delete next.canCorrectAttendance;
       if (!next.StartTime) next.StartTime = '18:00';
       if (!next.EndTime) next.EndTime = '21:30';
+    }
+    if (name === 'UserType' && value === 'admin') {
+      // v7.22: switching to admin clears the teacher-only values. The
+      // Per-Day Schedule Override inputs keep their values in the one
+      // DaySchedule JSON string, so deleting it clears them all.
+      delete next.AllowedDays;
+      delete next.StartTime;
+      delete next.EndTime;
+      delete next.DaySchedule;
     }
     return next;
   });
@@ -2527,8 +2904,71 @@ const editingRow = visibleUsers[editingIndex];
               </div>
               <div className="form-row">
                 {visibleFields.map(field => (
-                  <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
-                    {field.type === 'select' ? (
+                  <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''} ${isToggleField(field) && field.required ? 'toggle-required' : ''}`}>
+                    {isToggleField(field) ? (
+                      <>
+                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                        <div className="toggle-field">
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              name={field.name}
+                              checked={(formData[field.name] || '') === toggleOnValue(field)}
+                              onChange={handleToggleValue(field)}
+                              id={field.name}
+                              disabled={field.disabled || (field.superadminOnly && !isSuperadmin) || (field.name === 'UserType' && editingIndex !== null)}
+                            />
+                            <span className="toggle-slider"></span>
+                          </label>
+                          <span className="toggle-state">{(formData[field.name] || '') === toggleOnValue(field) ? toggleOnValue(field) : toggleOffValue(field)}</span>
+                        </div>
+                      </>
+                    ) : field.name === 'allowedTabs' ? (
+                      <>
+                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                        <div id={field.name}>
+                          {field.optionGroups.map(group => (
+                            <div key={group.label}>
+                              <div className="checkbox-grid-group">{group.label}</div>
+                              <div className="checkbox-grid">
+                                {group.options.map(option => (
+                                  <label key={option} className="checkbox-grid-item">
+                                    <input
+                                      type="checkbox"
+                                      className="accent-check"
+                                      checked={(formData[field.name] || []).indexOf(option) !== -1}
+                                      onChange={() => handleMultiToggle(field, option)}
+                                    />
+                                    {option} | {tabDisplayLabel(option)}
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="multi-select-count">{(formData[field.name] || []).length} of {field.options.length} selected</p>
+                      </>
+                    ) : field.name === 'AllowedDays' ? (
+                      <>
+                        <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                        <div className="day-chips" id={field.name}>
+                          {field.options.map(day => {
+                            const selected = (formData[field.name] || []).indexOf(day) !== -1;
+                            return (
+                              <button
+                                key={day}
+                                type="button"
+                                className={`day-chip ${selected ? 'selected' : ''}`}
+                                aria-pressed={selected}
+                                onClick={() => handleMultiToggle(field, day)}
+                              >
+                                {day.slice(0, 3)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : field.type === 'select' ? (
                       <>
                         <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                         <select
@@ -2747,7 +3187,12 @@ const editingRow = visibleUsers[editingIndex];
               <button
                 onClick={() => {
   setIsAdding(true);
-  setFormData(recId ? { Password: recId + '-' } : {});
+  // v7.21: Status is a toggle now, so a new user starts as Active
+  // (flip the toggle in the form to create an Inactive user instead).
+  const initial = recId ? { Password: recId + '-', Status: 'Active' } : { Status: 'Active' };
+  setFormData(initial);
+  setFormSnapshot(initial);
+  setOpenedRawRow(null);
 }}
                 className="btn-primary"
               >
@@ -2764,9 +3209,14 @@ const editingRow = visibleUsers[editingIndex];
           </div>
 
           {(isAdding || editingIndex !== null) && (
-            <div className="form-container mb-6">
-              <h3 className="text-lg font-semibold mb-4">{editingIndex !== null ? 'Edit' : 'Add'} User</h3>
-              <form onSubmit={handleSubmit}>
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={requestCloseForm}>
+              <div className="card p-6 form-modal-card max-w-3xl" onClick={e => e.stopPropagation()}>
+                <form onSubmit={handleSubmit} className="form-modal-form">
+                  <div className="form-modal-header">
+                    <h3 className="text-lg font-semibold">{editingIndex !== null ? 'Edit' : 'Add'} User</h3>
+                    <button type="button" onClick={requestCloseForm} className="btn-outline px-3 py-1" aria-label="Close"><i className="uil uil-times"></i></button>
+                  </div>
+                  <div className="form-modal-body">
                                 {renderFormFields()}
                 {(formData.AllowedDays || []).length > 0 && (
                   <div className="form-section">
@@ -2816,28 +3266,54 @@ const editingRow = visibleUsers[editingIndex];
                 {message && (
                   <p className="form-message">{message}</p>
                 )}
-                <div className="form-actions">
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
-                  >
-                    {isLoading ? (
-                      <>
-                        <i className="uil uil-spinner text-xl loading-spinner"></i>
-                        Saving...
-                      </>
-                    ) : editingIndex !== null ? 'Update User' : 'Add User'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={clearForm}
-                    className="btn-outline"
-                  >
-                    Cancel
-                  </button>
+                  </div>
+                  <div className="form-modal-footer">
+                    <div className="form-actions">
+                      <button
+                        type="submit"
+                        disabled={isLoading}
+                        className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+                      >
+                        {isLoading ? (
+                          <>
+                            <i className="uil uil-spinner text-xl loading-spinner"></i>
+                            Saving...
+                          </>
+                        ) : editingIndex !== null ? 'Update User' : 'Add User'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={requestCloseForm}
+                        className="btn-outline"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+              {showDiscardConfirm && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={e => e.stopPropagation()}>
+                  <div className="card p-6 max-w-md w-full">
+                    <h3 className="text-lg font-semibold mb-4">Discard changes?</h3>
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">You have unsaved changes in this form. Discard them?</p>
+                    <div className="flex flex-col-reverse sm:flex-row gap-3">
+                      <button
+                        onClick={() => { setShowDiscardConfirm(false); clearForm(); }}
+                        className="btn-primary w-full sm:w-auto justify-center"
+                      >
+                        Discard changes
+                      </button>
+                      <button
+                        onClick={() => setShowDiscardConfirm(false)}
+                        className="btn-outline w-full sm:w-auto"
+                      >
+                        Keep editing
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </form>
+              )}
             </div>
           )}
 
@@ -9477,6 +9953,199 @@ function TransferCertificateView({ tcNumber, onClose, setIsLoading, setError, se
   );
 }
 
+// v7.26: Outage Permissions screen. After an outage day, a designated
+// admin grants previous-date access in bulk: ONE date (picked first),
+// several teachers, several class sections, one shared password, and a
+// 24/48/72-hour window. The server (grantOutagePermissions) writes
+// ordinary Previous_Date_Permissions rows -- one per teacher x class --
+// so the marking app honours them exactly like single grants, and it
+// reports every skip (already had access / class not assigned / teacher
+// not found) for the summary shown here.
+function OutagePermissions({ isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, username, users, classSections }) {
+  const [outageDate, setOutageDate] = useState('');
+  const [selectedTeachers, setSelectedTeachers] = useState([]);
+  const [selectedClasses, setSelectedClasses] = useState([]);
+  const [attendanceType, setAttendanceType] = useState('Both');
+  const [windowHours, setWindowHours] = useState(48);
+  const [outagePassword, setOutagePassword] = useState('');
+  const [grantResult, setGrantResult] = useState(null);
+  const [isGranting, setIsGranting] = useState(false);
+
+  const teacherNames = (users || []).filter(u => {
+    const t = String(u.UserType || '').trim().toLowerCase();
+    return t !== 'admin' && t !== 'superadmin';
+  }).map(u => u.Username).filter(Boolean);
+  const allClasses = classSections || [];
+
+  const todayStr = (() => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  })();
+
+  const toggleValue = (list, setList, value) => {
+    setList(list.indexOf(value) !== -1 ? list.filter(v => v !== value) : [...list, value]);
+  };
+
+  const handleGrant = async () => {
+    setGrantResult(null);
+    if (!outageDate) { setError('Please select the outage date.'); return; }
+    if (selectedTeachers.length === 0) { setError('Please select at least one teacher.'); return; }
+    if (selectedClasses.length === 0) { setError('Please select at least one class section.'); return; }
+    if (!outagePassword.trim()) { setError('Please enter the password the teachers will type for this date.'); return; }
+    setIsGranting(true);
+    setIsLoading(true);
+    try {
+      const res = await callWithRetry('grantOutagePermissions', {
+        date: outageDate,
+        usernames: selectedTeachers,
+        classSections: selectedClasses,
+        attendanceType: attendanceType,
+        hours: parseInt(windowHours, 10) || 48,
+        password: outagePassword
+      }, username);
+      if (res && res.success) {
+        setGrantResult(res);
+        setSuccessMessage(res.message);
+        setError('');
+        setOutagePassword('');
+      } else {
+        setError((res && res.message) || 'Failed to grant outage permissions.');
+      }
+    } catch (err) {
+      setError('Failed to grant outage permissions: ' + err.message);
+    }
+    setIsGranting(false);
+    setIsLoading(false);
+  };
+
+  const pairList = (title, pairs) => (
+    pairs && pairs.length > 0 ? (
+      <div className="mb-3">
+        <p className="font-semibold text-sm mb-1">{title} ({pairs.length})</p>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-sm" style={{ maxHeight: '140px', overflowY: 'auto' }}>
+          {pairs.map((p, idx) => (<div key={idx}>{p}</div>))}
+        </div>
+      </div>
+    ) : null
+  );
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center mb-2">
+        <i className="uil uil-calendar-alt text-2xl text-accent mr-2"></i>
+        <h3 className="text-xl font-semibold">Outage Permissions</h3>
+      </div>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        For a day lost to an outage: pick the date, the teachers and the classes, and one password.
+        A normal previous-date permission is created for every teacher for each of their own classes you tick --
+        a class a teacher does not teach is skipped, and so is anyone who already has access for that date.
+      </p>
+
+      <div className="form-field mb-4">
+        <label htmlFor="outageDate">Date</label>
+        <input
+          type="date"
+          id="outageDate"
+          className="form-input"
+          value={outageDate}
+          max={todayStr}
+          onChange={e => setOutageDate(e.target.value)}
+        />
+      </div>
+
+      <div className="form-field mb-4">
+        <label>Teachers</label>
+        <div className="flex gap-2 mb-2">
+          <button type="button" className="btn-outline text-sm" onClick={() => setSelectedTeachers(teacherNames.slice())}>Select all</button>
+          <button type="button" className="btn-outline text-sm" onClick={() => setSelectedTeachers([])}>Clear</button>
+        </div>
+        <div className="checkbox-grid">
+          {teacherNames.map(name => (
+            <label key={name} className="checkbox-grid-item">
+              <input
+                type="checkbox"
+                className="accent-check"
+                checked={selectedTeachers.indexOf(name) !== -1}
+                onChange={() => toggleValue(selectedTeachers, setSelectedTeachers, name)}
+              />
+              {name}
+            </label>
+          ))}
+        </div>
+        <p className="multi-select-count">{selectedTeachers.length} of {teacherNames.length} selected</p>
+      </div>
+
+      <div className="form-field mb-4">
+        <label>Class Sections</label>
+        <div className="flex gap-2 mb-2">
+          <button type="button" className="btn-outline text-sm" onClick={() => setSelectedClasses(allClasses.slice())}>Select all</button>
+          <button type="button" className="btn-outline text-sm" onClick={() => setSelectedClasses([])}>Clear</button>
+        </div>
+        <div className="checkbox-grid">
+          {allClasses.map(cs => (
+            <label key={cs} className="checkbox-grid-item">
+              <input
+                type="checkbox"
+                className="accent-check"
+                checked={selectedClasses.indexOf(cs) !== -1}
+                onChange={() => toggleValue(selectedClasses, setSelectedClasses, cs)}
+              />
+              {cs}
+            </label>
+          ))}
+        </div>
+        <p className="multi-select-count">{selectedClasses.length} of {allClasses.length} selected</p>
+      </div>
+
+      <div className="form-row mb-4">
+        <div className="form-field">
+          <label htmlFor="outageType">Attendance Type</label>
+          <select id="outageType" className="form-input" value={attendanceType} onChange={e => setAttendanceType(e.target.value)}>
+            <option value="Both">Both</option>
+            <option value="Normal">Normal</option>
+            <option value="Episodic">Episodic</option>
+          </select>
+        </div>
+        <div className="form-field">
+          <label htmlFor="outageWindow">Access Window</label>
+          <select id="outageWindow" className="form-input" value={windowHours} onChange={e => setWindowHours(parseInt(e.target.value, 10) || 48)}>
+            <option value={24}>24 hours</option>
+            <option value={48}>48 hours</option>
+            <option value={72}>72 hours</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="form-field mb-4">
+        <label htmlFor="outagePassword">Password</label>
+        <input
+          type="text"
+          id="outagePassword"
+          className="form-input"
+          value={outagePassword}
+          onChange={e => setOutagePassword(e.target.value)}
+          placeholder="Enter one password for all the permissions"
+        />
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">This is the password the teachers will type when they mark attendance for this date. Tell them what you set here.</p>
+      </div>
+
+      <button type="button" className="btn-primary" onClick={handleGrant} disabled={isGranting || isLoading}>
+        {isGranting ? 'Granting\u2026' : 'Grant Permissions'}
+      </button>
+
+      {grantResult && (
+        <div className="mt-6">
+          <p className="font-semibold mb-3">{grantResult.message}</p>
+          {pairList('Created', grantResult.createdPairs)}
+          {pairList('Skipped \u2014 already had access for this date', grantResult.skippedDuplicate)}
+          {pairList('Skipped \u2014 class not assigned to that teacher', grantResult.skippedNotAssigned)}
+          {pairList('Skipped \u2014 teacher not found at your school', grantResult.skippedUnknownUser)}
+        </div>
+      )}
+    </div>
+  );
+}
+
   function TableManager({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, genderOptions, recNames, onViewTc, setSuccessMessage, setError, username, userPermissions, recId }) {
       const [isAdding, setIsAdding] = useState(false);
       const [editingIndex, setEditingIndex] = useState(null);
@@ -9487,6 +10156,11 @@ function TransferCertificateView({ tcNumber, onClose, setIsLoading, setError, se
       const [deleteParams, setDeleteParams] = useState({ table: '', index: null, rowNumber: null });
       const [subTab, setSubTab] = useState('class_mappings');
       const [message, setMessage] = useState('');
+      // v7.21: on these four tables the Add/Edit form opens as a modal
+      // popup; every other table keeps the embedded form above its table.
+      const isModalFormTable = table === 'student_data' || table === 'user_permissions' || table === 'teacher_assignments' || table === 'previous_date_permissions';
+      const [formSnapshot, setFormSnapshot] = useState(null);
+      const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
       // v7.10: Transfer Certificate details for a new deactivation, and the
       // TC created by the last successful deactivation (for View/Print).
       const [tcData, setTcData] = useState({});
@@ -9500,6 +10174,20 @@ function TransferCertificateView({ tcNumber, onClose, setIsLoading, setError, se
         callWithRetry('getCountries', username).then(r => { if (Array.isArray(r)) setCountries(r); }).catch(() => {});
       };
       useEffect(() => { loadTcLists(); }, []);
+      // v7.22: TableManager serves many tables with one shared form
+      // state. If a form is left open and the admin switches table (or
+      // the class_sections sub-tab), the open form must not follow them
+      // into the new table — reset it. Fires only when table or subTab
+      // changes, never during normal form use on the same table.
+      useEffect(() => {
+        setIsAdding(false);
+        setEditingIndex(null);
+        setFormData({});
+        setFormSnapshot(null);
+        setShowDiscardConfirm(false);
+        setFormErrors({});
+        setMessage('');
+      }, [table, subTab]);
       // v7.11: Deactivate popup (row being deactivated), Reactivate confirm
       // (row being reactivated), and the re-joining lookup on Add.
       const [deactivateRow, setDeactivateRow] = useState(null);
@@ -9647,6 +10335,41 @@ const handleAddClassMapping = async (e) => {
         setIsAdding(false);
         setEditingIndex(null);
         setIsStdIdEditable(table === 'student_data' ? false : false);
+        setFormSnapshot(null);
+        setShowDiscardConfirm(false);
+      };
+      const formIsDirty = () => formSnapshot !== null && JSON.stringify(formData) !== JSON.stringify(formSnapshot);
+      const requestCloseForm = () => {
+        if (isModalFormTable && formIsDirty()) { setShowDiscardConfirm(true); return; }
+        clearForm();
+      };
+      useEffect(() => {
+        if (!isModalFormTable || !(isAdding || editingIndex !== null)) return;
+        const onKey = (e) => {
+          if (e.key !== 'Escape') return;
+          if (deactivateRow || reactivateRow || showDeleteConfirm) return;
+          requestCloseForm();
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+      }, [isModalFormTable, isAdding, editingIndex, formData, formSnapshot, deactivateRow, reactivateRow, showDeleteConfirm]);
+
+      // v7.21: the student Status toggle writes the same string values
+      // the old dropdown wrote, so payloads are unchanged.
+      const handleToggleValue = (name, onValue, offValue) => (e) => {
+        setFormData(prev => ({ ...prev, [name]: e.target.checked ? onValue : offValue }));
+        setFormErrors(prev => ({ ...prev, [name]: '' }));
+      };
+      // v7.21: the class-section checkbox grid writes the same array the
+      // old multi-select wrote, in the same option order; the submit
+      // handler still joins it with ',' exactly as before.
+      const handleGridToggle = (name, options, value) => {
+        setFormData(prev => {
+          const cur = Array.isArray(prev[name]) ? prev[name] : [];
+          const next = cur.indexOf(value) !== -1 ? cur.filter(v => v !== value) : [...cur, value];
+          return { ...prev, [name]: (options || []).filter(o => next.indexOf(o) !== -1) };
+        });
+        setFormErrors(prev => ({ ...prev, [name]: '' }));
       };
 
    const getDayOfWeek = (dateStr) => {
@@ -9732,7 +10455,9 @@ const prevPermClassOptions_ = (username) => {
   });
   assigned.sort();
   const base = assigned.length ? assigned : [...(classSections || [])];
-  const own = formData.Class_Section ? String(formData.Class_Section).trim() : '';
+  // v7.25: on Add, Class_Section is an array (multi-select) — the
+  // row's-own-class addition below is for Edit's single value only.
+  const own = typeof formData.Class_Section === 'string' ? formData.Class_Section.trim() : '';
   return own && base.indexOf(own) === -1 ? [...base, own] : base;
 };
 
@@ -9796,7 +10521,10 @@ const prevPermClassOptions_ = (username) => {
           fields: [
             { section: 'Date Permissions', fields: [
               { name: 'Username', type: 'select', options: nonAdminUsers.map(u => u.Username), required: true, placeholder: 'Select username' },
-              { name: 'Class_Section', type: 'select', options: prevPermClassOptions_(formData.Username), required: true, placeholder: 'Select class' },
+              // v7.25: on Add the class field is a multi-select tick grid
+              // (one row is saved per ticked class — see handleSubmit); on
+              // Edit it stays the single select it has always been.
+              { name: 'Class_Section', type: editingIndex !== null ? 'select' : 'select-multiple', options: prevPermClassOptions_(formData.Username), required: true, placeholder: 'Select class' },
               { name: 'Allowed_Date', type: 'date', required: true, placeholder: 'Select date' },
               { name: 'Day', type: 'text', disabled: true, placeholder: 'Day' },
               { name: 'Password', type: 'text', required: true, placeholder: 'Enter password' },
@@ -10288,6 +11016,58 @@ if (table === 'hour_categories' && Array.isArray(formData.Applicable_Classes)) {
       setError('Update failed after retries: ' + err.message);
     }
     setIsLoading(false);
+  } else if (table === 'previous_date_permissions' && Array.isArray(formData.Class_Section) && formData.Class_Section.length > 0) {
+    // v7.25: Previous Date Permissions Add fans out — one addSheetRow
+    // call per ticked class, every other field identical, so the sheet
+    // keeps one row per Username + Allowed_Date + Class_Section and the
+    // server's per-class duplicate check runs exactly as before. A class
+    // the server refuses as a duplicate is reported as already having
+    // access for the date and is NOT saved; any other refusal is
+    // reported as an error with the server's message.
+    const pickedClasses = formData.Class_Section.slice();
+    const addedClasses = [];
+    const dupeClasses = [];
+    const failedClasses = [];
+    const addedRows = [];
+    for (const cls of pickedClasses) {
+      const perClassData = { ...dataToSubmit, Class_Section: cls };
+      try {
+        const r = await callWithRetry('addSheetRow', targetTable, perClassData, username);
+        if (r.success) {
+          addedClasses.push(cls);
+          if (r.data) addedRows.push(r.data);
+        } else if ((r.message || '') === 'This user already has permission for this date for this class.') {
+          dupeClasses.push(cls);
+        } else {
+          failedClasses.push(cls + ' (' + (r.message || 'Add failed') + ')');
+        }
+      } catch (err) {
+        failedClasses.push(cls + ' (' + err.message + ')');
+      }
+    }
+    if (addedClasses.length > 0) {
+      const parts = [];
+      parts.push(addedClasses.length === 1 && pickedClasses.length === 1 ? 'Record added successfully' : 'Added for ' + addedClasses.join(', ') + '.');
+      dupeClasses.forEach(cls => parts.push(cls + ' already has access for this date — not saved.'));
+      failedClasses.forEach(f => parts.push('Could not add ' + f + '.'));
+      setSuccessMessage(parts.join(' '));
+      if (addedRows.length > 0) {
+        setData(prev => ({
+          ...prev,
+          [targetTable]: [...prev[targetTable], ...addedRows],
+        }));
+      }
+      setFormData({});
+      setIsAdding(false);
+      setFormErrors({});
+      setError('');
+    } else {
+      const parts = [];
+      dupeClasses.forEach(cls => parts.push(cls + ' already has access for this date — not saved.'));
+      failedClasses.forEach(f => parts.push('Could not add ' + f + '.'));
+      setError(parts.join(' ') || 'Add failed');
+    }
+    setIsLoading(false);
   } else {
     try {
       const result = await callWithRetry('addSheetRow', targetTable, dataToSubmit, username);
@@ -10321,8 +11101,14 @@ if (table === 'hour_categories' && Array.isArray(formData.Applicable_Classes)) {
 
         const newFormData = { ...item };
         if (table === 'users') {
-          newFormData.allowedTabs = item.allowedTabs ? item.allowedTabs.split(',') : [];
-          newFormData.AllowedDays = item.AllowedDays ? item.AllowedDays.split(',') : [];
+          // v7.23: same as UserManagement -- tolerate lists (keep a list
+          // as-is, split text, blank/absent becomes []), and open a
+          // blank-stored right as 'No'.
+          newFormData.allowedTabs = Array.isArray(item.allowedTabs) ? item.allowedTabs : (item.allowedTabs ? item.allowedTabs.split(',') : []);
+          newFormData.AllowedDays = Array.isArray(item.AllowedDays) ? item.AllowedDays : (item.AllowedDays ? item.AllowedDays.split(',') : []);
+          ['student_delete', 'canDeleteUsers', 'canQueryAttendance', 'canDownload', 'canAmendSIRN', 'canCorrectAttendance'].forEach(k => {
+            newFormData[k] = newFormData[k] === 'Yes' ? 'Yes' : 'No';
+          });
         }
 
         if (table === 'class_sections' && subTab === 'class_sections') {
@@ -10375,6 +11161,7 @@ if (table === 'hour_categories' && Array.isArray(formData.Applicable_Classes)) {
           });
         }
         setFormData(newFormData);
+        setFormSnapshot(JSON.parse(JSON.stringify(newFormData)));
         setIsStdIdEditable(false);
       };
 
@@ -10438,7 +11225,9 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
           setFormData(prev => ({ ...prev, Day: getDayOfWeek(value) }));
         }
         if (name === 'Username' && table === 'previous_date_permissions') {
-          setFormData(prev => ({ ...prev, Class_Section: '' }));
+          // v7.25: on Add the class field is a multi-select (an array);
+          // on Edit it stays a single value.
+          setFormData(prev => ({ ...prev, Class_Section: editingIndex === null ? [] : '' }));
         }
       };
 
@@ -10992,8 +11781,26 @@ if (name === 'Class' && table === 'class_sections' && subTab === 'class_sections
             </div>
               <div className={`form-row ${section.fields.every(f => f.type === 'checkbox') ? 'checkbox-row' : ''}`}>
               {section.fields.filter(field => !(table === 'student_data' && isAdding && field.name === 'Status')).map(field => (
-                <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''}`}>
-                  {field.type === 'select' ? (
+                <div key={field.name} className={`form-field ${field.type === 'checkbox' ? 'checkbox' : ''} ${table === 'student_data' && field.name === 'Status' && field.required ? 'toggle-required' : ''}`}>
+                  {table === 'student_data' && field.name === 'Status' ? (
+                    <>
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                      <div className="toggle-field">
+                        <label className="toggle-switch">
+                          <input
+                            type="checkbox"
+                            name={field.name}
+                            checked={(formData[field.name] || '') === 'Active'}
+                            onChange={handleToggleValue(field.name, 'Active', 'Inactive')}
+                            id={field.name}
+                            disabled={field.disabled}
+                          />
+                          <span className="toggle-slider"></span>
+                        </label>
+                        <span className="toggle-state">{(formData[field.name] || '') === 'Active' ? 'Active' : 'Inactive'}</span>
+                      </div>
+                    </>
+                  ) : field.type === 'select' ? (
                     <>
                       <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
                       <select
@@ -11045,6 +11852,26 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
 ))}
                       </select>
                     </>
+                  ) : (table === 'teacher_assignments' || (table === 'previous_date_permissions' && editingIndex === null)) && field.name === 'Class_Section' ? (
+                    <>
+                      {/* v7.25: Previous Date Permissions (Add only) shares this tick grid with Teacher Assignments. */}
+                      <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
+                      <div className="checkbox-grid" id={field.name}>
+                        {(field.options || []).map(option => (
+                          <label key={option} className="checkbox-grid-item">
+                            <input
+                              type="checkbox"
+                              className="accent-check"
+                              checked={(formData[field.name] || []).indexOf(option) !== -1}
+                              onChange={() => handleGridToggle(field.name, field.options, option)}
+                              disabled={field.disabled}
+                            />
+                            {option}
+                          </label>
+                        ))}
+                      </div>
+                      <p className="multi-select-count">{(formData[field.name] || []).length} of {(field.options || []).length} selected</p>
+                    </>
                   ) : field.type === 'select-multiple' ? (
                     <>
                       <label htmlFor={field.name}>{field.name.replace('_', ' ')}</label>
@@ -11071,13 +11898,19 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
                     </>
                   ) : field.type === 'checkbox' ? (
                     <>
-                      <input
-                        type="checkbox"
-                        name={field.name}
-                        checked={formData[field.name] || false}
-                        onChange={handleInputChange}
-                        id={field.name}
-                      />
+                      <div className="toggle-field">
+                        <label className="toggle-switch">
+                          <input
+                            type="checkbox"
+                            name={field.name}
+                            checked={formData[field.name] || false}
+                            onChange={handleInputChange}
+                            id={field.name}
+                          />
+                          <span className="toggle-slider"></span>
+                        </label>
+                        <span className="toggle-state">{formData[field.name] ? 'Yes' : 'No'}</span>
+                      </div>
                       <label htmlFor={field.name}>{field.placeholder}</label>
                     </>
                   ) : (
@@ -11130,7 +11963,91 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
               </button>
             </div>
           )}
-          {(isAdding || editingIndex !== null) && (
+          {(isAdding || editingIndex !== null) && isModalFormTable && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={requestCloseForm}>
+              <div className={`card p-6 form-modal-card ${table === 'student_data' ? 'max-w-4xl' : 'max-w-2xl'}`} onClick={e => e.stopPropagation()}>
+                <form onSubmit={table === 'student_data' ? handleStudentSubmit : handleSubmit} className="form-modal-form">
+                  <div className="form-modal-header">
+                    <h3 className="text-lg font-semibold">{editingIndex !== null ? 'Edit' : 'Add'} {table.replace('_', ' ')}</h3>
+                    <button type="button" onClick={requestCloseForm} className="btn-outline px-3 py-1" aria-label="Close"><i className="uil uil-times"></i></button>
+                  </div>
+                  <div className="form-modal-body">
+                    {renderFormFields()}
+                    {table === 'student_data' && isAdding && renderPrevLookup()}
+                    {lastTc && (
+                      <div className="notification success mb-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span>{lastTc.Type === 'Transfer' ? 'Transfer certificate ' + (lastTc.TC_Number || '') + ' created.' : 'Error deactivation recorded. The student record is now locked.'}</span>
+                          <button type="button" onClick={() => onViewTc && onViewTc(lastTc.TC_Number || ('row:' + lastTc._rowNumber))} className="btn-primary">View / Print TC</button>
+                        </div>
+                      </div>
+                    )}
+                    {formErrors.general && (
+                      <p className={`${formErrors.general.includes('successfully') ? 'form-message' : 'form-error'}`}>{formErrors.general}</p>
+                    )}
+                    {message && (
+                      <p className="form-message">{message}</p>
+                    )}
+                  </div>
+                  <div className="form-modal-footer">
+                    <div className="form-actions">
+                      <button
+                        type="submit"
+                        disabled={isLoading}
+                        className={`btn-primary ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
+                      >
+                        {isLoading ? (
+                          <>
+                            <i className="uil uil-spinner text-xl loading-spinner"></i>
+                            Saving...
+                          </>
+                        ) : editingIndex !== null ? 'Update' : 'Add'}
+                      </button>
+                      {table === 'student_data' && editingIndex !== null && canAmendSIRN && (
+                        <button
+                          type="button"
+                          onClick={() => setIsStdIdEditable(!isStdIdEditable)}
+                          className="btn-outline"
+                        >
+                          {isStdIdEditable ? 'Lock SIRN' : 'Amend SIRN'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={requestCloseForm}
+                        className="btn-outline"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+              {showDiscardConfirm && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={e => e.stopPropagation()}>
+                  <div className="card p-6 max-w-md w-full">
+                    <h3 className="text-lg font-semibold mb-4">Discard changes?</h3>
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">You have unsaved changes in this form. Discard them?</p>
+                    <div className="flex flex-col-reverse sm:flex-row gap-3">
+                      <button
+                        onClick={() => { setShowDiscardConfirm(false); clearForm(); }}
+                        className="btn-primary w-full sm:w-auto justify-center"
+                      >
+                        Discard changes
+                      </button>
+                      <button
+                        onClick={() => setShowDiscardConfirm(false)}
+                        className="btn-outline w-full sm:w-auto"
+                      >
+                        Keep editing
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {(isAdding || editingIndex !== null) && !isModalFormTable && (
             <div className="form-container mb-6">
               <h3 className="text-lg font-semibold mb-4">{editingIndex !== null ? 'Edit' : 'Add'} {table === 'class_sections' ? subTab.replace('_', ' ') : table.replace('_', ' ')}</h3>
               {hoursConfigLocked && (
@@ -11218,6 +12135,7 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
             defaults.Barcode_ID = barcodeField ? barcodeField.placeholder : '';
           }
           setFormData(defaults);
+          setFormSnapshot(JSON.parse(JSON.stringify(defaults)));
           setIsStdIdEditable(table === 'student_data');
           if (table === 'student_data') {
             setPrevSearch('');
@@ -11227,7 +12145,10 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
             try {
               const reserveResult = await callWithRetry('getSheetData', 'Reserve_Codes', recId);
               const unused = reserveResult.find(r => r.Status === 'Unused');
-              if (unused) setFormData(prev => ({ ...prev, Barcode_ID: unused.Barcode_ID }));
+              if (unused) {
+                setFormData(prev => ({ ...prev, Barcode_ID: unused.Barcode_ID }));
+                setFormSnapshot(prev => (prev ? { ...prev, Barcode_ID: unused.Barcode_ID } : prev));
+              }
             } catch (e) {
               // Reserve_Codes sheet may not exist yet
             }
