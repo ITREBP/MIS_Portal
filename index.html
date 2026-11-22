@@ -1874,7 +1874,7 @@ permissions[user.Username] = {
               <div className="nav-section">
                 <div className="nav-section-title">Class Management</div>
                 <ul>
-                  {['class_sections', 'student_data', 'transfer_certificates', 'previous_date_permissions', 'outage_permissions', 'attendance_correction', 'terms', 'class_terms'].map(tab => (
+                  {['class_sections', 'student_data', 'transfer_certificates', 'previous_date_permissions', 'outage_permissions', 'sheet_structure', 'attendance_correction', 'terms', 'class_terms'].map(tab => (
                     userPermissions[username]?.allowedTabs.includes(tab) && (
                       <li key={tab}>
                         <a
@@ -2376,6 +2376,28 @@ activeTab === 'qr_management' ? (
         </div>
       </div>
     )
+  ) : activeTab === 'sheet_structure' ? (
+    // v7.27: Sheet Structure -- a dedicated check screen, shown
+    // only to users whose allowedTabs include the tab (the server
+    // gate in runStructureCheck is the real enforcement).
+    userPermissions[username]?.allowedTabs?.includes('sheet_structure') ? (
+      <SheetStructure
+        setIsLoading={setIsLoading}
+        setError={setError}
+        setSuccessMessage={setSuccessMessage}
+        username={username}
+      />
+    ) : (
+      <div className="card p-6">
+        <div className="text-center py-8">
+          <i className="uil uil-lock text-5xl text-red-500 mb-4"></i>
+          <h3 className="text-xl font-semibold mb-2">Access Denied</h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            You do not have permission to access Sheet Structure.
+          </p>
+        </div>
+      </div>
+    )
   ) : activeTab === 'users' ? (
     <UserManagement
       table={activeTab}
@@ -2537,6 +2559,7 @@ for (let h = 0; h < 24; h++) {
         transfer_certificates: 'Transfer Certificates',
         previous_date_permissions: 'Previous Date Permissions',
         outage_permissions: 'Outage Permissions',
+        sheet_structure: 'Sheet Structure',
         attendance_correction: 'Attendance Correction',
         terms: 'Terms',
         class_terms: 'Class Terms',
@@ -2609,9 +2632,9 @@ for (let h = 0; h < 24; h++) {
       ]},
       { section: 'Admin Access', fields: [
        { name: 'allowedTabs', type: 'select-multiple', 
-  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'outage_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'], 
+  options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'outage_permissions', 'sheet_structure', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'], 
   optionGroups: [
-    { label: 'Functions', options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'outage_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'] },
+    { label: 'Functions', options: ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'outage_permissions', 'sheet_structure', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'] },
     { label: 'Reports', options: ['student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report'] },
   ],
   required: true, 
@@ -10146,6 +10169,89 @@ function OutagePermissions({ isLoading, setIsLoading, setError, setSuccessMessag
   );
 }
 
+// v7.27: Sheet Structure screen. One button runs the server-side
+// structure check (runStructureCheck): every sheet in the workbook is
+// compared with the columns the code expects, missing columns are
+// appended at the end, and anything the check will not touch (a
+// renamed column, a different column order) comes back as a warning
+// for a human. The Structure_Log history returned with the report is
+// shown beneath it. Nothing here runs on its own -- the quiet
+// login-time check is separate and shows nothing.
+function SheetStructure({ setIsLoading, setError, setSuccessMessage, username }) {
+  const [checkResult, setCheckResult] = useState(null);
+  const [isRunning, setIsRunning] = useState(false);
+
+  const handleRunCheck = async () => {
+    setCheckResult(null);
+    setIsRunning(true);
+    setIsLoading(true);
+    try {
+      const res = await callWithRetry('runStructureCheck', username);
+      if (res && res.success) {
+        setCheckResult(res);
+        setSuccessMessage(res.message);
+        setError('');
+      } else {
+        setError((res && res.message) || 'Structure check failed.');
+      }
+    } catch (err) {
+      setError('Structure check failed: ' + err.message);
+    }
+    setIsRunning(false);
+    setIsLoading(false);
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center mb-2">
+        <i className="uil uil-wrench text-2xl text-accent mr-2"></i>
+        <h3 className="text-xl font-semibold">Sheet Structure</h3>
+      </div>
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        Older school sheets can be missing newer columns. This check compares every sheet with the
+        columns the system expects and adds any missing column at the end — existing data is never
+        touched. A column that seems to have been renamed, or a sheet whose columns are in a
+        different order, is reported as a warning instead of being changed.
+      </p>
+
+      <button type="button" className="btn-primary" onClick={handleRunCheck} disabled={isRunning}>
+        {isRunning ? 'Checking\u2026' : 'Run Check'}
+      </button>
+
+      {checkResult && (
+        <div className="mt-6">
+          <p className="font-semibold mb-3">{checkResult.message}</p>
+          {checkResult.results.map((r, idx) => (
+            <div key={idx} className="mb-2 text-sm">
+              <span className="font-semibold">{r.sheet}</span>
+              {' — '}
+              {r.status === 'OK' && <span>OK</span>}
+              {r.status === 'Added' && <span>Added: {r.added.join(', ')}</span>}
+              {r.status === 'Not present' && <span>Not present — created when first used</span>}
+              {r.status === 'Warning' && <span>Warning</span>}
+              {r.warnings && r.warnings.length > 0 && (
+                <div className="text-amber-600 dark:text-amber-400">
+                  {r.warnings.map((w, wi) => (<div key={wi}>{w}</div>))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {checkResult.log && checkResult.log.length > 0 && (
+            <div className="mt-6">
+              <p className="font-semibold text-sm mb-1">Structure Log (latest {checkResult.log.length})</p>
+              <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-sm" style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                {checkResult.log.map((e, idx) => (
+                  <div key={idx}>{e.Timestamp} · {e.App} · {e.Sheet_Name} · {e.Detail} · {e.Via}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
   function TableManager({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, genderOptions, recNames, onViewTc, setSuccessMessage, setError, username, userPermissions, recId }) {
       const [isAdding, setIsAdding] = useState(false);
       const [editingIndex, setEditingIndex] = useState(null);

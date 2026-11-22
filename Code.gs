@@ -52,6 +52,9 @@ function authenticateUser(username, password) {
 
 var recInfo = getRecInfo_(userRecId);
 
+        // v7.24: sheet-structure self-heal, once per ~6h, best-effort only.
+        try { maybeAutoStructureCheck_('Portal', PORTAL_STRUCTURE_SCHEMA_); } catch (e) {}
+
 
         return {
           success: true,
@@ -98,7 +101,8 @@ const ALLOWED_USER_TYPES = ['admin', 'teacher', 'superadmin'];
 // The 24 tab keys the portal UI offers in the allowedTabs picker
 // (HTML v7.7, UserManagement 'Admin Access' section, flat options list).
 // v7.23: 'outage_permissions' added for the Outage Permissions tab (see grantOutagePermissions).
-const ALLOWED_TABS = ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'outage_permissions', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'];
+// v7.24: 'sheet_structure' added for the Sheet Structure tab (see runStructureCheck).
+const ALLOWED_TABS = ['users', 'user_permissions', 'class_sections', 'previous_date_permissions', 'outage_permissions', 'sheet_structure', 'teacher_assignments', 'terms', 'class_terms', 'student_data', 'student_attendance', 'student_reports', 'audit_reports', 'attendance_reports', 'monthly_bar_report', 'access_hours_report', 'daily_hours_report', 'itreb_report', 'batch_hours_log', 'attendance_correction', 'attendance_correction_log', 'qr_management', 'reserve_codes', 'hours_setup', 'hour_categories', 'transfer_certificates', 'leaving_reasons', 'countries', 'rec_names'];
 const ADMIN_ONLY_MSG = 'Only an admin can make this change.';
 
 // Look up a caller by username in the Users sheet. Returns
@@ -2093,6 +2097,272 @@ function sanitizeRowForClient_(row) {
   });
   return row;
 }
+
+// ============ SHEET STRUCTURE SELF-HEAL (v7.24) ============
+// The 65 schools each have their own spreadsheet, made at different
+// times, so older sheets are missing newer columns. This block checks
+// every sheet the app uses against the expected columns below and
+// APPENDS any missing column at the END of the header row. It never
+// inserts in the middle, never renames, never deletes and never touches
+// a data row -- a new column simply starts blank, and the code already
+// reads blanks safely (a blank right is No, a blank Is_Active is
+// active). A column that exists under a slightly different name is NOT
+// guessed at: it is reported as a possible mismatch for a human. For
+// the few sheets that positional readers depend on (fixed: true), the
+// present columns must also be in the expected relative order, or
+// nothing is appended to that sheet and a warning is logged instead.
+// Every addition and warning is written to the Structure_Log sheet,
+// which is created lazily on the FIRST entry only -- a school that
+// never needs one never gets the sheet. Sheets that do not exist are
+// never created here; they appear when their feature is first used,
+// exactly as before. setupSpreadsheet() does not call any of this.
+// The check runs quietly once per ~6 hours at login (CacheService
+// flag), and in the portal also on demand from the Sheet Structure
+// tab (runStructureCheck). Failures are swallowed -- structure work
+// must never break a login.
+const STRUCTURE_LOG_SHEET = 'Structure_Log';
+const STRUCTURE_LOG_HEADERS = ['Timestamp', 'App', 'Sheet_Name', 'Detail', 'Via'];
+const STRUCTURE_CACHE_KEY_ = 'structureChecked_v1';
+const STRUCTURE_CACHE_SECONDS_ = 6 * 3600;
+
+// The expected columns per sheet, in order. Derived from what the
+// portal + attendance code reads or writes by header name, plus the
+// fixed layouts. fixed: true marks the sheets whose columns positional
+// readers depend on:
+//   Users -- the portal login (authenticateUser) reads indexes
+//     0,1,2,3,7,8,9,10,15,16.
+//   User_Permissions -- the attendance app's getUserPermissions reads
+//     fixed indexes 0-8, 10, 11 (canMultiCategory is read by name).
+//     Index 9 is canCreateEpisodic (the one portal-written flag not
+//     otherwise placed; nothing reads it by position).
+//   Previous_Date_Permissions -- the attendance app reads Username,
+//     Allowed_Date and Password positionally (columns 0, 1, 2).
+//   Daily_Hours_Setup -- the attendance app reads Date, Class_Section,
+//     Category, Hours positionally and appends new rows positionally.
+//   RECNames -- the portal's getRecInfo_ reads LB / REC Code /
+//     REC Name at indexes 2, 3, 4.
+const PORTAL_STRUCTURE_SCHEMA_ = [
+  { sheet: 'Users', fixed: true, columns: ['Username', 'Password', 'UserType', 'Teacher_Name', 'AllowedDays', 'StartTime', 'EndTime', 'allowedTabs', 'student_delete', 'canQueryAttendance', 'canDownload', 'Status', 'Creation_Date', 'Inactive_Date', 'Email', 'REC_ID', 'canAmendSIRN', 'canCorrectAttendance', 'DaySchedule', 'canDeleteUsers'] },
+  { sheet: 'User_Permissions', fixed: true, columns: ['Username', 'canMarkManual', 'canMarkBarcode', 'canSeeSummary', 'canSetupHours', 'Can_Update_Batch_Hours', 'canDownloadReports', 'canDownloadAllReports', 'canMarkEpisodic', 'canCreateEpisodic', 'canManageEpisodicEvents', 'canEditStudentHours', 'canMultiCategory', 'REC_ID'] },
+  { sheet: 'Teacher_Assignments', fixed: false, columns: ['Username', 'Class_Section', 'REC_ID'] },
+  { sheet: 'Class_Sections', fixed: false, columns: ['Class_Section', 'REC_ID'] },
+  { sheet: 'Class_Mapping', fixed: false, columns: ['Class', 'Sections', 'REC_ID'] },
+  { sheet: 'Student_Data', fixed: false, columns: ['Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section', 'Status', 'Gender', 'Date_of_Joining', 'Inactive_Date', 'Creation_Date', 'Created_By', 'Last_Modified_Date', 'Last_Modified_By', 'REC_ID', 'QR_Printed', 'Unique_ID', 'Global_ID', 'Date_of_Birth', 'Father_Name', 'Address', 'Phone', 'Inactive_Type', 'Inactive_Reason', 'Previous_Std_ID', 'Previous_REC_ID', 'Secondary_Phone', 'Primary_Contact_Relation', 'Secondary_Contact_Relation'] },
+  { sheet: 'Student_Attendance', fixed: false, columns: ['Attendance_ID', 'Date', 'Std_ID', 'Barcode_ID', 'Student_Name', 'Student_Class', 'Student_Section', 'Class_Section', 'Status', 'Attendance_Type', 'Hours', 'Category', 'Event_Name', 'Teacher_ID', 'Timestamp', 'REC_ID', 'Term_ID', 'Term_Name'] },
+  { sheet: 'Previous_Date_Permissions', fixed: true, columns: ['Username', 'Allowed_Date', 'Day', 'Password', 'Attendance_Type', 'Class_Section', 'Granted_At', 'Expires_At', 'REC_ID'] },
+  { sheet: 'Daily_Hours_Setup', fixed: true, columns: ['Date', 'Class_Section', 'Category', 'Hours', 'Teacher_ID', 'Timestamp', 'Attendance_Type', 'REC_ID'] },
+  { sheet: 'Hours_Setup', fixed: false, columns: ['Hours', 'Attendance_Type', 'Max_Custom', 'REC_ID', 'Is_Active'] },
+  { sheet: 'Hour_Categories', fixed: false, columns: ['Category_ID', 'Category_Name', 'Is_Active', 'Attendance_Type', 'REC_ID', 'Applicable_Classes'] },
+  { sheet: 'Terms', fixed: false, columns: ['Term_ID', 'Term_Name', 'Is_Active'] },
+  { sheet: 'Class_Terms', fixed: false, columns: ['Class_Section', 'Term_ID', 'Is_Active', 'Start_Date', 'End_Date', 'Notes', 'REC_ID'] },
+  { sheet: 'Reserve_Codes', fixed: false, columns: ['Barcode_ID', 'REC_ID', 'Status', 'Generated_By', 'Generated_Date', 'Used_By_Std_ID', 'Used_Date', 'Printed'] },
+  { sheet: 'Attendance_Correction_Log', fixed: false, columns: ['Attendance_ID', 'Std_ID', 'Student_Name', 'Date', 'Class_Section', 'Old_Status', 'New_Status', 'Corrected_By', 'REC_ID', 'Timestamp', 'Reason', 'Comment', 'Old_Hours', 'New_Hours', 'Old_Category', 'New_Category'] },
+  { sheet: 'Batch_Hours_Log', fixed: false, columns: ['Date', 'Class_Section', 'Old_Hours', 'Old_Category', 'New_Hours', 'New_Category', 'UserID', 'REC_ID', 'Timestamp'] },
+  { sheet: 'Episodic_Events', fixed: false, columns: ['Event_ID', 'Event_Name', 'Event_Date', 'Category', 'Hours', 'Class_Sections', 'Username', 'REC_ID', 'Timestamp'] },
+  { sheet: 'Transfer_Certificates', fixed: false, columns: ['TC_Number', 'Type', 'Global_ID', 'Std_ID', 'Student_Name', 'REC_ID', 'REC_Name', 'LB', 'Term_ID', 'Class', 'Section', 'Date_of_Birth', 'Father_Name', 'Address', 'Phone', 'Last_Class_Passed', 'Class_Studying', 'Leaving_Reason', 'Destination_Type', 'Destination', 'Expected_Joining_Date', 'Issue_Date', 'Error_Reason', 'Duplicate_Of_Std_ID', 'Justification', 'Documents_Issued', 'Remarks', 'Issued_By', 'Created_At', 'New_Address', 'Involvement', 'Country', 'City', 'Destination_REC_Name', 'Primary_Contact_Relation', 'Secondary_Contact_No', 'Secondary_Contact_Relation'] },
+  { sheet: 'Leaving_Reasons', fixed: false, columns: ['Reason', 'Category', 'Requires_Destination', 'Requires_Justification', 'Is_Active'] },
+  { sheet: 'Countries', fixed: false, columns: ['Country', 'Is_Active'] },
+  { sheet: 'RECNames', fixed: true, columns: ['S.#', 'LB Code', 'LB', 'REC Code', 'REC Name', 'LB_REC', 'Is_Active'] }
+];
+
+function structureNorm_(h) {
+  // 'Student Class', 'Student_Class' and 'StudentClass' all normalise
+  // to the same key, so a renamed column is spotted instead of
+  // duplicated.
+  return String(h == null ? '' : h).toLowerCase().replace(/[_\s]+/g, '');
+}
+
+function getOrCreateStructureLogSheet_(ss) {
+  let sheet = ss.getSheetByName(STRUCTURE_LOG_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(STRUCTURE_LOG_SHEET);
+    sheet.appendRow(STRUCTURE_LOG_HEADERS);
+    sheet.setFrozenRows(1);
+    SpreadsheetApp.flush();
+  }
+  return sheet;
+}
+
+// Append one Structure_Log row per entry. Called only when there is at
+// least one entry, so the log sheet appears lazily on first use.
+function logStructureEntries_(ss, appLabel, entries, via) {
+  if (!entries || entries.length === 0) return;
+  const sheet = getOrCreateStructureLogSheet_(ss);
+  const now = new Date();
+  const rows = entries.map(function (e) {
+    return [now, appLabel, e.sheet, e.detail, via];
+  });
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, STRUCTURE_LOG_HEADERS.length).setValues(rows);
+  SpreadsheetApp.flush();
+}
+
+// Check every sheet in the schema and append its missing columns.
+// Returns the per-sheet results, or null when the script lock is busy
+// (the caller then skips quietly). via is 'Auto' or 'Check' and is
+// stamped on every Structure_Log entry this run writes.
+function ensureSheetStructure_(appLabel, via, schema) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return null;
+  try {
+    const results = [];
+    const logEntries = [];
+    schema.forEach(function (entry) {
+      const res = { sheet: entry.sheet, status: 'OK', added: [], warnings: [] };
+      const sheet = ss.getSheetByName(entry.sheet);
+      if (!sheet) {
+        // Never created here -- the sheet appears when its feature is
+        // first used. Auto mode skips it silently; the manual report
+        // shows it as 'Not present'.
+        res.status = 'Not present';
+        results.push(res);
+        return;
+      }
+      const lastCol = sheet.getLastColumn();
+      if (lastCol < 1) {
+        res.status = 'Warning';
+        res.warnings.push('Sheet exists but has no header row — not touched.');
+        logEntries.push({ sheet: entry.sheet, detail: 'Warning: sheet exists but has no header row — not touched' });
+        results.push(res);
+        return;
+      }
+      const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) {
+        return String(h == null ? '' : h).trim();
+      });
+      const present = {};
+      headers.forEach(function (h) { if (h) present[h] = true; });
+      const missing = entry.columns.filter(function (c) { return !present[c]; });
+      let toAppend = [];
+      missing.forEach(function (c) {
+        const n = structureNorm_(c);
+        const found = headers.filter(function (h) { return h && structureNorm_(h) === n; })[0];
+        if (found) {
+          res.warnings.push('Possible mismatch: expected "' + c + '", found "' + found + '" — not touched.');
+          logEntries.push({ sheet: entry.sheet, detail: 'Warning: possible mismatch — expected "' + c + '", found "' + found + '" — not touched' });
+        } else {
+          toAppend.push(c);
+        }
+      });
+      if (entry.fixed && toAppend.length > 0) {
+        const inSheetOrder = headers.filter(function (h) { return entry.columns.indexOf(h) !== -1; });
+        const inSchemaOrder = entry.columns.filter(function (c) { return !!present[c]; });
+        if (JSON.stringify(inSheetOrder) !== JSON.stringify(inSchemaOrder)) {
+          res.warnings.push('Column order differs from the expected layout — not touched.');
+          logEntries.push({ sheet: entry.sheet, detail: 'Warning: column order differs from the expected layout — not touched' });
+          toAppend = [];
+        }
+      }
+      if (toAppend.length > 0) {
+        sheet.getRange(1, lastCol + 1, 1, toAppend.length).setValues([toAppend]);
+        SpreadsheetApp.flush();
+        res.added = toAppend.slice();
+        toAppend.forEach(function (c) {
+          logEntries.push({ sheet: entry.sheet, detail: 'Added column: ' + c });
+        });
+      }
+      if (res.added.length > 0) res.status = 'Added';
+      else if (res.warnings.length > 0) res.status = 'Warning';
+      results.push(res);
+    });
+    logStructureEntries_(ss, appLabel, logEntries, via);
+    return results;
+  } finally {
+    try { lock.releaseLock(); } catch (e) {}
+  }
+}
+
+// The login-time auto-run: at most once per ~6 hours (script cache),
+// and any failure inside is swallowed so a login can never break
+// because of structure work.
+function maybeAutoStructureCheck_(appLabel, schema) {
+  try {
+    const cache = CacheService.getScriptCache();
+    if (cache.get(STRUCTURE_CACHE_KEY_)) return;
+    const results = ensureSheetStructure_(appLabel, 'Auto', schema);
+    if (results) cache.put(STRUCTURE_CACHE_KEY_, '1', STRUCTURE_CACHE_SECONDS_);
+  } catch (e) {
+    try { Logger.log('Structure auto-check skipped: ' + e.message); } catch (e2) {}
+  }
+}
+
+// v7.24: the manual run behind the Sheet Structure tab. Same gates as
+// the Outage Permissions tab: admin only, the caller's school comes
+// from their own Users row, a caller with no school is refused for
+// everyone (standing rule), and a non-superadmin caller must carry
+// the sheet_structure tab in their own allowedTabs (designated
+// person). Runs the ensure across the FULL workbook schema -- the
+// portal's schema covers every sheet both apps use, because it is the
+// same spreadsheet -- and returns the per-sheet report plus the
+// Structure_Log history (latest 100 entries, newest first).
+function runStructureCheck(currentUsername) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const gate = requireAdminCaller_(ss, currentUsername);
+    if (!gate.ok) return gate.error;
+    const caller = gate.caller;
+
+    if (!String(caller.recId || '').trim()) {
+      return { success: false, message: 'Your user account has no school (REC_ID) assigned, so the structure check cannot run.' };
+    }
+
+    if (caller.userType !== 'superadmin') {
+      const usersSheet0 = ss.getSheetByName('Users');
+      const uData0 = usersSheet0 ? usersSheet0.getDataRange().getValues() : [];
+      const uHead0 = uData0[0] || [];
+      const tabsCol = uHead0.indexOf('allowedTabs');
+      let designated = false;
+      for (let i = 1; i < uData0.length; i++) {
+        if (String(uData0[i][0] || '').trim() === caller.username) {
+          const rawTabs = tabsCol !== -1 ? uData0[i][tabsCol] : '';
+          const tabList = Array.isArray(rawTabs)
+            ? rawTabs.map(function (x) { return String(x || '').trim(); })
+            : String(rawTabs || '').split(',').map(function (x) { return x.trim(); });
+          designated = tabList.indexOf('sheet_structure') !== -1;
+          break;
+        }
+      }
+      if (!designated) {
+        return { success: false, message: 'You are not designated to run the sheet structure check. Please ask an admin to add the Sheet Structure tab to your allowed tabs.' };
+      }
+    }
+
+    const results = ensureSheetStructure_('Portal', 'Check', PORTAL_STRUCTURE_SCHEMA_);
+    if (!results) {
+      return { success: false, message: 'Another structure check is already running — please try again in a moment.' };
+    }
+
+    let addedTotal = 0;
+    let warningTotal = 0;
+    results.forEach(function (r) {
+      addedTotal += r.added.length;
+      warningTotal += r.warnings.length;
+    });
+
+    let log = [];
+    const logSheet = ss.getSheetByName(STRUCTURE_LOG_SHEET);
+    if (logSheet && logSheet.getLastRow() > 1) {
+      const tz = Session.getScriptTimeZone() || 'Asia/Karachi';
+      const data = logSheet.getDataRange().getValues();
+      log = data.slice(1).slice(-100).reverse().map(function (r) {
+        return {
+          Timestamp: r[0] instanceof Date ? Utilities.formatDate(r[0], tz, 'dd-MMM-yyyy hh:mm a') : String(r[0] == null ? '' : r[0]),
+          App: String(r[1] == null ? '' : r[1]),
+          Sheet_Name: String(r[2] == null ? '' : r[2]),
+          Detail: String(r[3] == null ? '' : r[3]),
+          Via: String(r[4] == null ? '' : r[4])
+        };
+      });
+    }
+
+    let message = 'Structure check complete: ' + addedTotal + ' column' + (addedTotal === 1 ? '' : 's') + ' added';
+    message += warningTotal > 0 ? '; ' + warningTotal + ' warning' + (warningTotal === 1 ? '' : 's') + ' — see the report below.' : '; no warnings.';
+    return { success: true, results: results, log: log, message: message };
+  } catch (e) {
+    Logger.log('Error in runStructureCheck: ' + e.message);
+    return { success: false, message: 'Structure check failed: ' + e.message };
+  }
+}
+
 
 // ============ TERMS / CLASS_TERMS (v4) ============
 // Terms sheet: Term_ID, Term_Name, Is_Active. Names ONLY — no dates.
