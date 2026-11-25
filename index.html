@@ -1243,6 +1243,18 @@ function formatCategoryString(items) {
       const [recNames, setRecNames] = useState([]);
       const [tcView, setTcView] = useState(null);
       const [isLoading, setIsLoading] = useState(false);
+      // v7.28: the attendance history is loaded lazily, not in refreshData
+      // (tens of thousands of rows). These track that lazy load only;
+      // the global isLoading spinner is not used for it, so the rest of
+      // the portal stays usable while attendance loads. The refs are the
+      // synchronous guards (a second call while loaded, or already
+      // loading, is a no-op); attendanceGenRef lets a refresh invalidate
+      // a load that was already in flight.
+      const [attendanceLoaded, setAttendanceLoaded] = useState(false);
+      const [attendanceLoading, setAttendanceLoading] = useState(false);
+      const attendanceLoadedRef = React.useRef(false);
+      const attendanceLoadingRef = React.useRef(false);
+      const attendanceGenRef = React.useRef(0);
       const [isSidebarOpen, setIsSidebarOpen] = useState(true);
       const [isDarkMode, setIsDarkMode] = useState(false);
       // v6.1: theme picker state (accent palette; saved per device).
@@ -1288,6 +1300,13 @@ useEffect(() => {
 
 const refreshData = (recIdOverride = null) => {
   setIsLoading(true);
+  // v7.28: a refresh invalidates the lazily-loaded attendance history
+  // (generation bump + cleared rows), so the next attendance view
+  // re-fetches fresh data instead of showing stale rows.
+  attendanceGenRef.current += 1;
+  attendanceLoadedRef.current = false;
+  setAttendanceLoaded(false);
+  setData(prev => ({ ...prev, student_attendance: [] }));
   
   // Use passed REC_ID or fallback to state
   const currentRecId = recIdOverride || userPermissions[username]?.REC_ID || '';
@@ -1361,7 +1380,7 @@ permissions[user.Username] = {
           // sort: a class outside the master list keeps its relative
           // order after the known ones. Display order only — the class
           // values themselves are unchanged.
-          const masterClassOrder = ['IBT', 'NUR', 'KGI', 'KGII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'];
+          const masterClassOrder = ['IBT', 'NUR', 'KGI', 'KGII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'HREII']; // v7.29: HRE -> HREII
           classList.sort((a, b) => {
             const ra = masterClassOrder.indexOf(a);
             const rb = masterClassOrder.indexOf(b);
@@ -1549,27 +1568,56 @@ permissions[user.Username] = {
         .getRecNames();
     }),
     
-        new Promise((resolve) => {
-      google.script.run
-        .withSuccessHandler(result => {
-          setData(prev => ({ ...prev, student_attendance: result }));
-          resolve();
-        })
-        .withFailureHandler(err => {
-          setError('Failed to load attendance data: ' + err.message);
-          resolve();
-        })
-        .getSheetData('Student_Attendance', currentRecId);
-    }),
-    
-       
-    
 ]).finally(() => {
   setIsLoading(false);
   setSuccessMessage('Data refreshed');
 });
 
 };
+
+     // v7.28: lazy-load the attendance history. refreshData no longer
+     // fetches Student_Attendance; it is fetched once, on demand, the
+     // first time a view that reads it is opened. A second call while
+     // loaded (or already loading) is a no-op. If a refresh started
+     // while a load was in flight, the generation check drops the stale
+     // result instead of committing it.
+     const loadStudentAttendance = () => {
+       if (attendanceLoadedRef.current || attendanceLoadingRef.current) return;
+       attendanceLoadingRef.current = true;
+       setAttendanceLoading(true);
+       const gen = attendanceGenRef.current;
+       const recId = userPermissions[username]?.REC_ID || '';
+       callWithRetry('getSheetData', 'Student_Attendance', recId)
+         .then(result => {
+           if (gen !== attendanceGenRef.current) return;
+           setData(prev => ({ ...prev, student_attendance: result || [] }));
+           attendanceLoadedRef.current = true;
+           setAttendanceLoaded(true);
+         })
+         .catch(err => {
+           setError('Failed to load attendance data: ' + (err && err.message ? err.message : err));
+           // attendanceLoaded stays false, so the next visit retries.
+         })
+         .finally(() => {
+           attendanceLoadingRef.current = false;
+           setAttendanceLoading(false);
+         });
+     };
+
+     // v7.28: fetch the attendance history only when a view that reads
+     // it is opened (student_attendance table, raw report, monthly bar
+     // report, attendance reports). StudentReports does not read
+     // student_attendance -- its monthly views live in
+     // AttendanceReportsPage -- so it is not in this list; other tabs
+     // never trigger a load.
+     useEffect(() => {
+       if (!isAuthenticated) return;
+       const needsAttendance = activeTab === 'student_attendance' ||
+         activeReport === 'student_attendance' ||
+         activeReport === 'monthly_bar_report' ||
+         activeReport === 'attendance_reports';
+       if (needsAttendance) loadStudentAttendance();
+     }, [activeTab, activeReport, isAuthenticated]);
 
      // useEffect(() => {
       //  if (isAuthenticated && !showWelcome) {
@@ -2175,6 +2223,7 @@ permissions[user.Username] = {
     <AttendanceReport
       data={data}
       isLoading={isLoading}
+      attendanceLoading={attendanceLoading}
       setIsLoading={setIsLoading}
       setError={setError}
       setSuccessMessage={setSuccessMessage}
@@ -2210,6 +2259,7 @@ permissions[user.Username] = {
     <AttendanceReportsPage
       data={data}
       isLoading={isLoading}
+      attendanceLoading={attendanceLoading}
       setIsLoading={setIsLoading}
       setError={setError}
       setSuccessMessage={setSuccessMessage}
@@ -2218,6 +2268,7 @@ permissions[user.Username] = {
   <MonthlyBarReport
     data={data}
     isLoading={isLoading}
+    attendanceLoading={attendanceLoading}
     setIsLoading={setIsLoading}
     setError={setError}
     setSuccessMessage={setSuccessMessage}
@@ -2435,6 +2486,7 @@ activeTab === 'qr_management' ? (
       onEdit={handleEdit}
       onDelete={handleDelete}
       isLoading={isLoading}
+      attendanceLoading={attendanceLoading}
       setIsLoading={setIsLoading}
       setData={setData}
       searchQuery={searchQuery}
@@ -3427,7 +3479,7 @@ const editingRow = visibleUsers[editingIndex];
       'Term_ID', 'Term_Name', 'Event_Name', 'REC_ID'
     ];
 
-    function AttendanceReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, searchQuery, refreshData, userPermissions, username }) {
+    function AttendanceReport({ data, isLoading, attendanceLoading, setIsLoading, setError, setSuccessMessage, searchQuery, refreshData, userPermissions, username }) {
       const [formData, setFormData] = useState({
         searchType: 'Std_ID',
         searchValue: '',
@@ -3862,8 +3914,8 @@ const editingRow = visibleUsers[editingIndex];
               <p className="form-error mt-4">{formErrors.date}</p>
             )}
           </div>
-          {isLoading ? (
-            <p className="text-gray-500">Loading...</p>
+          {isLoading || attendanceLoading ? (
+            <p className="text-gray-500">{attendanceLoading ? 'Loading attendance data\u2026' : 'Loading...'}</p>
           ) : filteredData.length === 0 ? (
             <p className="text-gray-500">No attendance data available</p>
           ) : (
@@ -5746,7 +5798,7 @@ const handlePrintAllInView = async () => {
       );
     }
 
-    function MonthlyBarReport({ data, isLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery }) {
+    function MonthlyBarReport({ data, isLoading, attendanceLoading, setIsLoading, setError, setSuccessMessage, userPermissions, classes, classSectionMap, searchQuery }) {
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedSection, setSelectedSection] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
@@ -6283,6 +6335,9 @@ html += `
         <i className="uil uil-chart-bar text-2xl text-accent mr-2"></i>
               <h2 className="text-xl font-semibold">Monthly Day Wise Report</h2>
       </div>
+      {attendanceLoading && (
+        <p className="text-gray-500 mb-4">Loading attendance data\u2026</p>
+      )}
 
       <div className="form-container mb-6">
         <form onSubmit={generateReport}>
@@ -6484,12 +6539,12 @@ html += `
       const norm = (v) => (v === undefined || v === null) ? '' : String(v).trim();
       const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-      const ACCESS_CLASS_ORDER = ['IBT', 'NUR', 'KGI', 'KGII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'];
+      const ACCESS_CLASS_ORDER = ['IBT', 'NUR', 'KGI', 'KGII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'HREII']; // v7.29: HRE -> HREII
       const SECTION_GROUPS = [
         { name: 'Pre-Primary', classes: ['IBT', 'NUR', 'KGI', 'KGII'] },
         { name: 'Lower Primary', classes: ['I', 'II', 'III'] },
         { name: 'Upper Primary', classes: ['IV', 'V', 'VI'] },
-        { name: 'Secondary', classes: ['VII', 'VIII', 'IX', 'X', 'XI', 'HRE'] },
+        { name: 'Secondary', classes: ['VII', 'VIII', 'IX', 'X', 'XI', 'HREII'] }, // v7.29: HRE -> HREII
       ];
       const QUARTERS = { Q1: { month: 11, yearOff: 0 }, Q2: { month: 2, yearOff: 1 }, Q3: { month: 5, yearOff: 1 }, Q4: { month: 8, yearOff: 1 } };
 
@@ -7876,7 +7931,7 @@ const accessTag = marking === 'P3' ? 'NOT ACCESS' : 'ACCESS';
       );
     }
 
-    function AttendanceReportsPage({ data, isLoading, setIsLoading, setError, setSuccessMessage }) {
+    function AttendanceReportsPage({ data, isLoading, attendanceLoading, setIsLoading, setError, setSuccessMessage }) {
   const [dailyDate, setDailyDate] = useState('');
   const [dailyClass, setDailyClass] = useState('');
   const [dailySection, setDailySection] = useState('');
@@ -8435,6 +8490,9 @@ else if (k === 'present hours' || k === 'total hours' || k === 'hours') { bgCell
         <i className="uil uil-chart-bar text-2xl text-accent mr-2"></i>
         <h2 className="text-xl font-semibold">Attendance Reports</h2>
       </div>
+      {attendanceLoading && (
+        <p className="text-gray-500 mb-4">Loading attendance data\u2026</p>
+      )}
 
       <div className="form-row" style={{ marginBottom: '1rem' }}>
         <div className="form-field">
@@ -8846,8 +8904,8 @@ function itrebGenderBucket_(g) {
       const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       // Quarter ends reuse the ACCESS report's definition exactly.
       const ITREB_QUARTERS = { Q1: { month: 11, yearOff: 0 }, Q2: { month: 2, yearOff: 1 }, Q3: { month: 5, yearOff: 1 }, Q4: { month: 8, yearOff: 1 } };
-      // 16 classes, NO XII (HRE is the last class).
-      const ITREB_CLASS_ORDER = ['IBT', 'NUR', 'KGI', 'KGII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'];
+      // v7.29: 16 classes, NO XII (HREII is the last class).
+      const ITREB_CLASS_ORDER = ['IBT', 'NUR', 'KGI', 'KGII', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'HREII']; // v7.29: HRE -> HREII
       const termOptions = termPickerOptions_(data.terms || []).filter(t => termIsActive_(t.Is_Active));
 
       const monthKeyOf = (y, m) => y + '-' + String(m).padStart(2, '0');
@@ -10252,7 +10310,7 @@ function SheetStructure({ setIsLoading, setError, setSuccessMessage, username })
     </div>
   );
 }
-  function TableManager({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, genderOptions, recNames, onViewTc, setSuccessMessage, setError, username, userPermissions, recId }) {
+  function TableManager({ table, data, users, classSections, classes, classSectionMap, onAdd, onEdit, onDelete, isLoading, attendanceLoading, setIsLoading, setData, searchQuery, canDeleteStudent, canAmendSIRN, refreshData, genderOptions, recNames, onViewTc, setSuccessMessage, setError, username, userPermissions, recId }) {
       const [isAdding, setIsAdding] = useState(false);
       const [editingIndex, setEditingIndex] = useState(null);
       const [formData, setFormData] = useState({});
@@ -10359,10 +10417,11 @@ function SheetStructure({ setIsLoading, setError, setSuccessMessage, username })
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
       // ✅ Master class list — used for the dropdown
+// v7.29: HRE renamed to HREII (real class name)
 const MASTER_CLASSES = [
   'IBT', 'NUR', 'KGI', 'KGII',
   'I', 'II', 'III', 'IV', 'V', 'VI',
-  'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'
+  'VII', 'VIII', 'IX', 'X', 'XI', 'HREII'
 ];
 
 // ✅ State for the new Class Mapping bulk-add form
@@ -10771,6 +10830,31 @@ const prevPermClassOptions_ = (username) => {
       { name: 'Leaving_Reason', type: 'text', disabled: true, placeholder: 'Leaving reason / destination' },
       { name: 'Issue_Date', type: 'text', disabled: true, placeholder: 'Issue date' },
       { name: 'Issued_By', type: 'text', disabled: true, placeholder: 'Issued by' },
+    ]}
+  ],
+},
+   student_attendance: {
+  // v7.28: read-only raw attendance rows (same columns as the Raw Report).
+  fields: [
+    { section: 'Attendance Record (Read Only)', fields: [
+      { name: 'Attendance_ID', type: 'text', disabled: true },
+      { name: 'Date', type: 'text', disabled: true },
+      { name: 'Std_ID', type: 'text', disabled: true },
+      { name: 'Barcode_ID', type: 'text', disabled: true },
+      { name: 'Student_Name', type: 'text', disabled: true },
+      { name: 'Student_Class', type: 'text', disabled: true },
+      { name: 'Student_Section', type: 'text', disabled: true },
+      { name: 'Class_Section', type: 'text', disabled: true },
+      { name: 'Status', type: 'text', disabled: true },
+      { name: 'Attendance_Type', type: 'text', disabled: true },
+      { name: 'Hours', type: 'text', disabled: true },
+      { name: 'Category', type: 'text', disabled: true },
+      { name: 'Event_Name', type: 'text', disabled: true },
+      { name: 'Teacher_ID', type: 'text', disabled: true },
+      { name: 'Timestamp', type: 'text', disabled: true },
+      { name: 'Term_ID', type: 'text', disabled: true },
+      { name: 'Term_Name', type: 'text', disabled: true },
+      { name: 'REC_ID', type: 'text', disabled: true },
     ]}
   ],
 },
@@ -12221,7 +12305,10 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
     {table === 'transfer_certificates' && (
       <p className="text-sm text-gray-600 dark:text-gray-400 w-full">Transfer certificates are created when a student is deactivated — they cannot be added, edited or deleted here.</p>
     )}
-    {table !== 'transfer_certificates' && !(table === 'class_sections' && subTab === 'class_mappings') && (
+    {table === 'student_attendance' && (
+      <p className="text-sm text-gray-600 dark:text-gray-400 w-full">Attendance rows are created by the marking app — they cannot be added, edited or deleted here. Use Attendance Correction to fix a mark.</p>
+    )}
+    {table !== 'transfer_certificates' && table !== 'student_attendance' && !(table === 'class_sections' && subTab === 'class_mappings') && (
       <button
         onClick={async () => {
           setIsAdding(true);
@@ -12330,8 +12417,8 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
     </p>
   </div>
 )}
-          {isLoading ? (
-            <p className="text-gray-500">Loading...</p>
+          {isLoading || (table === 'student_attendance' && attendanceLoading) ? (
+            <p className="text-gray-500">{table === 'student_attendance' && attendanceLoading ? 'Loading attendance data\u2026' : 'Loading...'}</p>
           ) : filteredData.length === 0 ? (
             <p className="text-gray-500">No data available</p>
           ) : (
@@ -12418,7 +12505,7 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
                           >
                             Reprint
                           </button>
-                        ) : !(table === 'student_data' && isFrozenRow(item)) ? (
+                        ) : !(table === 'student_data' && isFrozenRow(item)) && table !== 'student_attendance' ? (
                           <button
                             onClick={() => handleEditClick(index)}
                             className="link-accent mr-4"
@@ -12453,7 +12540,7 @@ if (table === 'class_terms' && field.name === 'Term_ID') {
                             Reactivate
                           </button>
                         )}
-                        {table !== 'transfer_certificates' && !(table === 'hours_setup' || table === 'hour_categories' || table === 'leaving_reasons' || table === 'countries' || table === 'rec_names') && !(table === 'student_data' && isFrozenRow(item)) && (
+                        {table !== 'transfer_certificates' && table !== 'student_attendance' && !(table === 'hours_setup' || table === 'hour_categories' || table === 'leaving_reasons' || table === 'countries' || table === 'rec_names') && !(table === 'student_data' && isFrozenRow(item)) && (
                         <button
                           onClick={() => {
                             if (table === 'student_data' && !canDeleteStudent) {

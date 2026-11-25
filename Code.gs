@@ -5763,10 +5763,11 @@ function sumBreakdown_(items) {
 
 
 // ============ CLASS MAPPINGS — BULK ADD ============
+// v7.26: class HRE renamed to HREII — HREII is the real class name; HRE never existed.
 const MASTER_CLASSES = [
   'IBT', 'NUR', 'KGI', 'KGII',
   'I', 'II', 'III', 'IV', 'V', 'VI',
-  'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'
+  'VII', 'VIII', 'IX', 'X', 'XI', 'HREII'
 ];
 
 /**
@@ -6277,7 +6278,7 @@ function generateDailyHoursReport(termId, recId, classFilter, sectionFilter, per
     { name: 'Pre-Primary', classes: ['IBT', 'NUR', 'KGI', 'KGII'] },
     { name: 'Lower Primary', classes: ['I', 'II', 'III'] },
     { name: 'Upper Primary', classes: ['IV', 'V', 'VI'] },
-    { name: 'Secondary', classes: ['VII', 'VIII', 'IX', 'X', 'XI', 'HRE'] }
+    { name: 'Secondary', classes: ['VII', 'VIII', 'IX', 'X', 'XI', 'HREII'] }
   ];
   const groupSummary = [];
   const grand = { Group: 'Grand Total', Days_Setup: 0, Normal_Hours: 0, Episodic_Hours: 0, Total_Hours: 0, Days_Marked: 0, Days_Not_Marked: 0 };
