@@ -4348,6 +4348,20 @@ function findPreviousStudent(query, currentUsername) {
 }
 
 // Add a student with barcode generation and audit fields
+// v7.25: true when the given barcode is already on a Student_Data row
+// (trimmed, exact match; a blank barcode is never a duplicate).
+function studentBarcodeInUse_(sheet, barcode) {
+  const bc = barcode != null ? String(barcode).trim() : '';
+  if (!bc) return false;
+  const bcCol = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0].indexOf('Barcode_ID');
+  if (bcCol === -1 || sheet.getLastRow() <= 1) return false;
+  const vals = sheet.getRange(2, bcCol + 1, sheet.getLastRow() - 1, 1).getValues();
+  for (let i = 0; i < vals.length; i++) {
+    if (String(vals[i][0] || '').trim() === bc) return true;
+  }
+  return false;
+}
+
 // Add a student with barcode generation and audit fields
 function addStudent(studentData, currentUsername, recId) {
   try {
@@ -4536,28 +4550,10 @@ function addStudent(studentData, currentUsername, recId) {
       studentData.REC_ID = finalRecId;
     }
     
-    // 🎫 Assign Barcode: prefer an already-generated reserve code for this REC, else auto-generate
+    // v7.25: the barcode is picked inside the lock (below), so two
+    // simultaneous Adds cannot take the same code.
     let assignedReserveRow = -1;
     const reserveSheetForAssign = ss.getSheetByName('Reserve_Codes');
-    if (reserveSheetForAssign && reserveSheetForAssign.getLastRow() > 1) {
-      const reserveData = reserveSheetForAssign.getDataRange().getValues();
-      const reserveHeaders = reserveData[0];
-      const rBarcodeCol = reserveHeaders.indexOf('Barcode_ID');
-      const rRecCol = reserveHeaders.indexOf('REC_ID');
-      const rStatusCol = reserveHeaders.indexOf('Status');
-      for (let i = 1; i < reserveData.length; i++) {
-        const rowRecId = reserveData[i][rRecCol] ? reserveData[i][rRecCol].toString() : '';
-        const rowStatus = reserveData[i][rStatusCol] || '';
-        if (rowRecId === finalRecId && rowStatus === 'Unused') {
-          studentData.Barcode_ID = reserveData[i][rBarcodeCol];
-          assignedReserveRow = i + 1; // actual sheet row number
-          break;
-        }
-      }
-    }
-    if (assignedReserveRow === -1) {
-      studentData.Barcode_ID = 'BC' + getNextBarcodeNumber(ss);
-    }
     
     // Ensure Unique_ID column exists
     if (uniqueIdCol === 0) {
@@ -4575,6 +4571,39 @@ function addStudent(studentData, currentUsername, recId) {
       return { success: false, message: 'The system is busy — please try again.' };
     }
     try {
+      // v7.25: pick the barcode under the lock. Prefer an already-generated
+      // reserve code for this REC, but skip any code already on a student
+      // row (a stale 'Unused' pool row must never be handed out again);
+      // fall back to the next generated number as before.
+      if (reserveSheetForAssign && reserveSheetForAssign.getLastRow() > 1) {
+        const reserveData = reserveSheetForAssign.getDataRange().getValues();
+        const reserveHeaders = reserveData[0];
+        const rBarcodeCol = reserveHeaders.indexOf('Barcode_ID');
+        const rRecCol = reserveHeaders.indexOf('REC_ID');
+        const rStatusCol = reserveHeaders.indexOf('Status');
+        for (let i = 1; i < reserveData.length; i++) {
+          const rowRecId = reserveData[i][rRecCol] ? reserveData[i][rRecCol].toString() : '';
+          const rowStatus = reserveData[i][rStatusCol] || '';
+          if (rowRecId === finalRecId && rowStatus === 'Unused') {
+            const cand = reserveData[i][rBarcodeCol] != null ? String(reserveData[i][rBarcodeCol]).trim() : '';
+            if (cand && !studentBarcodeInUse_(sheet, cand)) {
+              studentData.Barcode_ID = reserveData[i][rBarcodeCol];
+              assignedReserveRow = i + 1; // actual sheet row number
+              break;
+            }
+          }
+        }
+      }
+      if (assignedReserveRow === -1) {
+        studentData.Barcode_ID = 'BC' + getNextBarcodeNumber(ss);
+      }
+      // v7.25: final verify — the chosen barcode must not already be on a
+      // student row. Refuse before anything is written: no row appended,
+      // no reserve row marked Used, no Global_ID allocated.
+      const addBc = studentData.Barcode_ID != null ? String(studentData.Barcode_ID).trim() : '';
+      if (addBc && studentBarcodeInUse_(sheet, addBc)) {
+        return { success: false, message: 'Barcode_ID "' + addBc + '" already exists for another student.' };
+      }
       // v7.11: a re-joining student reuses the old row's Global_ID. If the
       // old row has none yet (deactivated before v7.10), allocate one here
       // and stamp it back on the old row too, so the shared identity stays
@@ -5734,10 +5763,11 @@ function sumBreakdown_(items) {
 
 
 // ============ CLASS MAPPINGS — BULK ADD ============
+// v7.26: class HRE renamed to HREII — HREII is the real class name; HRE never existed.
 const MASTER_CLASSES = [
   'IBT', 'NUR', 'KGI', 'KGII',
   'I', 'II', 'III', 'IV', 'V', 'VI',
-  'VII', 'VIII', 'IX', 'X', 'XI', 'HRE'
+  'VII', 'VIII', 'IX', 'X', 'XI', 'HREII'
 ];
 
 /**
@@ -6248,7 +6278,7 @@ function generateDailyHoursReport(termId, recId, classFilter, sectionFilter, per
     { name: 'Pre-Primary', classes: ['IBT', 'NUR', 'KGI', 'KGII'] },
     { name: 'Lower Primary', classes: ['I', 'II', 'III'] },
     { name: 'Upper Primary', classes: ['IV', 'V', 'VI'] },
-    { name: 'Secondary', classes: ['VII', 'VIII', 'IX', 'X', 'XI', 'HRE'] }
+    { name: 'Secondary', classes: ['VII', 'VIII', 'IX', 'X', 'XI', 'HREII'] }
   ];
   const groupSummary = [];
   const grand = { Group: 'Grand Total', Days_Setup: 0, Normal_Hours: 0, Episodic_Hours: 0, Total_Hours: 0, Days_Marked: 0, Days_Not_Marked: 0 };
